@@ -1,0 +1,16 @@
+{
+  "name": "zwerfvuil-app",
+  "private": true,
+  "description": "MVP: pick up litter in Gent, throw it in an official public bin, earn points.",
+  "scripts": {
+    "supabase": "supabase",
+    "db:start": "supabase start",
+    "db:stop": "supabase stop",
+    "db:reset": "supabase db reset",
+    "db:test": "supabase test db",
+    "db:lint": "supabase db lint --schema public --level warning"
+  },
+  "devDependencies": {
+    "supabase": "2.120.0"
+  }
+}

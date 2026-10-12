@@ -1,0 +1,3 @@
+-- Intentionally empty. Data is loaded with scripts instead of seed SQL:
+--   bins:  scripts/import-bins (from data/bins.geojson)
+--   admin: see README
