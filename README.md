@@ -161,6 +161,12 @@ Tips:
   `http://<TAILSCALE_IP>:54324`.
 - Terug naar wifi thuis kan via Tailscale gewoon verder; overschakelen naar het
   LAN-IP is niet nodig.
+- `tailscale status` toont of de iPhone `direct` of via een relay (`relay "…"`)
+  verbonden is. Op mobiele data is dat vaak een relay (DERP): dat werkt, maar met
+  meer vertraging (~100 ms). `tailscale ping <iphone-naam>` meet die vertraging.
+- In dev logt de app elke inworppoging naar de Metro-console als
+  `[submit-checkin] {...}` (status, duur, uploadgrootte, fout), en toont ze
+  technische details onder de foutmelding.
 
 ## Dev: nep-locatie (thuis testen)
 

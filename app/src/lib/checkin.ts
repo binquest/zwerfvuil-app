@@ -1,19 +1,61 @@
-// Interpreting submit-checkin responses (pure, unit tested).
+// Interpreting submit-checkin responses and failures (pure, unit tested).
+
+/**
+ * - rejected: the server refused the check-in (too far, cooldown, …)
+ * - auth: the session is missing or expired
+ * - network: the request could not be sent or no answer arrived
+ * - timeout: no answer within the time limit
+ * - server: the server answered with a 5xx error
+ * - unexpected: an answer the app does not understand
+ * - photo: the photo could not be read on the phone
+ */
+export type FailureKind = 'rejected' | 'auth' | 'network' | 'timeout' | 'server' | 'unexpected' | 'photo';
 
 export type CheckinOutcome =
   | { ok: true; checkinId: string; distanceM: number | null; message: string }
-  | { ok: false; code: string; message: string };
+  | { ok: false; kind: FailureKind; code: string; message: string };
 
-const FALLBACK: Record<number, string> = {
-  401: 'Je sessie is verlopen. Meld je opnieuw aan.',
-  413: 'De foto is te groot.',
-  429: 'Je hebt te snel na elkaar ingeworpen. Probeer het later opnieuw.',
+export const CHECKIN_TIMEOUT_MS = 60_000;
+
+export const FAILURE_TITLE: Record<FailureKind, string> = {
+  rejected: 'Inworp geweigerd',
+  auth: 'Opnieuw aanmelden',
+  network: 'Geen verbinding',
+  timeout: 'Versturen duurde te lang',
+  server: 'Serverfout',
+  unexpected: 'Onverwacht antwoord',
+  photo: 'Foto niet leesbaar',
 };
 
-/** Turns the HTTP status and JSON body of submit-checkin into a Dutch outcome. */
-export function parseCheckinResponse(status: number, body: unknown): CheckinOutcome {
-  const data = (body && typeof body === 'object' ? body : {}) as Record<string, any>;
-  if (status === 201 && typeof data.checkin_id === 'string') {
+function withDetail(message: string, devDetail?: string): string {
+  return devDetail ? `${message}\n\n(dev: ${devDetail})` : message;
+}
+
+/** A failure that happened on the phone, before or while sending. */
+export function localFailure(kind: 'network' | 'timeout' | 'photo', devDetail?: string): CheckinOutcome {
+  const message = {
+    network: 'Kan de server niet bereiken. Controleer je internetverbinding en of Tailscale aan staat.',
+    timeout: `Er kwam binnen ${CHECKIN_TIMEOUT_MS / 1000} seconden geen antwoord. Probeer het opnieuw, liefst met beter bereik.`,
+    photo: 'De foto kon niet gelezen worden. Neem een nieuwe foto.',
+  }[kind];
+  return { ok: false, kind, code: kind, message: withDetail(message, devDetail) };
+}
+
+function parseJson(text: string | null): Record<string, any> | null {
+  if (!text) return null;
+  try {
+    const value = JSON.parse(text);
+    return value && typeof value === 'object' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Turns the HTTP status and raw body of submit-checkin into an outcome with a Dutch message. */
+export function parseCheckinResponse(status: number, bodyText: string | null, devDetail?: string): CheckinOutcome {
+  const data = parseJson(bodyText);
+
+  if (status === 201 && typeof data?.checkin_id === 'string') {
     return {
       ok: true,
       checkinId: data.checkin_id,
@@ -21,14 +63,30 @@ export function parseCheckinResponse(status: number, body: unknown): CheckinOutc
       message: typeof data.message === 'string' ? data.message : 'Bedankt! Je inworp wacht op goedkeuring.',
     };
   }
-  const error = data.error && typeof data.error === 'object' ? data.error : {};
-  const code = typeof error.code === 'string' ? error.code : `http_${status}`;
-  const message =
-    typeof error.message === 'string' && error.message
-      ? error.message
-      : (FALLBACK[status] ?? 'Er ging iets mis bij het versturen. Probeer het opnieuw.');
-  return { ok: false, code, message };
-}
 
-export const NETWORK_ERROR_MESSAGE =
-  'Geen verbinding met de server. Controleer je internet en of je pc bereikbaar is (Tailscale).';
+  if (status >= 500) {
+    return {
+      ok: false,
+      kind: 'server',
+      code: typeof data?.error?.code === 'string' ? data.error.code : `http_${status}`,
+      message: withDetail(`De server gaf een fout (${status}). Probeer het later opnieuw.`, devDetail),
+    };
+  }
+
+  const error = data?.error;
+  if (status >= 400 && error && typeof error.code === 'string' && typeof error.message === 'string') {
+    return { ok: false, kind: error.code === 'unauthorized' ? 'auth' : 'rejected', code: error.code, message: error.message };
+  }
+
+  if (status === 401) {
+    // The API gateway rejects an expired token before the function runs.
+    return { ok: false, kind: 'auth', code: 'http_401', message: 'Je sessie is verlopen. Meld je opnieuw aan.' };
+  }
+
+  return {
+    ok: false,
+    kind: 'unexpected',
+    code: `http_${status}`,
+    message: withDetail(`Onverwacht antwoord van de server (status ${status}). Probeer het opnieuw.`, devDetail),
+  };
+}

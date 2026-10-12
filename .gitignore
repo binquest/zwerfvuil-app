@@ -31,3 +31,6 @@ supabase/.temp/
 Thumbs.db
 .idea/
 .vscode/
+
+# Supabase Studio SQL snippets (local, may contain personal data)
+supabase/snippets/

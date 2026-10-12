@@ -4,9 +4,14 @@
 // Creates a throwaway user and test bins near Null Island, and removes them
 // afterwards. The expected fake-location behaviour is read from
 // supabase/functions/.env, so run it after (re)starting Supabase.
+//
+// Requests are built with the app's own multipart builder, so this tests the
+// exact bytes the app sends. Set CHECKIN_API_URL (e.g. http://<TAILSCALE_IP>:54321)
+// to send the check-ins through another address than 127.0.0.1.
 
 import { assert, assertAlmostEquals, assertEquals, assertFalse } from "@std/assert";
 import { createClient } from "@supabase/supabase-js";
+import { buildMultipart } from "../../../app/src/lib/multipart.ts";
 import { stripJpegMetadata } from "../_shared/jpeg.ts";
 
 async function localStack(): Promise<{ apiUrl: string; anonKey: string; serviceRoleKey: string }> {
@@ -51,6 +56,19 @@ const PHOTO = new Uint8Array([
   0xd9,
 ]);
 
+/** A structurally valid JPEG of roughly `bytes` size (random scan data without 0xFF). */
+function largePhoto(bytes: number): Uint8Array<ArrayBuffer> {
+  const header = PHOTO.subarray(0, PHOTO.length - 4); // up to and including the scan header
+  const scan = new Uint8Array(bytes);
+  for (let i = 0; i < scan.length; i += 65536) crypto.getRandomValues(scan.subarray(i, i + 65536));
+  for (let i = 0; i < scan.length; i++) if (scan[i] === 0xff) scan[i] = 0xfe;
+  const out = new Uint8Array(header.length + scan.length + 2);
+  out.set(header);
+  out.set(scan, header.length);
+  out.set([0xff, 0xd9], header.length + scan.length);
+  return out;
+}
+
 // Metres per degree of latitude at the equator (WGS84).
 const M_PER_DEG_LAT = 110574.3;
 const BIN_LAT = 0.01;
@@ -58,6 +76,7 @@ const BIN_LON = 0.01;
 
 Deno.test("submit-checkin end to end", async (t) => {
   const { apiUrl, anonKey, serviceRoleKey } = await localStack();
+  const checkinUrl = `${Deno.env.get("CHECKIN_API_URL") ?? apiUrl}/functions/v1/submit-checkin`;
   const admin = createClient(apiUrl, serviceRoleKey, { auth: { persistSession: false } });
   const client = createClient(apiUrl, anonKey, { auth: { persistSession: false } });
   const expectFake = fakeLocationConfigured();
@@ -78,24 +97,24 @@ Deno.test("submit-checkin end to end", async (t) => {
     if (signInError) throw signInError;
     const token = session.session!.access_token;
 
-    // Bins: A eligible, B not eligible, C eligible (all ~200 m apart).
+    // Bins: A eligible, B not eligible, C and D eligible (all ~200 m apart).
     const { data: bins, error: binError } = await admin.from("bins").insert([
       { source: "user", geom: `SRID=4326;POINT(${BIN_LON} ${BIN_LAT})`, eligible: true },
       { source: "user", geom: `SRID=4326;POINT(${BIN_LON + 0.002} ${BIN_LAT})`, eligible: false },
       { source: "user", geom: `SRID=4326;POINT(${BIN_LON + 0.004} ${BIN_LAT})`, eligible: true },
+      { source: "user", geom: `SRID=4326;POINT(${BIN_LON + 0.006} ${BIN_LAT})`, eligible: true },
     ]).select("id");
     if (binError) throw binError;
     binIds.push(...bins.map((b) => b.id));
-    const [binA, binB, binC] = binIds;
+    const [binA, binB, binC, binD] = binIds;
     const lonOf = (bin: number) => BIN_LON + 0.002 * binIds.indexOf(bin);
 
     const submit = async (
       bin: number,
       metersNorth: number,
       extra: Record<string, string> = {},
-      { photo = PHOTO as Uint8Array<ArrayBuffer>, auth = token } = {},
+      { photo = PHOTO as Uint8Array, auth = token } = {},
     ) => {
-      const form = new FormData();
       const fields = {
         bin_id: String(bin),
         lat: String(BIN_LAT + metersNorth / M_PER_DEG_LAT),
@@ -104,14 +123,20 @@ Deno.test("submit-checkin end to end", async (t) => {
         is_mocked: "false",
         ...extra,
       };
-      for (const [key, value] of Object.entries(fields)) form.append(key, value);
-      form.append("photo", new File([photo], "photo.jpg", { type: "image/jpeg" }));
-      const response = await fetch(`${apiUrl}/functions/v1/submit-checkin`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${auth}`, apikey: anonKey },
-        body: form,
+      const { body, contentType } = buildMultipart(fields, {
+        field: "photo",
+        filename: "photo.jpg",
+        contentType: "image/jpeg",
+        bytes: photo,
       });
-      return { status: response.status, body: await response.json() };
+      const started = performance.now();
+      const response = await fetch(checkinUrl, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${auth}`, apikey: anonKey, "Content-Type": contentType },
+        body,
+      });
+      const json = await response.json();
+      return { status: response.status, body: json, uploadBytes: body.byteLength, ms: performance.now() - started };
     };
 
     const photosInStorage = async (): Promise<string[]> => {
@@ -160,6 +185,17 @@ Deno.test("submit-checkin end to end", async (t) => {
       assert(body.error.retry_after_s > 500);
     });
 
+    let largeCheckinId = "";
+    await t.step("a realistic 600 KB photo is accepted (upload size and duration logged)", async () => {
+      const { status, body, uploadBytes, ms } = await submit(binD, 6, {}, { photo: largePhoto(600 * 1024) });
+      console.log(`      via ${checkinUrl}: ${(uploadBytes / 1024).toFixed(0)} KB uploaded, ${ms.toFixed(0)} ms`);
+      assertEquals(status, 201, JSON.stringify(body));
+      largeCheckinId = body.checkin_id;
+      const { data, error } = await admin.storage.from("checkin-photos").download(`${userId}/${body.checkin_id}.jpg`);
+      if (error) throw error;
+      assert(data.size > 600 * 1024, `stored photo is ${data.size} bytes`);
+    });
+
     await t.step("too far, ineligible bin, mocked, inaccurate and invalid photo are refused", async () => {
       const tooFar = await submit(binC, 40);
       assertEquals([tooFar.status, tooFar.body.error.code], [422, "too_far"]);
@@ -179,7 +215,10 @@ Deno.test("submit-checkin end to end", async (t) => {
     });
 
     await t.step("rejected check-ins leave no photos behind", async () => {
-      assertEquals(await photosInStorage(), [`${userId}/${checkinId}.jpg`]);
+      assertEquals(
+        (await photosInStorage()).sort(),
+        [`${userId}/${checkinId}.jpg`, `${userId}/${largeCheckinId}.jpg`].sort(),
+      );
     });
 
     await t.step(`a fake location is ${expectFake ? "accepted (ALLOW_FAKE_LOCATION=true)" : "refused"}`, async () => {

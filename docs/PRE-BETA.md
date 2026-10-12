@@ -33,6 +33,19 @@ voor echte gebruikers. Wordt aangevuld telkens zo'n keuze gemaakt wordt.
 - [ ] **Concurrency-tests.** De advisory locks in `record_checkin` en de
   meldingslimiet zijn niet automatisch getest met parallelle requests.
 
+## Netwerk en betrouwbaarheid
+
+- [ ] **Geen wachtrij bij slecht bereik.** Mislukt het versturen (geen netwerk,
+  timeout na 60 s), dan kan de gebruiker het opnieuw proberen zolang het
+  camerascherm open is; sluit hij het, dan is de foto weg. Overweeg een lokale
+  wachtrij die later verstuurt (met de locatie en tijd van de foto).
+- [ ] **Idempotentie.** Komt een check-in wel aan maar gaat het antwoord verloren
+  (timeout), dan krijgt "Opnieuw proberen" de cooldown-melding. Laat de app een
+  check-in-id meesturen zodat de server een herhaalde poging herkent.
+- [ ] **Uploadgrootte.** Foto's zijn na compressie ~130–450 KB (1280 px breed,
+  JPEG 0,7). Meet dit op echte toestellen en stel een limiet in de app in, niet
+  alleen op de server (5 MB).
+
 ## Opslag en opruimen
 
 - [ ] **Wees-foto's.** Als `submit-checkin` crasht tussen upload en

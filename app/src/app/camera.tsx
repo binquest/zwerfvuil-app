@@ -10,6 +10,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button } from '@/components/Button';
 import { Message } from '@/components/Message';
 import { submitCheckin, submitReport } from '@/lib/api';
+import { FAILURE_TITLE } from '@/lib/checkin';
+import { describeError, devLog } from '@/lib/devlog';
 import { genericErrorMessage, reportErrorMessage } from '@/lib/errors';
 import { compressPhoto } from '@/lib/photo';
 import { useLocation } from '@/providers/LocationProvider';
@@ -70,7 +72,7 @@ export default function CameraScreen() {
         setResult(
           outcome.ok
             ? { ok: true, title: 'Inworp geregistreerd', message: outcome.message }
-            : { ok: false, title: 'Inworp geweigerd', message: outcome.message },
+            : { ok: false, title: FAILURE_TITLE[outcome.kind], message: outcome.message },
         );
       } else {
         await submitReport({
@@ -86,6 +88,7 @@ export default function CameraScreen() {
         });
       }
     } catch (error) {
+      devLog(mode === 'report' ? 'submit-report' : 'submit-checkin', false, { error: describeError(error) });
       const message = mode === 'report' ? reportErrorMessage(error as Error) : genericErrorMessage(error as Error);
       setResult({ ok: false, title: 'Niet gelukt', message });
     } finally {

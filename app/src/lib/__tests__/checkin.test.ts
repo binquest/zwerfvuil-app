@@ -1,39 +1,79 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { parseCheckinResponse } from '../checkin';
+import { FAILURE_TITLE, localFailure, parseCheckinResponse } from '../checkin';
+
+const json = (value: unknown) => JSON.stringify(value);
 
 describe('parseCheckinResponse', () => {
   it('reads a successful check-in', () => {
     expect(
-      parseCheckinResponse(201, {
-        checkin_id: 'abc',
-        status: 'pending',
-        distance_m: 12.3,
-        message: 'Bedankt! Je inworp wacht op goedkeuring.',
-      }),
+      parseCheckinResponse(
+        201,
+        json({ checkin_id: 'abc', status: 'pending', distance_m: 12.3, message: 'Bedankt! Je inworp wacht op goedkeuring.' }),
+      ),
     ).toEqual({ ok: true, checkinId: 'abc', distanceM: 12.3, message: 'Bedankt! Je inworp wacht op goedkeuring.' });
   });
 
-  it('shows the server message and code of a refusal', () => {
-    const body = { error: { code: 'too_far', message: 'Je bent te ver van de vuilbak (32 m, max. 25 m).', distance_m: 31.7 } };
+  it('shows the server message of a refusal as "rejected"', () => {
+    const body = json({ error: { code: 'too_far', message: 'Je bent te ver van de vuilbak (32 m, max. 25 m).' } });
     expect(parseCheckinResponse(422, body)).toEqual({
       ok: false,
+      kind: 'rejected',
       code: 'too_far',
       message: 'Je bent te ver van de vuilbak (32 m, max. 25 m).',
     });
   });
 
-  it('falls back to a Dutch message when the body is not from the function', () => {
-    // e.g. the API gateway rejecting an expired token
-    expect(parseCheckinResponse(401, { msg: 'Invalid JWT' })).toEqual({
-      ok: false,
-      code: 'http_401',
-      message: 'Je sessie is verlopen. Meld je opnieuw aan.',
-    });
-    expect(parseCheckinResponse(502, null).message).toBe('Er ging iets mis bij het versturen. Probeer het opnieuw.');
+  it('treats a missing or expired session as an auth problem', () => {
+    // The API gateway answers before the function runs.
+    expect(parseCheckinResponse(401, json({ msg: 'Invalid JWT' }))).toMatchObject({ kind: 'auth', code: 'http_401' });
+    const fromFunction = json({ error: { code: 'unauthorized', message: 'Je bent niet aangemeld.' } });
+    expect(parseCheckinResponse(401, fromFunction)).toMatchObject({ kind: 'auth', code: 'unauthorized' });
   });
 
-  it('does not treat a 201 without a check-in id as success', () => {
-    expect(parseCheckinResponse(201, {}).ok).toBe(false);
+  it('reports 5xx answers as server errors with the status', () => {
+    expect(parseCheckinResponse(502, '<html>Bad Gateway</html>')).toEqual({
+      ok: false,
+      kind: 'server',
+      code: 'http_502',
+      message: 'De server gaf een fout (502). Probeer het later opnieuw.',
+    });
+    const fromFunction = json({ error: { code: 'server_error', message: 'Er ging iets mis.' } });
+    expect(parseCheckinResponse(500, fromFunction)).toMatchObject({ kind: 'server', code: 'server_error' });
+  });
+
+  it('reports answers it cannot interpret as unexpected', () => {
+    expect(parseCheckinResponse(201, json({}))).toMatchObject({ kind: 'unexpected', code: 'http_201' });
+    expect(parseCheckinResponse(200, 'not json')).toMatchObject({ kind: 'unexpected', code: 'http_200' });
+    expect(parseCheckinResponse(404, null).message).toBe('Onverwacht antwoord van de server (status 404). Probeer het opnieuw.');
+  });
+
+  it('adds technical details only when given (dev builds)', () => {
+    expect(parseCheckinResponse(503, null, 'status 503, 812 ms').message).toContain('(dev: status 503, 812 ms)');
+    expect(parseCheckinResponse(503, null).message).not.toContain('dev:');
+  });
+});
+
+describe('localFailure', () => {
+  it('distinguishes network, timeout and photo problems', () => {
+    expect(localFailure('network')).toEqual({
+      ok: false,
+      kind: 'network',
+      code: 'network',
+      message: 'Kan de server niet bereiken. Controleer je internetverbinding en of Tailscale aan staat.',
+    });
+    expect(localFailure('timeout').message).toBe(
+      'Er kwam binnen 60 seconden geen antwoord. Probeer het opnieuw, liefst met beter bereik.',
+    );
+    expect(localFailure('photo').message).toBe('De foto kon niet gelezen worden. Neem een nieuwe foto.');
+    expect(localFailure('network', 'TypeError: fetch failed').message).toContain('(dev: TypeError: fetch failed)');
+  });
+
+  it('has a distinct title per kind, and only refusals say "geweigerd"', () => {
+    const titles = Object.values(FAILURE_TITLE);
+    expect(new Set(titles).size).toBe(titles.length);
+    expect(Object.entries(FAILURE_TITLE).filter(([, title]) => title.includes('geweigerd'))).toEqual([
+      ['rejected', 'Inworp geweigerd'],
+    ]);
   });
 });

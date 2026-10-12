@@ -1,9 +1,12 @@
 // Data access for the screens. All rules are enforced server-side.
 import { randomUUID } from 'expo-crypto';
+import { File } from 'expo-file-system';
 
-import { NETWORK_ERROR_MESSAGE, parseCheckinResponse, type CheckinOutcome } from './checkin';
+import { CHECKIN_TIMEOUT_MS, localFailure, parseCheckinResponse, type CheckinOutcome } from './checkin';
+import { describeError, devLog } from './devlog';
 import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from './env';
 import type { ReviewStatus } from './format';
+import { buildMultipart } from './multipart';
 import { REGION_CENTER, REGION_RADIUS_M } from './region';
 import { supabase } from './supabase';
 
@@ -96,37 +99,81 @@ export interface CheckinInput {
   photoUri: string;
 }
 
-/** Calls the submit-checkin edge function with a multipart form. */
+/** Reads a local photo (file:// URI) into memory. */
+async function readPhoto(uri: string): Promise<Uint8Array> {
+  const file = new File(uri);
+  if (!file.exists) throw new Error(`photo not found: ${uri}`);
+  return file.bytes();
+}
+
+/**
+ * Calls the submit-checkin edge function. The multipart body is built by hand
+ * (see multipart.ts): expo/fetch cannot upload React Native `{ uri }` parts.
+ */
 export async function submitCheckin(input: CheckinInput): Promise<CheckinOutcome> {
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
-  if (!token) return { ok: false, code: 'unauthorized', message: 'Je sessie is verlopen. Meld je opnieuw aan.' };
+  if (!token) return { ok: false, kind: 'auth', code: 'unauthorized', message: 'Je sessie is verlopen. Meld je opnieuw aan.' };
 
-  const form = new FormData();
-  form.append('bin_id', String(input.binId));
-  form.append('lat', String(input.latitude));
-  form.append('lon', String(input.longitude));
-  form.append('accuracy_m', input.accuracy === null ? '' : String(input.accuracy));
-  form.append('is_mocked', String(input.mocked));
-  if (input.fake) form.append('fake_location', 'true');
-  // React Native uploads a local file from a { uri, name, type } descriptor.
-  form.append('photo', { uri: input.photoUri, name: 'photo.jpg', type: 'image/jpeg' } as unknown as Blob);
+  let photo: Uint8Array;
+  try {
+    photo = await readPhoto(input.photoUri);
+  } catch (error) {
+    devLog('submit-checkin', false, { stage: 'read-photo', error: describeError(error) });
+    return localFailure('photo', __DEV__ ? describeError(error) : undefined);
+  }
 
+  const fields: Record<string, string> = {
+    bin_id: String(input.binId),
+    lat: String(input.latitude),
+    lon: String(input.longitude),
+    accuracy_m: input.accuracy === null ? '' : String(input.accuracy),
+    is_mocked: String(input.mocked),
+  };
+  if (input.fake) fields.fake_location = 'true';
+  const { body, contentType } = buildMultipart(fields, {
+    field: 'photo',
+    filename: 'photo.jpg',
+    contentType: 'image/jpeg',
+    bytes: photo,
+  });
+
+  const started = Date.now();
+  let timedOut = false;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30_000);
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, CHECKIN_TIMEOUT_MS);
   try {
     const response = await fetch(`${SUPABASE_URL}/functions/v1/submit-checkin`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, apikey: SUPABASE_PUBLISHABLE_KEY },
-      body: form,
+      headers: { Authorization: `Bearer ${token}`, apikey: SUPABASE_PUBLISHABLE_KEY, 'Content-Type': contentType },
+      body,
       signal: controller.signal,
     });
-    const body = await response.json().catch(() => null);
-    return parseCheckinResponse(response.status, body);
-  } catch {
-    return { ok: false, code: 'network', message: NETWORK_ERROR_MESSAGE };
+    const text = await response.text();
+    const durationMs = Date.now() - started;
+    const outcome = parseCheckinResponse(
+      response.status,
+      text,
+      __DEV__ ? `status ${response.status}, ${durationMs} ms, ${body.byteLength} bytes` : undefined,
+    );
+    devLog('submit-checkin', outcome.ok, {
+      status: response.status,
+      durationMs,
+      uploadBytes: body.byteLength,
+      outcome: outcome.ok ? 'ok' : `${outcome.kind}/${outcome.code}`,
+      body: text.slice(0, 500),
+    });
+    return outcome;
+  } catch (error) {
+    const durationMs = Date.now() - started;
+    const kind = timedOut ? 'timeout' : 'network';
+    devLog('submit-checkin', false, { stage: 'fetch', kind, durationMs, uploadBytes: body.byteLength, error: describeError(error) });
+    return localFailure(kind, __DEV__ ? `${describeError(error)}, ${durationMs} ms, ${body.byteLength} bytes` : undefined);
   } finally {
-    clearTimeout(timeout);
+    clearTimeout(timer);
   }
 }
 
@@ -143,7 +190,7 @@ export async function submitReport(input: ReportInput): Promise<void> {
   if (!auth.user) throw new Error('not signed in');
 
   const path = `${auth.user.id}/${randomUUID()}.jpg`;
-  const bytes = await (await fetch(input.photoUri)).arrayBuffer();
+  const bytes = await readPhoto(input.photoUri);
   const upload = await supabase.storage
     .from('report-photos')
     .upload(path, bytes, { contentType: 'image/jpeg', upsert: false });
