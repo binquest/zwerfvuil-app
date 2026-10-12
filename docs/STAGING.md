@@ -452,11 +452,14 @@ sideload-app. Er staat geen Apple-certificaat, profiel of wachtwoord op GitHub.
    `EXPO_PUBLIC_SUPABASE_URL` en `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`), met
    dezelfde controle als op de pc (`scripts/staging.mjs`).
 2. `npm run check:staging-bundle`: geen nep-locatie-toggle, geen dev-config.
-3. `expo prebuild --platform ios` (met CocoaPods), dan `xcodebuild archive`
-   **zonder** code signing (`CODE_SIGNING_ALLOWED=NO`).
+3. `expo prebuild --platform ios` (met CocoaPods), met een controle dat het
+   gegenereerde project ons icoon en onze splash over het volledige scherm heeft
+   (`scripts/check-ios-assets.mjs`); dan `xcodebuild archive` **zonder** code
+   signing (`CODE_SIGNING_ALLOWED=NO`).
 4. Controle van de gebouwde app: bundle-ID `be.zwerfvuil.app`, geen
-   provisioning profile, geen handtekening, en dezelfde bundelcontrole op de
-   `main.jsbundle` (Hermes) in de app.
+   provisioning profile, geen handtekening, dezelfde bundelcontrole op de
+   `main.jsbundle` (Hermes) in de app, en het icoon (`AppIcon`) en de splash in
+   `Assets.car`. Zonder icoon of splash faalt de build.
 5. De `.app` in `Payload/`, gezipt als `ZwerfvuilGent-staging-unsigned-<run>.ipa`,
    als artifact **zonder** extra zip (je downloadt meteen de `.ipa`), 7 dagen
    bewaard. Bij een fout: het volledige `xcodebuild`-log, 3 dagen.

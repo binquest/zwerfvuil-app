@@ -257,6 +257,7 @@ npm run test:functions:integration
 npm --prefix app run typecheck
 npm --prefix app run lint
 npm --prefix app test
+npm --prefix app run test:scripts
 ```
 
 ```powershell
@@ -272,6 +273,32 @@ draaiende Supabase nodig. De integratietests maken tijdelijke accounts en data
 aan (`@example.test`) en ruimen die zelf op. Met `CHECKIN_API_URL=http://<host>:54321`
 stuurt de check-in-test zijn requests via een ander adres, bijvoorbeeld je
 Tailscale-IP.
+
+## App-icoon en splash
+
+Alle iconen en de splash komen uit één bronbeeld: `app/assets/icon-source.png`
+(vierkant, effen achtergrond, witte figuur). Na een nieuw bronbeeld, in de map `app`:
+
+```powershell
+node scripts/icons.mjs --preview $env:TEMP\icon-preview
+```
+
+Het script sampelt de kleuren, schrijft alle bestanden in `app/assets` en print de
+kleuren voor `app.json`. De figuur wordt nergens gecentreerd: de compositie van het
+bronbeeld blijft (de vuilbak staat afgesneden in de hoek). Waar meer te zien is dan
+het bronbeeld (Android bij parallax, de iOS-splash op hoge schermen), loopt de
+vuilbak door langs zijn randen; zijn die niet recht, dan zegt het script dat.
+Bekijk de previews voor je commit.
+
+- **iOS**: `icon.png`; splash `splash-ios.png` over het volledige scherm. Het script
+  faalt als het deksel en het handvat niet op elk iPhone-scherm volledig zichtbaar
+  zijn. De splash gebruikt `enableFullScreenImage_legacy` (zie `docs/PRE-BETA.md`).
+- **Android**: adaptive icon (foreground, background, monochrome). De splash is het
+  icoon als afgerond vierkant, gecentreerd op donkergroen: Android 12+ toont bij
+  het opstarten alleen een gecentreerd icoon.
+
+De IPA-workflow controleert na de prebuild en na de build dat icoon en splash de
+onze zijn (`app/scripts/check-ios-assets.mjs`).
 
 ## Problemen oplossen
 

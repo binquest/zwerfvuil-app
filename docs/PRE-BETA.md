@@ -85,6 +85,18 @@ voor echte gebruikers. Wordt aangevuld telkens zo'n keuze gemaakt wordt.
   Developer-Program-account: TestFlight voor de beta, App Attest tegen
   gps-spoofing en vervalste clients (zie "Device-integriteit"), en een
   certificaat dat van ons is.
+- [ ] **`expo` en `jest-expo` staan in `expo.install.exclude`** (`app/package.json`),
+  dus `expo install --check` en `expo-doctor` controleren hun versie niet meer.
+  `expo` 57.0.28 en `jest-expo` 57.0.6 brengen `expo-modules-core` 57.0.22 mee,
+  dat `react-native-worklets` 0.13 (via `expo-router`) niet aanvaardt; npm zet het
+  dan genest en Jest vindt het niet meer. Probeer bij de volgende Expo-patch:
+  haal beide uit `exclude`, `npx expo install --fix`, en controleer `npm test`
+  en `npx --yes expo-doctor`.
+- [ ] **De iOS-splash gebruikt `enableFullScreenImage_legacy`** van
+  `expo-splash-screen`, volgens Expo een overgangsoptie die zal verdwijnen. De
+  workflow faalt dan (`app/scripts/check-ios-assets.mjs`). Alternatieven: een
+  eigen config-plugin voor het storyboard, of het gecentreerde icoon zoals op
+  Android.
 - [ ] **Staging-builds hangen af van het gratis tegoed van GitHub Actions**
   (ongeveer 200 macOS-minuten per maand, zonder betaalmethode: daarna geblokkeerd).
 - [ ] **Development build / store build** (EAS) in plaats van Expo Go, zodat de

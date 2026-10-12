@@ -80,6 +80,12 @@ jobs:
       - name: Generate the iOS project (expo prebuild, CocoaPods)
         run: node scripts/staging.mjs npx --yes expo prebuild --platform ios --clean
 
+      - name: Check the generated app icon and launch screen
+        # AppIcon must be assets/icon.png; the launch screen must be the
+        # full-screen splash from app.json (fails if Expo drops
+        # enableFullScreenImage_legacy).
+        run: node scripts/check-ios-assets.mjs ios
+
       - name: Archive without code signing
         run: |
           workspace=$(ls -d ios/*.xcworkspace | head -1)
@@ -133,6 +139,31 @@ jobs:
             echo "Sign it in your sideload app with your own certificate; see docs/STAGING.md."
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Check the app icon and launch screen inside the .ipa
+        # The .app in the .ipa must carry an AppIcon set in Assets.car and name
+        # it in Info.plist, and the compiled launch screen; otherwise the build
+        # fails.
+        run: |
+          check="$RUNNER_TEMP/ipa-check"
+          rm -rf "$check" && mkdir -p "$check"
+          unzip -q "$ipa_path" -d "$check"
+          app=$(ls -d "$check"/Payload/*.app | head -1)
+          test -n "$app" || { echo "::error::no .app in the .ipa"; exit 1; }
+          test -d "$app/SplashScreen.storyboardc" || { echo "::error::no compiled launch screen (SplashScreen.storyboardc) in the app"; exit 1; }
+          test -f "$app/Assets.car" || { echo "::error::no Assets.car in the app"; exit 1; }
+          icon_name=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName" "$app/Info.plist" 2>/dev/null || true)
+          echo "Info.plist CFBundleIconName: ${icon_name:-<none>}"
+          test "$icon_name" = "AppIcon" || { echo "::error::Info.plist does not name the AppIcon set"; exit 1; }
+          xcrun --sdk iphoneos assetutil --info "$app/Assets.car" > "$RUNNER_TEMP/assets.json"
+          renditions=$(jq '[.[] | select(.Name? == "AppIcon")] | length' "$RUNNER_TEMP/assets.json")
+          echo "AppIcon renditions in Assets.car: $renditions"
+          jq -r '.[] | select(.Name? == "AppIcon") | "  \(.AssetType // "?") \(.PixelWidth // "?")x\(.PixelHeight // "?") \(.Idiom // "")"' "$RUNNER_TEMP/assets.json"
+          test "$renditions" -gt 0 || { echo "::error::no AppIcon set in Assets.car"; exit 1; }
+          splash=$(jq '[.[] | select(.Name? == "SplashScreenLegacy")] | length' "$RUNNER_TEMP/assets.json")
+          echo "SplashScreenLegacy renditions in Assets.car: $splash"
+          test "$splash" -gt 0 || { echo "::error::no launch screen image (SplashScreenLegacy) in Assets.car"; exit 1; }
+          echo "App icon: AppIcon set in Assets.car ($renditions renditions), named in Info.plist. Launch screen: SplashScreen.storyboardc with SplashScreenLegacy ($splash renditions)." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload the .ipa
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -146,6 +177,8 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: xcodebuild-log-${{ github.run_number }}
-          path: ${{ runner.temp }}/xcodebuild.log
+          path: |
+            ${{ runner.temp }}/xcodebuild.log
+            ${{ runner.temp }}/assets.json
           retention-days: 3
           if-no-files-found: ignore
