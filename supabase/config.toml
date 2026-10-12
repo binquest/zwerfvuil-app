@@ -249,6 +249,16 @@ otp_expiry = 3600
 # subject = "You have been invited"
 # content_path = "./supabase/templates/invite.html"
 
+# Email OTP: the app asks for the 6-digit code, so sign-in mails show
+# {{ .Token }} instead of a magic link (new users get the confirmation mail).
+[auth.email.template.magic_link]
+subject = "Je inlogcode voor Zwerfvuil Gent"
+content_path = "./supabase/templates/otp-code.html"
+
+[auth.email.template.confirmation]
+subject = "Je inlogcode voor Zwerfvuil Gent"
+content_path = "./supabase/templates/otp-code.html"
+
 # Uncomment to customize notification email template
 # [auth.email.notification.password_changed]
 # enabled = true
