@@ -11,8 +11,8 @@ dev-omgeving.
   `infra/staging/.env` (gitignored).
 
 > Dit runbook wordt per fase aangevuld. Nu beschreven: de VM zelf (fase 1),
-> Supabase (fase 2), deployen (fase 3), backups (fase 4) en het staging-profiel
-> van de app (fase 5). De IPA-build en het delen van de node volgen.
+> Supabase (fase 2), deployen (fase 3), backups (fase 4), het staging-profiel van
+> de app en de IPA-build (fase 5). Het delen van de node wordt in fase 6 getest.
 
 ## Overzicht
 
@@ -438,6 +438,123 @@ Resultaat (12 oktober 2026): alle controles slagen. Tegenproef: dezelfde export 
 `--dev` (waar `__DEV__` blijft) faalt op 8 controles. De `·` in "DEV · nep-locatie"
 wordt in de bundel geëscapet; daarom zoekt de controle ook op ASCII-stukken van de
 teksten.
+
+## IPA bouwen (GitHub Actions)
+
+`.github/workflows/ios-staging.yml` bouwt een **ongesigneerde** `.ipa` van de app
+met het staging-profiel, op een macOS-runner van GitHub (`macos-26`). Iedereen
+signeert die IPA zelf op de eigen iPhone, met het eigen certificaat in een
+sideload-app. Er staat geen Apple-certificaat, profiel of wachtwoord op GitHub.
+
+### Wat de workflow doet
+
+1. `npm ci`, en de staging-configuratie uit de GitHub-omgeving `staging` (secrets
+   `EXPO_PUBLIC_SUPABASE_URL` en `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`), met
+   dezelfde controle als op de pc (`scripts/staging.mjs`).
+2. `npm run check:staging-bundle`: geen nep-locatie-toggle, geen dev-config.
+3. `expo prebuild --platform ios` (met CocoaPods), dan `xcodebuild archive`
+   **zonder** code signing (`CODE_SIGNING_ALLOWED=NO`).
+4. Controle van de gebouwde app: bundle-ID `be.zwerfvuil.app`, geen
+   provisioning profile, geen handtekening, en dezelfde bundelcontrole op de
+   `main.jsbundle` (Hermes) in de app.
+5. De `.app` in `Payload/`, gezipt als `ZwerfvuilGent-staging-unsigned-<run>.ipa`,
+   als artifact **zonder** extra zip (je downloadt meteen de `.ipa`), 7 dagen
+   bewaard. Bij een fout: het volledige `xcodebuild`-log, 3 dagen.
+
+### Een build starten
+
+`workflow_dispatch` (de knop "Run workflow") werkt pas als de workflow op `main`
+staat. Tot dan, en ook daarna, start je een build met een tag, op de commit die je
+wilt bouwen:
+
+```powershell
+git tag ios-staging-20261013-1200
+git push origin ios-staging-20261013-1200
+```
+
+Volgen: GitHub → Actions → "iOS staging IPA (unsigned)", of
+`gh run list --repo binquest/zwerfvuil-app --event push --limit 5` (met `--workflow
+ios-staging.yml` zodra de workflow op `main` staat). Duur van een build: wordt ingevuld na de
+eerste build.
+
+### De IPA downloaden
+
+- GitHub → Actions → de run → onderaan **Artifacts** →
+  `ZwerfvuilGent-staging-unsigned-<run>.ipa`. Dat kan ook in Safari op de iPhone
+  (ingelogd op GitHub); de IPA komt dan in Bestanden.
+- Of op de pc: `gh run download <run-id> --repo binquest/zwerfvuil-app`.
+
+### Secrets bijwerken
+
+Na een wijziging van de staging-URL of de publishable key (bv. nieuwe secrets op de
+VM): pas `app/staging.env.local` aan en draai in de map `app`:
+
+```powershell
+node scripts/github-secrets.mjs
+```
+
+Dat zet beide secrets in de omgeving `staging` via stdin (nooit als argument,
+nooit getoond); bestaat de omgeving niet, dan maakt het haar aan (zonder
+beschermingsregels).
+
+### Verbruik controleren
+
+`binquest` staat op GitHub Free zonder betaalmethode: elke maand ongeveer
+**200 macOS-minuten gratis** (2.000 minuten, en een macOS-minuut kost ongeveer
+tien keer zoveel als een Linux-minuut). Is dat op, dan **blokkeert** GitHub
+nieuwe builds tot de volgende maand; er komt geen factuur.
+
+- In de browser: organisatie `binquest` → Settings → Billing and licensing →
+  **Usage**, filter op Actions.
+- Met `gh` (verbruik per dag en SKU, `actions_macos` is de iOS-build):
+
+  ```powershell
+  gh api "organizations/binquest/settings/billing/usage" --jq ".usageItems[] | [.date, .sku, .quantity, .unitType] | @tsv"
+  ```
+
+- Per build (gefactureerde tijd in milliseconden, onder `MACOS`):
+
+  ```powershell
+  gh run list --repo binquest/zwerfvuil-app --event push --limit 5
+  gh api "repos/binquest/zwerfvuil-app/actions/runs/<run-id>/timing" --jq ".billable"
+  ```
+
+### Gids voor de cofounder
+
+Je krijgt een eigen certificaat (bij een reseller) en signeert dezelfde
+ongesigneerde IPA zelf. Wat je nodig hebt: een iPhone, de Tailscale-app, je
+sideload-app met je eigen certificaat, en een e-mailadres om mee in te loggen.
+
+1. **De gedeelde node accepteren.** Je krijgt van ons een uitnodiging per e-mail
+   om de machine `binquest-staging` te delen. Open de link, meld je aan bij
+   Tailscale (een eigen account, gratis) en aanvaard de uitnodiging. Je ziet alleen
+   deze ene machine, en kunt alleen de app-API bereiken (HTTPS); SSH, Studio en de
+   database niet.
+2. **Tailscale op je iPhone.** Installeer Tailscale uit de App Store, meld je aan
+   met hetzelfde account en zet de VPN aan. Laat Tailscale aanstaan zolang je de
+   app gebruikt: zonder Tailscale kan de app de server niet bereiken.
+3. **De IPA downloaden.** Heb je toegang tot de GitHub-repo: Actions →
+   "iOS staging IPA (unsigned)" → de laatste geslaagde run → Artifacts →
+   `ZwerfvuilGent-staging-unsigned-<nummer>.ipa` (in Safari op je iPhone komt hij
+   in Bestanden). Zonder toegang: vraag ons de IPA. Een artifact verdwijnt na 7
+   dagen.
+4. **Signeren en installeren.** Open de IPA in je sideload-app (importeren vanuit
+   Bestanden), kies je eigen certificaat (`.p12` en `.mobileprovision`), signeer en
+   installeer. Vraagt iOS om de ontwikkelaar te vertrouwen: Instellingen →
+   Algemeen → VPN en apparaatbeheer. Mag de bundle-ID niet blijven, laat je
+   sideload-app hem aanpassen; dat heeft geen invloed op de app.
+5. **Inloggen.** Open "Zwerfvuil Gent", vul je e-mailadres in en vraag een code.
+   Die mail komt (nog) niet in je mailbox: staging verstuurt geen echte mail. Laat
+   het ons weten; wij lezen de code van 6 cijfers in Mailpit en sturen hem door. Hij
+   blijft 1 uur geldig. Daarna blijf je ingelogd.
+
+Problemen:
+
+| Probleem | Oplossing |
+|---|---|
+| "Kan geen verbinding maken" of laden blijft hangen | Staat Tailscale aan (VPN-icoon bovenaan)? Is de gedeelde node nog aanvaard? |
+| De app opent niet meer | Je certificaat is waarschijnlijk ingetrokken: signeer opnieuw met een geldig certificaat |
+| Nieuwe versie | Download de nieuwe IPA, signeer en installeer hem over de oude heen; je blijft ingelogd |
 
 ## Supabase updaten
 

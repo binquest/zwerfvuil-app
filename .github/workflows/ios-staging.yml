@@ -1,0 +1,151 @@
+# Unsigned iOS build (.ipa) of the app for the staging environment.
+#
+# The .ipa is NOT signed: everyone signs it on their own iPhone with their own
+# certificate in a sideload app. No Apple certificate, profile or password
+# ever reaches GitHub. See docs/STAGING.md ("IPA bouwen").
+#
+# Start (the workflow file must be on the default branch for workflow_dispatch;
+# a tag works from any branch):
+#   git tag ios-staging-<yyyymmdd-hhmm>
+#   git push origin ios-staging-<yyyymmdd-hhmm>
+#
+# The staging API URL and publishable key come from the environment "staging"
+# (repository secrets); they end up in the app anyway, but stay out of git.
+
+name: iOS staging IPA (unsigned)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "ios-staging-*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-staging
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build unsigned IPA
+    runs-on: macos-26
+    environment: staging
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: app
+    env:
+      CI: "1"
+      # Read by app/scripts/staging.mjs, written to staging.env.local below.
+      STAGING_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+      STAGING_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Tools
+        run: |
+          xcodebuild -version
+          node --version
+          echo "started_at=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Staging configuration
+        # Same file and checks as on a PC: https ts.net URL, publishable key.
+        run: |
+          umask 077
+          {
+            echo "EXPO_PUBLIC_SUPABASE_URL=$STAGING_SUPABASE_URL"
+            echo "EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=$STAGING_SUPABASE_PUBLISHABLE_KEY"
+          } > staging.env.local
+          node scripts/staging.mjs node --version
+
+      - name: Check the staging bundle (no fake-location toggle, no dev config)
+        run: npm run check:staging-bundle
+
+      - name: Generate the iOS project (expo prebuild, CocoaPods)
+        run: node scripts/staging.mjs npx --yes expo prebuild --platform ios --clean
+
+      - name: Archive without code signing
+        run: |
+          workspace=$(ls -d ios/*.xcworkspace | head -1)
+          scheme=$(basename "$workspace" .xcworkspace)
+          echo "workspace=$workspace scheme=$scheme"
+          # The full log goes to a file (uploaded on failure); the job log
+          # only shows the result lines and errors.
+          set +e
+          node scripts/staging.mjs xcodebuild archive \
+            -workspace "$workspace" \
+            -scheme "$scheme" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -archivePath "$RUNNER_TEMP/app.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            > "$RUNNER_TEMP/xcodebuild.log" 2>&1
+          status=$?
+          set -e
+          grep -E "^\*\* |error:" "$RUNNER_TEMP/xcodebuild.log" | tail -n 40 || true
+          echo "xcodebuild exit status: $status"
+          test "$status" -eq 0
+          test -d "$RUNNER_TEMP/app.xcarchive/Products/Applications"
+
+      - name: Package and verify the .ipa
+        run: |
+          app=$(ls -d "$RUNNER_TEMP"/app.xcarchive/Products/Applications/*.app | head -1)
+          bundle_id=$(/usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" "$app/Info.plist")
+          echo "bundle id: $bundle_id"
+          test "$bundle_id" = "be.zwerfvuil.app"
+          test ! -e "$app/embedded.mobileprovision" || { echo "unexpected provisioning profile"; exit 1; }
+          if codesign -dv "$app" 2>&1 | grep -q "not signed at all"; then echo "code signature: none (as intended)"; else codesign -dv "$app" 2>&1; exit 1; fi
+          test -f "$app/main.jsbundle"
+          node scripts/check-staging-bundle.mjs "$app"
+          ipa="ZwerfvuilGent-staging-unsigned-${GITHUB_RUN_NUMBER}.ipa"
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          cp -R "$app" "$RUNNER_TEMP/ipa/Payload/"
+          (cd "$RUNNER_TEMP/ipa" && zip -qry "$RUNNER_TEMP/$ipa" Payload)
+          echo "ipa_path=$RUNNER_TEMP/$ipa" >> "$GITHUB_ENV"
+          {
+            echo "### Unsigned staging IPA"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| File | \`$ipa\` |"
+            echo "| Size | $(du -h "$RUNNER_TEMP/$ipa" | cut -f1) |"
+            echo "| Bundle ID | \`$bundle_id\` |"
+            echo "| Commit | \`${GITHUB_SHA::12}\` (${GITHUB_REF_NAME}) |"
+            echo "| Build time | $(( ($(date +%s) - started_at) / 60 )) min (whole job: see the run's billable time) |"
+            echo ""
+            echo "Sign it in your sideload app with your own certificate; see docs/STAGING.md."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the .ipa
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ env.ipa_path }}
+          archive: false
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload the build log (on failure)
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: xcodebuild-log-${{ github.run_number }}
+          path: ${{ runner.temp }}/xcodebuild.log
+          retention-days: 3
+          if-no-files-found: ignore

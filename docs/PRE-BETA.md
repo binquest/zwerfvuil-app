@@ -77,6 +77,16 @@ voor echte gebruikers. Wordt aangevuld telkens zo'n keuze gemaakt wordt.
   functions (dan weigert `submit-checkin` te starten zolang `ALLOW_FAKE_LOCATION`
   bestaat) en markeer de database als `production` in `private.app_environment`
   (dan weigert `record_checkin` nep-locaties). Op staging is dat al zo.
+- [ ] **Apple Developer Program (99 dollar per jaar) voor de beta.** Staging-builds
+  zijn nu ongesigneerde IPA's die elke tester zelf signeert met een gekocht
+  reseller-certificaat. Dat volstaat niet voor echte gebruikers: Apple trekt zulke
+  certificaten in (de app start dan niet meer), elk toestel moet in het profiel
+  staan, en het past niet bij Apples voorwaarden. Met een eigen
+  Developer-Program-account: TestFlight voor de beta, App Attest tegen
+  gps-spoofing en vervalste clients (zie "Device-integriteit"), en een
+  certificaat dat van ons is.
+- [ ] **Staging-builds hangen af van het gratis tegoed van GitHub Actions**
+  (ongeveer 200 macOS-minuten per maand, zonder betaalmethode: daarna geblokkeerd).
 - [ ] **Development build / store build** (EAS) in plaats van Expo Go, zodat de
   eigen toestemmingsteksten uit `app.json` gebruikt worden. De verborgen
   nep-locatie-toggle bestaat alleen in dev (`__DEV__`); `npm --prefix app run

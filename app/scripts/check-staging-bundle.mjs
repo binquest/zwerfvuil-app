@@ -37,7 +37,8 @@ function bundleFiles(dir) {
     for (const name of readdirSync(d)) {
       const path = join(d, name);
       if (statSync(path).isDirectory()) walk(path);
-      else if (/\.(js|hbc)$/.test(name)) files.push(path);
+      // .js/.hbc from `expo export`, main.jsbundle inside a built .app.
+      else if (/\.(js|hbc|jsbundle)$/.test(name)) files.push(path);
     }
   };
   walk(dir);
@@ -80,7 +81,7 @@ function main() {
   const dir = resolve(APP_DIR, process.argv[2] ?? 'dist-staging');
   const files = existsSync(dir) ? bundleFiles(dir) : [];
   if (files.length === 0) {
-    console.error(`no .js or .hbc bundle under ${dir}; export first`);
+    console.error(`no .js, .hbc or .jsbundle under ${dir}; export first`);
     process.exit(1);
   }
   const text = files.map((f) => readFileSync(f, 'latin1') + '\n' + readFileSync(f, 'utf8')).join('\n');
