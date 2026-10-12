@@ -1,0 +1,11 @@
+// Managed by infra/staging (zwerfvuil-app).
+// Only Debian security updates are installed automatically. Point releases,
+// Docker and Tailscale are upgraded by hand (see docs/STAGING.md).
+#clear Unattended-Upgrade::Origins-Pattern;
+Unattended-Upgrade::Origins-Pattern {
+        "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
+        "origin=Debian,codename=${distro_codename},label=Debian-Security";
+};
+Unattended-Upgrade::Automatic-Reboot "false";
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+Unattended-Upgrade::Remove-Unused-Dependencies "true";

@@ -85,6 +85,21 @@ voor echte gebruikers. Wordt aangevuld telkens zo'n keuze gemaakt wordt.
   weigert al lege bestanden en het verwijderen van meer dan 50% van de
   vuilbakken; voeg een planning en meldingen toe.
 
+## Staging-VM (homeserver)
+
+Zie `docs/STAGING.md`. Voor een wegwerpbare test-VM volstaat dit; een omgeving met
+echte gebruikersdata vraagt meer.
+
+- [ ] **`deploy` heeft sudo zonder wachtwoord.** Wie de SSH-key heeft, is root op de
+  VM. Voor een omgeving met echte data: aparte rollen, of sudo met wachtwoord en
+  alleen voor de nodige commando's.
+- [ ] **Alleen Debian-security-updates gaan automatisch.** Docker, Tailscale en
+  Debian-point-releases worden met de hand bijgewerkt, en er is geen automatische
+  reboot na een kernelupdate (`stagingctl.py status` meldt "reboot needed"). Er is
+  geen melding als niemand kijkt.
+- [ ] **Geen monitoring of alerts**: valt de VM, de dataschijf of Docker uit, dan
+  merkt niemand dat tot iemand test.
+
 ## Licentie (ODbL)
 
 - [ ] De `bins`-tabel is afgeleid van OpenStreetMap. De attributie staat in de app;

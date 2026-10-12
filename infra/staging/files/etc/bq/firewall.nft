@@ -1,0 +1,38 @@
+#!/usr/sbin/nft -f
+# Host firewall of binquest-staging. Managed by infra/staging (zwerfvuil-app),
+# loaded by bq-firewall.service. LAN_CIDR comes from firewall-vars.nft.
+#
+# Only the table bq_filter is replaced; the tables of Docker and Tailscale are
+# left alone (no `flush ruleset`). A packet is dropped when any input chain
+# drops it, so an accept rule elsewhere (Tailscale, Docker) cannot open a port
+# that this chain closes.
+#
+# Docker-published ports do not pass the input hook when they are DNATed to a
+# container, so they are not protected by this file: every published port must
+# be bound to 127.0.0.1 (also the default via /etc/docker/daemon.json).
+
+include "/etc/bq/firewall-vars.nft"
+
+table inet bq_filter
+delete table inet bq_filter
+
+table inet bq_filter {
+  chain input {
+    type filter hook input priority filter; policy drop;
+
+    ct state established,related accept
+    ct state invalid drop
+    iif "lo" accept
+    meta l4proto { icmp, ipv6-icmp } accept
+
+    # SSH from the home LAN. Logins from the PC arrive from the router
+    # (the Tailscale subnet router SNATs them), which is inside LAN_CIDR.
+    ip saddr $LAN_CIDR tcp dport 22 accept
+
+    # From the tailnet: SSH, and HTTPS for `tailscale serve`.
+    iifname "tailscale0" tcp dport { 22, 443 } accept
+
+    # Tailscale direct (peer-to-peer) WireGuard connections.
+    udp dport 41641 accept
+  }
+}

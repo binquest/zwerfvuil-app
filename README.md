@@ -12,7 +12,9 @@ alleen de testregio rond de Oude Houtlei in Gent (+600 m).
 | `scripts/import-bins/` | `data/bins.geojson` importeren in de database |
 | `scripts/seed-admin/` | Een account admin maken op basis van een e-mailadres |
 | `config/region.json` | De testregio (gedeeld door scripts en app) |
+| `infra/staging/` | Scripts en config voor de staging-VM op de homeserver (zie `docs/STAGING.md`) |
 | `docs/PRE-BETA.md` | Wat nog moet gebeuren voor er echte gebruikers bij komen |
+| `docs/STAGING.md` | Runbook van de staging-omgeving |
 
 ## In het kort (eerste keer)
 
@@ -249,6 +251,7 @@ npm --prefix app test
 .venv\Scripts\python -m unittest discover -s scripts/osm
 .venv\Scripts\python -m unittest discover -s scripts/import-bins
 .venv\Scripts\python -m unittest discover -s scripts/seed-admin
+.venv\Scripts\python -m unittest discover -s infra/staging
 ```
 
 `db:test`, `test:functions:integration` en de import- en seed-tests hebben een
