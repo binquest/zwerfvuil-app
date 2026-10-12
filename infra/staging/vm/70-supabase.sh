@@ -9,6 +9,7 @@
 #   /opt/binquest/data/db           Postgres data (system disk)
 #   /opt/binquest/data/snippets     Studio SQL snippets
 #   /opt/binquest/functions         edge functions (upstream main router + ours)
+#   /opt/binquest/templates         email templates for Auth (from supabase/templates)
 #   /srv/bq-data/storage            Storage objects = photos (data disk)
 #
 # Secrets are never printed. Run 40-datadisk, 50-docker and 60-tailscale first.
@@ -48,6 +49,7 @@ install_file opt/binquest/compose/SUPABASE_REF 644
 install_file opt/binquest/compose/docker-compose.bq.yml 644
 install_file opt/binquest/compose/settings.env 644
 install_file usr/local/sbin/bq-compose 755
+install_file usr/local/sbin/bq-secret 700
 install_file etc/systemd/system/bq-supabase.service 644
 
 host_env=$(mktemp)
@@ -60,7 +62,7 @@ EOF
 cmp -s "$host_env" "$BQ/compose/host.env" || { install -m 644 "$host_env" "$BQ/compose/host.env"; log "wrote $BQ/compose/host.env"; }
 rm -f "$host_env"
 
-install -d -m 755 "$BQ/data" "$BQ/data/snippets" "$BQ/functions"
+install -d -m 755 "$BQ/data" "$BQ/data/snippets" "$BQ/functions" "$BQ/templates"
 install -d -m 700 "$BQ/data/db"
 # The upstream router (main) and the shared import map; our own functions are
 # added next to it by the deploy step and left alone here.

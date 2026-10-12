@@ -10,8 +10,9 @@ dev-omgeving.
 - Machine-specifieke waarden (IP-adressen, LAN-bereik) staan alleen in
   `infra/staging/.env` (gitignored).
 
-> Dit runbook wordt per fase aangevuld. Nu beschreven: de VM zelf (fase 1) en
-> Supabase (fase 2). Deployen, backups, de app en het delen van de node volgen.
+> Dit runbook wordt per fase aangevuld. Nu beschreven: de VM zelf (fase 1),
+> Supabase (fase 2) en deployen (fase 3). Backups, de app en het delen van de
+> node volgen.
 
 ## Overzicht
 
@@ -83,6 +84,9 @@ Tailscale, luisterende poorten) en verandert niets.
 | `vm/70-supabase.sh` | Supabase self-hosted: upstream ophalen, secrets genereren (alleen de eerste keer), images, `bq-supabase.service` starten |
 | `vm/75-tailscale-serve.sh` | De API publiceren op het tailnet via `tailscale serve` |
 | `vm/check-supabase.sh` | Smoketest van de stack (alleen lezen, ruimt zijn testbucket op) |
+| `vm/80-deploy.sh` | Edge functions en e-mailtemplates installeren (via `stagingctl.py deploy`) |
+| `vm/check-auth.sh` | Login met code via Mailpit en weigering van een nep-locatie (ruimt zijn testaccount op) |
+| `vm/check-fake-location.sh` | Bewijst dat `submit-checkin` niet start met `ALLOW_FAKE_LOCATION` |
 
 `20-ssh.sh` en `30-firewall.sh` zetten een **rollback** klaar: na 5 minuten
 wordt de wijziging teruggedraaid, tenzij je ze bevestigt. Open daarom na het
@@ -201,6 +205,7 @@ ES256-key; de andere services controleren met `JWT_JWKS`.
 | API | `https://binquest-staging.<tailnet>.ts.net`, alleen `/auth/v1`, `/rest/v1`, `/storage/v1`, `/functions/v1` | het tailnet (en later wie de node gedeeld krijgt) |
 | Studio en logs | `http://localhost:58000` via de tunnel, gebruiker `binquest` | alleen via SSH |
 | Postgres | `localhost:55432` via de tunnel, gebruiker `postgres` | alleen via SSH |
+| Mailpit (inlogcodes) | `http://localhost:58025` via de tunnel | alleen via SSH |
 
 Alle andere paden (Studio op `/`, `/pg`, `/analytics`, `/graphql`, realtime) geven
 via het tailnet 404. Docker publiceert alleen `127.0.0.1:8000` (gateway) en
@@ -233,8 +238,11 @@ De tunnel (laat het venster open, stoppen met Ctrl+C):
   bv. het Studio-wachtwoord:
 
   ```powershell
-  ssh binquest-staging "sudo grep ^DASHBOARD_PASSWORD= /opt/binquest/secrets/supabase.env"
+  ssh binquest-staging "sudo bq-secret DASHBOARD_PASSWORD"
   ```
+
+  `bq-secret` (alleen root) is ook wat de scripts op de pc gebruiken; zij houden
+  de waarde in het geheugen en tonen ze niet.
 
 - Secrets vervangen gaat niet door het bestand te wissen: `POSTGRES_PASSWORD`
   wordt alleen gebruikt bij het aanmaken van de database (daarna:
@@ -254,7 +262,94 @@ De tunnel (laat het venster open, stoppen met Ctrl+C):
 Start en stop de stack met `systemctl`, niet met `bq-compose up/down`, zodat de
 controle op de dataschijf altijd geldt.
 
-### Updaten
+## Deployen
+
+Alles gaat vanaf de pc, vanuit de root van de repo. Volgorde bij een nieuwe
+versie: migraties, dan functions en templates, dan de controles.
+
+### Migraties
+
+```powershell
+.venv\Scripts\python infra\staging\stagingctl.py migrate
+.venv\Scripts\python infra\staging\stagingctl.py migrate --apply
+```
+
+- Zonder `--apply` toont het alleen welke migraties uit `supabase/migrations`
+  nog niet op staging staan (`supabase db push --dry-run`).
+- Het script opent zelf een SSH-tunnel naar Postgres (op een vrije poort), leest
+  het wachtwoord via `bq-secret` en geeft het aan de CLI via `PGPASSWORD`, niet
+  in de URL. Binnen de tunnel is de verbinding onversleuteld (`sslmode=disable`);
+  de tunnel zelf is versleuteld.
+- Het weigert een database die zich als iets anders dan `staging` meldt.
+- Na `--apply` markeert het de database als `staging` (`private.app_environment`).
+- `supabase/seed.sql` gaat nooit naar staging (`db push` neemt geen seeds mee).
+
+### Edge functions en e-mailtemplates
+
+```powershell
+.venv\Scripts\python infra\staging\stagingctl.py deploy
+```
+
+- Kopieert `supabase/functions/submit-checkin`, `supabase/functions/_shared` en
+  `supabase/templates` naar de VM (`vm/80-deploy.sh`).
+- De upstream-router van de functions gebruikt één import map voor alle functies
+  (`/opt/binquest/functions/deno.jsonc`), niet de `deno.json` per functie zoals
+  lokaal. Het script bouwt die opnieuw op uit de upstream-imports en die van elke
+  functie, en faalt als een naam naar twee verschillende versies wijst.
+- Het controleert dat de functions-container `APP_ENV=staging` heeft en geen
+  `ALLOW_FAKE_LOCATION`, dat Auth de template kan laden, en dat `submit-checkin`
+  zelf antwoordt.
+
+### Nep-locatie: op staging altijd uit
+
+Drie lagen, elk getest:
+
+1. `APP_ENV=staging` staat in `docker-compose.bq.yml` voor de functions-container.
+   Dan staat de nep-locatie uit, en met `ALLOW_FAKE_LOCATION` (welke waarde ook)
+   weigert de functie te starten (`vm/check-fake-location.sh`).
+2. Een check-in met `fake_location=true` krijgt 403 `fake_location_not_allowed`
+   (`vm/check-auth.sh`).
+3. De database (`private.app_environment = 'staging'`) laat `record_checkin`
+   geen nep-locatie opslaan, ook niet als de functie het toch zou doorlaten.
+
+### Controles na een deploy
+
+```powershell
+.venv\Scripts\python infra\staging\stagingctl.py run vm/check-supabase.sh
+.venv\Scripts\python infra\staging\stagingctl.py run vm/check-auth.sh
+.venv\Scripts\python infra\staging\stagingctl.py run vm/check-fake-location.sh
+```
+
+### Scripts tegen staging (OSM-import, admin)
+
+De scripts in `scripts/` werken standaard alleen lokaal en weigeren elke database
+die zich als `staging` of `production` meldt, ook via een tunnel op `127.0.0.1`.
+Staging alleen met `--target staging`: het script opent zelf de tunnel, toont wat
+het gaat doen en vraagt om `staging` te typen (`--yes` slaat dat over).
+
+```powershell
+.venv\Scripts\python scripts\import-bins\import_bins.py --target staging --dry-run
+.venv\Scripts\python scripts\import-bins\import_bins.py --target staging
+.venv\Scripts\python scripts\seed-admin\seed_admin.py --target staging --email jij@voorbeeld.be
+```
+
+Na het aanmaken van je admin-account meld je je in de app aan met dat adres; de
+code staat in Mailpit (`http://localhost:58025`, via `stagingctl.py tunnel`).
+
+## Mail
+
+- Tot er een domein en een SMTP-provider is (gekozen: Brevo), gaan alle mails
+  naar **Mailpit** op de VM: niets verlaat de VM. De web-UI staat alleen op
+  `127.0.0.1:8025` en is dus alleen via de tunnel bereikbaar.
+- Auth gebruikt dezelfde template en hetzelfde onderwerp als lokaal
+  (`supabase/templates/otp-code.html`, "Je inlogcode voor Zwerfvuil Gent"),
+  6 cijfers, 1 uur geldig. GoTrue laadt templates alleen via een URL; daarom
+  serveert een kleine container (`mail-templates`, busybox httpd, zonder poorten)
+  `/opt/binquest/templates` binnen het Docker-netwerk.
+- Gevolg: wie geen SSH-toegang heeft (bv. de cofounder), kan de inlogcode niet
+  zelf lezen. Tot er echte mail is, geef jij de code door uit Mailpit.
+
+## Supabase updaten
 
 1. Lees in `docker/CHANGELOG.md` van upstream wat er veranderd is, vooral regels
    met "requires … update" en wijzigingen aan `docker-compose.yml`.

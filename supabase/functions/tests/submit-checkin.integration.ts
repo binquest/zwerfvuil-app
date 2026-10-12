@@ -80,6 +80,9 @@ Deno.test("submit-checkin end to end", async (t) => {
   const admin = createClient(apiUrl, serviceRoleKey, { auth: { persistSession: false } });
   const client = createClient(apiUrl, anonKey, { auth: { persistSession: false } });
   const expectFake = fakeLocationConfigured();
+  // The database's own marker (private.app_environment): record_checkin only
+  // stores fake locations when it says 'local'.
+  const { data: dbEnvironment } = await admin.rpc("app_environment");
 
   const email = `checkin-it-${crypto.randomUUID()}@example.test`;
   const password = crypto.randomUUID() + crypto.randomUUID();
@@ -221,13 +224,24 @@ Deno.test("submit-checkin end to end", async (t) => {
       );
     });
 
-    await t.step(`a fake location is ${expectFake ? "accepted (ALLOW_FAKE_LOCATION=true)" : "refused"}`, async () => {
+    const fakeCase = !expectFake
+      ? "refused by the function"
+      : dbEnvironment === "local"
+      ? "accepted (ALLOW_FAKE_LOCATION=true, database marked local)"
+      : `refused by the database (marked ${dbEnvironment ?? "nothing"}, not local)`;
+    await t.step(`a fake location is ${fakeCase}`, async () => {
       const { status, body } = await submit(binC, 3, { fake_location: "true", accuracy_m: "" });
-      if (expectFake) {
+      if (expectFake && dbEnvironment === "local") {
         assertEquals(status, 201, JSON.stringify(body));
         const { data: row } = await admin.from("checkins").select("is_fake_location").eq("id", body.checkin_id)
           .single();
         assertEquals(row?.is_fake_location, true);
+      } else if (expectFake) {
+        // The function lets it through; record_checkin raises and nothing is stored.
+        assertEquals([status, body.error.code], [500, "server_error"]);
+        const { count } = await admin.from("checkins").select("id", { count: "exact", head: true })
+          .eq("user_id", userId).eq("is_fake_location", true);
+        assertEquals(count, 0);
       } else {
         assertEquals([status, body.error.code], [403, "fake_location_not_allowed"]);
       }

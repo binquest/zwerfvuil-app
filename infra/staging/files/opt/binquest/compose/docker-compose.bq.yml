@@ -14,6 +14,12 @@
 # - The new API keys (sb_publishable_/sb_secret_) and asymmetric JWTs are on,
 #   like the local Supabase CLI: Auth signs with JWT_KEYS, the other services
 #   verify with JWT_JWKS.
+# - Mail goes to Mailpit (a mailcatcher, web UI only on 127.0.0.1, so only
+#   through the SSH tunnel) until a real SMTP provider is chosen. Auth reads the
+#   6-digit-code template from supabase/templates over HTTP (GoTrue only loads
+#   templates from a URL), served by mail-templates inside the Docker network.
+# - APP_ENV=staging switches the fake-location dev escape of submit-checkin off
+#   for good: with ALLOW_FAKE_LOCATION set at all, the function refuses to start.
 
 services:
 
@@ -34,6 +40,16 @@ services:
       GOTRUE_MAILER_OTP_LENGTH: "6"
       GOTRUE_MAILER_OTP_EXP: "3600"
       GOTRUE_SMTP_MAX_FREQUENCY: 1s
+      # Same templates and subjects as [auth.email.template.*] in config.toml.
+      GOTRUE_MAILER_TEMPLATES_MAGIC_LINK: http://mail-templates/otp-code.html
+      GOTRUE_MAILER_TEMPLATES_CONFIRMATION: http://mail-templates/otp-code.html
+      GOTRUE_MAILER_SUBJECTS_MAGIC_LINK: Je inlogcode voor Zwerfvuil Gent
+      GOTRUE_MAILER_SUBJECTS_CONFIRMATION: Je inlogcode voor Zwerfvuil Gent
+    depends_on:
+      mailpit:
+        condition: service_healthy
+      mail-templates:
+        condition: service_healthy
 
   storage:
     depends_on: !override
@@ -56,6 +72,7 @@ services:
   functions:
     environment:
       SUPABASE_JWKS: ${JWT_JWKS}
+      APP_ENV: staging
     volumes:
       - /opt/binquest/functions:/home/deno/functions
 
@@ -64,6 +81,35 @@ services:
       - "127.0.0.1:5432:5432/tcp"
     volumes:
       - /opt/binquest/data/db:/var/lib/postgresql/data
+
+  mailpit:
+    container_name: supabase-mailpit
+    image: axllent/mailpit:v1.31.3
+    restart: unless-stopped
+    ports:
+      # Web UI and API, only via the SSH tunnel. SMTP (1025) stays inside the
+      # Docker network.
+      - "127.0.0.1:8025:8025/tcp"
+    environment:
+      MP_MAX_MESSAGES: "500"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  mail-templates:
+    container_name: supabase-mail-templates
+    image: busybox:1.37
+    restart: unless-stopped
+    command: ["httpd", "-f", "-p", "80", "-h", "/www"]
+    volumes:
+      - /opt/binquest/templates:/www:ro
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "80"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   realtime:
     profiles: ["disabled"]

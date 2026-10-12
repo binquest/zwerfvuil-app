@@ -149,10 +149,31 @@ export function isLocalSupabaseUrl(url: string | undefined): boolean {
 }
 
 /**
- * The dev escape is on only when ALLOW_FAKE_LOCATION is exactly "true" AND the
- * function runs against a local Supabase stack, so it can never be enabled in
- * a hosted project by accident.
+ * APP_ENV names the deployment ("staging" on the homeserver VM). The local
+ * Supabase CLI does not set it, so unset means a developer's local stack.
+ */
+function isLocalAppEnv(env: (name: string) => string | undefined): boolean {
+  const appEnv = env("APP_ENV");
+  return appEnv === undefined || appEnv === "local";
+}
+
+/**
+ * The dev escape is on only when ALLOW_FAKE_LOCATION is exactly "true", APP_ENV
+ * is unset or "local", AND the function runs against a local Supabase stack, so
+ * it can never be enabled on staging or in a hosted project by accident. The
+ * database refuses fake locations as well unless it is marked 'local'.
  */
 export function fakeLocationAllowed(env: (name: string) => string | undefined): boolean {
-  return env("ALLOW_FAKE_LOCATION") === "true" && isLocalSupabaseUrl(env("SUPABASE_URL"));
+  return env("ALLOW_FAKE_LOCATION") === "true" && isLocalAppEnv(env) && isLocalSupabaseUrl(env("SUPABASE_URL"));
+}
+
+/**
+ * Throws when ALLOW_FAKE_LOCATION is set at all (any value) outside a local
+ * environment, so a misconfigured deployment fails to start instead of
+ * running with a setting that must not exist there.
+ */
+export function assertFakeLocationConfig(env: (name: string) => string | undefined): void {
+  if (!isLocalAppEnv(env) && env("ALLOW_FAKE_LOCATION") !== undefined) {
+    throw new Error(`ALLOW_FAKE_LOCATION must not be set when APP_ENV=${env("APP_ENV")}`);
+  }
 }

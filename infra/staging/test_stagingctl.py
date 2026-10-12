@@ -56,11 +56,33 @@ class PackTest(unittest.TestCase):
 
 class TunnelTest(unittest.TestCase):
     def test_binds_only_loopback_on_both_ends(self):
-        command = stagingctl.tunnel_command("binquest-staging")
+        command = stagingctl.tunnel_command("binquest-staging", [(local, remote) for local, remote, _ in stagingctl.TUNNELS])
         forwards = [command[i + 1] for i, arg in enumerate(command) if arg == "-L"]
-        self.assertEqual(forwards, ["127.0.0.1:58000:127.0.0.1:8000", "127.0.0.1:55432:127.0.0.1:5432"])
+        self.assertEqual(forwards, [
+            "127.0.0.1:58000:127.0.0.1:8000",
+            "127.0.0.1:55432:127.0.0.1:5432",
+            "127.0.0.1:58025:127.0.0.1:8025",
+        ])
         self.assertIn("ExitOnForwardFailure=yes", command)
+        self.assertIn("BatchMode=yes", command)
         self.assertEqual(command[-1], "binquest-staging")
+
+    def test_free_ports_differ(self):
+        self.assertNotEqual(stagingctl.free_port(), 0)
+
+
+class DeployPackTest(unittest.TestCase):
+    def test_deploy_archive_has_function_shared_code_and_templates(self):
+        with tarfile.open(fileobj=io.BytesIO(stagingctl.pack(extra=stagingctl.DEPLOY_SOURCES)), mode="r:gz") as tar:
+            names = set(tar.getnames())
+        for expected in ("deploy/functions/submit-checkin/index.ts", "deploy/functions/submit-checkin/deno.json",
+                         "deploy/functions/_shared/jpeg.ts", "deploy/templates/otp-code.html", "vm/80-deploy.sh"):
+            self.assertIn(expected, names)
+        self.assertFalse([n for n in names if "/tests/" in n or n.rsplit("/", 1)[-1] == ".env"], "no tests or .env files")
+
+    def test_secret_names_are_validated(self):
+        with self.assertRaises(ValueError):
+            stagingctl.read_secret("X; rm -rf /")
 
 
 class ConfigTest(unittest.TestCase):

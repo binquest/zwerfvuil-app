@@ -1,5 +1,6 @@
-import { assert, assertEquals, assertFalse, assertStringIncludes } from "@std/assert";
+import { assert, assertEquals, assertFalse, assertStringIncludes, assertThrows } from "@std/assert";
 import {
+  assertFakeLocationConfig,
   fakeLocationAllowed,
   type Fields,
   isLocalSupabaseUrl,
@@ -116,6 +117,31 @@ Deno.test("ALLOW_FAKE_LOCATION is only honoured when exactly 'true' on a local s
   assertFalse(fakeLocationAllowed(env({ ALLOW_FAKE_LOCATION: "TRUE", SUPABASE_URL: "http://kong:8000" })));
   assertFalse(fakeLocationAllowed(env({ ALLOW_FAKE_LOCATION: "1", SUPABASE_URL: "http://kong:8000" })));
   assertFalse(fakeLocationAllowed(env({ ALLOW_FAKE_LOCATION: "true", SUPABASE_URL: "https://abcd.supabase.co" })));
+});
+
+Deno.test("APP_ENV other than local switches the dev escape off, even with a local-looking URL", () => {
+  const env = (values: Record<string, string>) => (name: string) => values[name];
+  const local = { ALLOW_FAKE_LOCATION: "true", SUPABASE_URL: "http://kong:8000" };
+  assert(fakeLocationAllowed(env({ ...local, APP_ENV: "local" })));
+  for (const appEnv of ["staging", "production", "", "LOCAL"]) {
+    assertFalse(fakeLocationAllowed(env({ ...local, APP_ENV: appEnv })), appEnv);
+  }
+  // The staging VM: gateway alias api-gw, and kong exists there as an alias too.
+  assertFalse(fakeLocationAllowed(env({ ...local, APP_ENV: "staging", SUPABASE_URL: "http://api-gw:8000" })));
+});
+
+Deno.test("outside a local environment, any ALLOW_FAKE_LOCATION stops the function from starting", () => {
+  const env = (values: Record<string, string>) => (name: string) => values[name];
+  for (const value of ["true", "false", ""]) {
+    assertThrows(
+      () => assertFakeLocationConfig(env({ APP_ENV: "staging", ALLOW_FAKE_LOCATION: value })),
+      Error,
+      "APP_ENV=staging",
+    );
+  }
+  assertFakeLocationConfig(env({ APP_ENV: "staging" }));
+  assertFakeLocationConfig(env({ ALLOW_FAKE_LOCATION: "true" }));
+  assertFakeLocationConfig(env({ APP_ENV: "local", ALLOW_FAKE_LOCATION: "true" }));
 });
 
 Deno.test("every code has a Dutch message with its details", () => {

@@ -73,8 +73,10 @@ voor echte gebruikers. Wordt aangevuld telkens zo'n keuze gemaakt wordt.
   project, en bewust gekozen limieten (lokaal 1 mail per seconde per gebruiker;
   code 1 uur geldig, overweeg korter).
 - [ ] **Gehoste Supabase met HTTPS** in plaats van HTTP over LAN/Tailscale; eigen
-  keys; `ALLOW_FAKE_LOCATION` nooit zetten (de functie negeert het al als
-  `SUPABASE_URL` niet lokaal is).
+  keys; `ALLOW_FAKE_LOCATION` nooit zetten. Zet `APP_ENV=production` voor de
+  functions (dan weigert `submit-checkin` te starten zolang `ALLOW_FAKE_LOCATION`
+  bestaat) en markeer de database als `production` in `private.app_environment`
+  (dan weigert `record_checkin` nep-locaties). Op staging is dat al zo.
 - [ ] **Development build / store build** (EAS) in plaats van Expo Go, zodat de
   eigen toestemmingsteksten uit `app.json` gebruikt worden. De verborgen
   nep-locatie-toggle bestaat alleen in dev (`__DEV__`); controleer dat in de
@@ -113,6 +115,13 @@ echte gebruikersdata vraagt meer.
 - [ ] **Logs (Logflare) hebben geen ingestelde bewaartermijn**; ze staan in de
   database `_supabase` op de systeemschijf. Volg de groei op, of stel een
   bewaartermijn in.
+- [ ] **Staging verstuurt geen echte mail.** Inlogcodes komen in Mailpit, alleen
+  via de SSH-tunnel leesbaar; testers zonder SSH-toegang krijgen hun code
+  doorgegeven. Nodig: een domein, Brevo (gekozen) met SPF/DKIM, en de templates
+  en limieten bewust instellen.
+- [ ] **Het omgevingsmerkteken `private.app_environment` is één rij die elke
+  databasebeheerder kan wijzigen.** Het beschermt tegen vergissingen (verkeerde
+  database, verkeerde config), niet tegen iemand met `postgres`-rechten.
 
 ## Licentie (ODbL)
 

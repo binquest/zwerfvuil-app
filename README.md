@@ -130,6 +130,9 @@ Of zet `ADMIN_EMAIL=...` in `.env` en draai het script zonder `--email`.
 - Admin-rechten intrekken: voeg `--revoke` toe.
 - Na `npm run db:reset` moet je het script opnieuw draaien.
 
+Beide scripts werken standaard alleen op de lokale database. Voor de
+staging-omgeving: `--target staging` (zie `docs/STAGING.md`).
+
 ## 6. App starten in Expo Go
 
 Vul `app/.env.local` in:
@@ -232,6 +235,15 @@ Tips:
    ingedrukt. Tik daarna op de kaart om je locatie te kiezen.
 3. Zet het daarna terug op `false`. De server negeert de vlag sowieso als Supabase
    niet lokaal draait.
+
+Ook de database moet als lokaal gemarkeerd zijn; `npm run db:reset` doet dat via
+`supabase/seed.sql`. Wil je je data houden (na het binnenhalen van de migratie
+`environment_guard` met `npm run supabase -- migration up`), voer dan eenmalig deze
+regel uit in Studio (SQL Editor) of psql:
+
+```sql
+insert into private.app_environment (name) values ('local') on conflict (singleton) do update set name = excluded.name, updated_at = now();
+```
 
 ## Tests en controles
 

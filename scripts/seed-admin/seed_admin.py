@@ -5,6 +5,10 @@ Usage (from anywhere, paths are resolved from the repo root):
     python scripts/seed-admin/seed_admin.py --email jij@voorbeeld.be
     python scripts/seed-admin/seed_admin.py                  # uses ADMIN_EMAIL
     python scripts/seed-admin/seed_admin.py --revoke --email jij@voorbeeld.be
+    python scripts/seed-admin/seed_admin.py --target staging --email jij@voorbeeld.be
+
+--target staging works on the staging VM through an SSH tunnel (database and
+Auth API), after you type 'staging' to confirm.
 
 The email address comes from --email, else from ADMIN_EMAIL (shell or the
 gitignored repo-root .env). It is never written to a file and is masked in
@@ -121,10 +125,13 @@ def set_admin(conn, user_id: str, is_admin: bool) -> bool:
         return True
 
 
-def seed_admin(email: str, *, revoke: bool = False, create: bool = True, database_url: str) -> SeedResult:
+def seed_admin(email: str, *, revoke: bool = False, create: bool = True, database_url: str,
+               target: str = "local", auth: tuple[str, str] | None = None) -> SeedResult:
+    """auth: Auth API URL and service role key; by default from the environment or `supabase status`."""
     import psycopg  # imported lazily so the pure helpers can be tested without it
 
     with psycopg.connect(database_url) as conn:
+        devenv.check_target(devenv.database_environment(conn), target)
         user_id = find_user(conn, email)
     created = False
     if user_id is None:
@@ -132,7 +139,7 @@ def seed_admin(email: str, *, revoke: bool = False, create: bool = True, databas
             raise SeedError(f"no account for {mask_email(email)}, nothing to revoke")
         if not create:
             raise SeedError(f"no account for {mask_email(email)}; sign in once in the app or drop --no-create")
-        api_url, key = auth_admin_config()
+        api_url, key = auth or auth_admin_config()
         user_id = create_user(api_url, key, email)
         created = True
     with psycopg.connect(database_url) as conn:
@@ -145,25 +152,36 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--email", help="account to change (default: ADMIN_EMAIL)")
     parser.add_argument("--revoke", action="store_true", help="remove admin rights instead of granting them")
     parser.add_argument("--no-create", action="store_true", help="fail instead of creating a missing account")
-    parser.add_argument("--allow-remote", action="store_true", help="allow a non-local DATABASE_URL")
+    parser.add_argument("--allow-remote", action="store_true", help="allow a non-local DATABASE_URL (target local)")
+    devenv.add_target_argument(parser)
     args = parser.parse_args(argv)
 
     devenv.load_env_file()
-    url = devenv.database_url()
-    devenv.require_local(url, args.allow_remote)
+    options = {"revoke": args.revoke, "create": not args.no_create, "target": args.target}
     try:
         email = resolve_email(args.email)
-        result = seed_admin(email, revoke=args.revoke, create=not args.no_create, database_url=url)
+        who = mask_email(email)
+        if args.target == "local":
+            url = devenv.database_url()
+            devenv.require_local(url, args.allow_remote)
+            result = seed_admin(email, database_url=url, **options)
+        else:
+            with devenv.staging_endpoints(with_api=True) as staging:
+                action = "Remove admin rights from" if args.revoke else "Make"
+                devenv.confirm(f"{action} {who}{'' if args.revoke else ' admin'} on STAGING?", yes=args.yes)
+                result = seed_admin(email, database_url=staging.database_url,
+                                    auth=(staging.api_url, staging.service_key), **options)
     except SeedError as error:
         sys.exit(f"Seed admin: {error}")
 
-    who = mask_email(email)
     if result.created_account:
-        print(f"Seed admin: created account {who}")
+        print(f"Seed admin ({args.target}): created account {who}")
     state = "admin" if result.is_admin else "not admin"
-    print(f"Seed admin: {who} is {state}{'' if result.changed else ' (unchanged)'}")
+    print(f"Seed admin ({args.target}): {who} is {state}{'' if result.changed else ' (unchanged)'}")
     if result.created_account:
-        print("Sign in in the app with this address; the 6-digit code arrives in Mailpit (http://127.0.0.1:54324).")
+        mailpit = "http://127.0.0.1:54324" if args.target == "local" else \
+            "http://localhost:58025 (python infra/staging/stagingctl.py tunnel)"
+        print(f"Sign in in the app with this address; the 6-digit code arrives in Mailpit ({mailpit}).")
 
 
 if __name__ == "__main__":
