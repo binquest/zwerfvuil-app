@@ -477,8 +477,11 @@ git push origin ios-staging-20261013-1200
 
 Volgen: GitHub → Actions → "iOS staging IPA (unsigned)", of
 `gh run list --repo binquest/zwerfvuil-app --event push --limit 5` (met `--workflow
-ios-staging.yml` zodra de workflow op `main` staat). Duur van een build: wordt ingevuld na de
-eerste build.
+ios-staging.yml` zodra de workflow op `main` staat).
+
+Duur van de eerste build (12 oktober 2026, Xcode 26.6): 14 min 40 s, waarvan
+`xcodebuild archive` 11,5 min en de prebuild met CocoaPods 1,5 min. Gefactureerd:
+**15 macOS-minuten** (GitHub rondt per job naar boven af). De IPA is 11,6 MB.
 
 ### De IPA downloaden
 
@@ -505,22 +508,20 @@ beschermingsregels).
 `binquest` staat op GitHub Free zonder betaalmethode: elke maand ongeveer
 **200 macOS-minuten gratis** (2.000 minuten, en een macOS-minuut kost ongeveer
 tien keer zoveel als een Linux-minuut). Is dat op, dan **blokkeert** GitHub
-nieuwe builds tot de volgende maand; er komt geen factuur.
+nieuwe builds tot de volgende maand; er komt geen factuur. Met ongeveer 15
+minuten per build zijn dat ongeveer **13 builds per maand**.
 
 - In de browser: organisatie `binquest` → Settings → Billing and licensing →
   **Usage**, filter op Actions.
-- Met `gh` (verbruik per dag en SKU, `actions_macos` is de iOS-build):
+- Met `gh` (verbruik per build en SKU deze maand; `Actions macOS 3-core` is de
+  iOS-build, `netAmount` 0 = binnen het gratis tegoed):
 
   ```powershell
-  gh api "organizations/binquest/settings/billing/usage" --jq ".usageItems[] | [.date, .sku, .quantity, .unitType] | @tsv"
+  gh api "organizations/binquest/settings/billing/usage?year=2026&month=10" --jq ".usageItems[] | [.date, .sku, .quantity, .unitType, .netAmount] | @tsv"
   ```
 
-- Per build (gefactureerde tijd in milliseconden, onder `MACOS`):
-
-  ```powershell
-  gh run list --repo binquest/zwerfvuil-app --event push --limit 5
-  gh api "repos/binquest/zwerfvuil-app/actions/runs/<run-id>/timing" --jq ".billable"
-  ```
+  Het endpoint `actions/runs/<run-id>/timing` geeft voor macOS 0 ms terug; gebruik
+  het niet.
 
 ### Gids voor de cofounder
 
