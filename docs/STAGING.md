@@ -87,6 +87,7 @@ Tailscale, luisterende poorten) en verandert niets.
 | `vm/80-deploy.sh` | Edge functions en e-mailtemplates installeren (via `stagingctl.py deploy`) |
 | `vm/check-auth.sh` | Login met code via Mailpit en weigering van een nep-locatie (ruimt zijn testaccount op) |
 | `vm/check-fake-location.sh` | Bewijst dat `submit-checkin` niet start met `ALLOW_FAKE_LOCATION` |
+| `vm/cleanup-test-accounts.sh` | Verwijdert testaccounts (`…@example.test`) via de Auth admin-API |
 
 `20-ssh.sh` en `30-firewall.sh` zetten een **rollback** klaar: na 5 minuten
 wordt de wijziging teruggedraaid, tenzij je ze bevestigt. Open daarom na het
@@ -310,7 +311,8 @@ Drie lagen, elk getest:
 2. Een check-in met `fake_location=true` krijgt 403 `fake_location_not_allowed`
    (`vm/check-auth.sh`).
 3. De database (`private.app_environment = 'staging'`) laat `record_checkin`
-   geen nep-locatie opslaan, ook niet als de functie het toch zou doorlaten.
+   geen nep-locatie opslaan, ook niet als de functie het toch zou doorlaten
+   (`vm/check-auth.sh` roept `record_checkin` rechtstreeks aan: fout `42501`).
 
 ### Controles na een deploy
 
@@ -324,8 +326,10 @@ Drie lagen, elk getest:
 
 De scripts in `scripts/` werken standaard alleen lokaal en weigeren elke database
 die zich als `staging` of `production` meldt, ook via een tunnel op `127.0.0.1`.
-Staging alleen met `--target staging`: het script opent zelf de tunnel, toont wat
-het gaat doen en vraagt om `staging` te typen (`--yes` slaat dat over).
+Staging alleen met `--target staging`: het script opent **zelf** een tunnel (op
+vrije poorten, los van `stagingctl.py tunnel`), toont wat het gaat doen, vraagt
+om `staging` te typen (`--yes` slaat dat over) en sluit de tunnel aan het einde.
+Een apart tunnelvenster is alleen nodig voor Studio, Postgres-tools en Mailpit.
 
 ```powershell
 .venv\Scripts\python scripts\import-bins\import_bins.py --target staging --dry-run
@@ -335,6 +339,9 @@ het gaat doen en vraagt om `staging` te typen (`--yes` slaat dat over).
 
 Na het aanmaken van je admin-account meld je je in de app aan met dat adres; de
 code staat in Mailpit (`http://localhost:58025`, via `stagingctl.py tunnel`).
+
+Stand na de eerste deploy (12 oktober 2026): 9 migraties, database gemarkeerd als
+`staging`, 120 vuilbakken uit `data/bins.geojson` (119 geschikt).
 
 ## Mail
 

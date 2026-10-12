@@ -115,7 +115,11 @@ def confirm(question: str, *, yes: bool) -> None:
         return
     if not sys.stdin.isatty():
         sys.exit("Refusing to change staging without confirmation: run it in a terminal or pass --yes")
-    if input(f"{question} Type 'staging' to continue: ").strip() != "staging":
+    try:
+        answer = input(f"{question} Type 'staging' to continue: ")
+    except EOFError:  # e.g. stdin redirected from NUL, which Windows reports as a terminal
+        sys.exit("\nRefusing to change staging without confirmation: no input")
+    if answer.strip() != "staging":
         sys.exit("Cancelled")
 
 

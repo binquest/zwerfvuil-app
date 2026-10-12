@@ -117,6 +117,11 @@ class ConfirmTests(unittest.TestCase):
         with mock.patch.object(sys.stdin, "isatty", return_value=False), self.assertRaises(SystemExit):
             devenv.confirm("Import?", yes=False)
 
+    def test_end_of_input_refuses(self):
+        with mock.patch.object(sys.stdin, "isatty", return_value=True), \
+                mock.patch("builtins.input", side_effect=EOFError), self.assertRaises(SystemExit):
+            devenv.confirm("Import?", yes=False)
+
     def test_only_the_word_staging_continues(self):
         with mock.patch.object(sys.stdin, "isatty", return_value=True):
             with mock.patch("builtins.input", return_value=" staging "):

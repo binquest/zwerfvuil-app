@@ -58,13 +58,33 @@ user_id=$(jq -r '.user.id // empty' <<<"$session")
 step "sign in with the code (POST /auth/v1/verify)" "$([ -n "$token" ] && echo "ok, session for a new user" || echo FAILED)"
 [ -n "$token" ] || die "verifying the code failed"
 
-log "submit-checkin with that session"
+log "API calls with that session"
+bins=$(printf 'header = "apikey: %s"\nheader = "Authorization: Bearer %s"\n' "$PUB" "$token" |
+  curl -sS -K - -X POST -H 'Content-Type: application/json' \
+    -d '{"lat":51.0523,"lon":3.7169,"radius_m":600}' "$GW/rest/v1/rpc/nearby_bins")
+count=$(jq 'if type == "array" then length else -1 end' <<<"$bins")
+step "nearby_bins around the test region (600 m)" "$count bins"
+[ "$count" -gt 0 ] || die "nearby_bins returned no bins: $(head -c 200 <<<"$bins")"
+bin_id=$(jq '.[0].id' <<<"$bins")
+
 response=$(printf 'header = "apikey: %s"\nheader = "Authorization: Bearer %s"\n' "$PUB" "$token" |
-  curl -sS -K - -w '\n%{http_code}' -X POST -F bin_id=1 -F lat=51.0523 -F lon=3.7169 -F accuracy_m=5 \
+  curl -sS -K - -w '\n%{http_code}' -X POST -F "bin_id=$bin_id" -F lat=51.0523 -F lon=3.7169 -F accuracy_m=5 \
     -F is_mocked=false -F fake_location=true "$GW/functions/v1/submit-checkin")
 status=$(tail -1 <<<"$response")
 reason=$(head -n -1 <<<"$response" | jq -r '.error.code // empty')
-step "fake_location=true" "$status $reason"
+step "submit-checkin, fake_location=true" "$status $reason"
 [ "$status" = 403 ] && [ "$reason" = fake_location_not_allowed ] || die "a fake location was not refused"
+
+# The database itself (record_checkin, as the service role like the function):
+# refused because the database is marked 'staging'. Nothing is stored.
+response=$(printf 'header = "apikey: %s"\n' "$SEC" |
+  curl -sS -K - -w '\n%{http_code}' -X POST -H 'Content-Type: application/json' \
+    -d "{\"p_checkin_id\":\"$(cat /proc/sys/kernel/random/uuid)\",\"p_user_id\":\"$user_id\",\"p_bin_id\":$bin_id,
+         \"p_lat\":51.0523,\"p_lon\":3.7169,\"p_accuracy_m\":5,\"p_is_mocked\":false,
+         \"p_is_fake_location\":true,\"p_photo_path\":\"$user_id/x.jpg\"}" "$GW/rest/v1/rpc/record_checkin")
+status=$(tail -1 <<<"$response")
+pgcode=$(head -n -1 <<<"$response" | jq -r '.code // empty')
+step "record_checkin with a fake location (database)" "$status $pgcode"
+[ "$pgcode" = 42501 ] || die "the database did not refuse a fake location"
 
 log "all auth checks passed (test account and mail are removed)"
