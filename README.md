@@ -63,7 +63,7 @@ en gebruik daarna overal `.venv/bin/python` in plaats van `.venv\Scripts\python`
 
 ## 2. Configuratie
 
-Er zijn drie configuratiebestanden. Ze staan alle drie in `.gitignore`; in git
+Er zijn vier configuratiebestanden. Ze staan alle vier in `.gitignore`; in git
 staan alleen de `.example`-versies met placeholders.
 
 | Bestand | Voor | Voorbeeld |
@@ -71,6 +71,7 @@ staan alleen de `.example`-versies met placeholders.
 | `.env` | de Python-scripts (`ADMIN_EMAIL`, `DATABASE_URL`, `OSM_CONTACT`) | `.env.example` |
 | `supabase/functions/.env` | de edge functions (`ALLOW_FAKE_LOCATION`) | `supabase/functions/.env.example` |
 | `app/.env.local` | de app (Supabase-URL, publishable key, Metro-host) | `app/.env.example` |
+| `app/staging.env.local` | staging-builds van de app (zie `docs/STAGING.md`) | `app/staging.env.example` |
 
 ```powershell
 Copy-Item .env.example .env

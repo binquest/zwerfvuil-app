@@ -8,7 +8,8 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "bundleIdentifier": "be.zwerfvuil.app"
     },
     "android": {
       "adaptiveIcon": {

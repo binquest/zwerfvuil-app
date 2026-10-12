@@ -130,7 +130,8 @@ export async function submitCheckin(input: CheckinInput): Promise<CheckinOutcome
     accuracy_m: input.accuracy === null ? '' : String(input.accuracy),
     is_mocked: String(input.mocked),
   };
-  if (input.fake) fields.fake_location = 'true';
+  // Literal __DEV__: release builds drop this line, so they never send the field.
+  if (__DEV__ && input.fake) fields.fake_location = 'true';
   const { body, contentType } = buildMultipart(fields, {
     field: 'photo',
     filename: 'photo.jpg',

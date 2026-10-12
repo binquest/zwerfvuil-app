@@ -80,7 +80,7 @@ export default function ProfileScreen() {
             <Text style={styles.itemTitle}>Vuilbak #{item.bin_id}</Text>
             <Text style={styles.itemMeta}>
               {formatDateTime(item.created_at)} · {formatDistance(item.distance_m)}
-              {item.is_fake_location ? ' · nep-locatie (dev)' : ''}
+              {__DEV__ && item.is_fake_location ? ' · nep-locatie (dev)' : ''}
             </Text>
           </View>
           <View style={styles.itemSide}>

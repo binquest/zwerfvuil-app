@@ -1,0 +1,19 @@
+{
+  "cli": {
+    "version": ">= 24.0.0",
+    "appVersionSource": "local"
+  },
+  "build": {
+    "staging": {
+      "distribution": "internal",
+      "environment": "preview",
+      "env": {
+        "EXPO_PUBLIC_APP_ENV": "staging",
+        "EXPO_NO_DOTENV": "1"
+      },
+      "ios": {
+        "buildConfiguration": "Release"
+      }
+    }
+  }
+}

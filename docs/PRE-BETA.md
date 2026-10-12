@@ -79,8 +79,9 @@ voor echte gebruikers. Wordt aangevuld telkens zo'n keuze gemaakt wordt.
   (dan weigert `record_checkin` nep-locaties). Op staging is dat al zo.
 - [ ] **Development build / store build** (EAS) in plaats van Expo Go, zodat de
   eigen toestemmingsteksten uit `app.json` gebruikt worden. De verborgen
-  nep-locatie-toggle bestaat alleen in dev (`__DEV__`); controleer dat in de
-  productiebuild.
+  nep-locatie-toggle bestaat alleen in dev (`__DEV__`); `npm --prefix app run
+  check:staging-bundle` bewijst dat voor de staging-bundel. Voeg dezelfde controle
+  toe voor de productiebuild (eigen profiel, eigen URL).
 - [ ] **CORS**: `submit-checkin` antwoordt met `Access-Control-Allow-Origin: *`.
   Beperk dit als er geen webversie komt.
 - [ ] **OSM-import plannen en bewaken**: de import draait nu manueel. De import

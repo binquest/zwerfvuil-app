@@ -67,7 +67,7 @@ export default function MapScreen() {
 
   const onMapPress = (event: MapPressEvent) => {
     if (event.nativeEvent.action === 'marker-press') return;
-    if (fakeMode) setFakeLocation(event.nativeEvent.coordinate);
+    if (__DEV__ && fakeMode) setFakeLocation(event.nativeEvent.coordinate);
     else setSelectedId(null);
   };
 
@@ -122,6 +122,8 @@ export default function MapScreen() {
     );
   };
 
+  // Dev-only escape hatch. Every use of it is behind a literal __DEV__, so
+  // release builds (staging, store) contain neither the toggle nor its texts.
   const toggleFakeMode = () => {
     if (!__DEV__) return;
     const next = !fakeMode;
@@ -155,7 +157,7 @@ export default function MapScreen() {
         ref={mapRef}
         style={StyleSheet.absoluteFill}
         initialRegion={INITIAL_MAP_REGION}
-        showsUserLocation={permission === 'granted' && !fakeMode}
+        showsUserLocation={permission === 'granted' && !(__DEV__ && fakeMode)}
         showsMyLocationButton={false}
         toolbarEnabled={false}
         onPress={onMapPress}
@@ -178,14 +180,14 @@ export default function MapScreen() {
             />
           );
         })}
-        {fakeMode && position ? (
+        {__DEV__ && fakeMode && position ? (
           <Marker coordinate={position} pinColor="purple" title="Nep-locatie (dev)" tracksViewChanges={false} />
         ) : null}
       </MapView>
 
       <View style={[styles.top, { paddingTop: insets.top + spacing.sm }]} pointerEvents="box-none">
-        <Pressable onLongPress={toggleFakeMode} delayLongPress={1500} style={styles.card}>
-          {fakeMode ? <Text style={styles.devBadge}>DEV · nep-locatie: tik op de kaart</Text> : null}
+        <Pressable onLongPress={__DEV__ ? toggleFakeMode : undefined} delayLongPress={1500} style={styles.card}>
+          {__DEV__ && fakeMode ? <Text style={styles.devBadge}>DEV · nep-locatie: tik op de kaart</Text> : null}
           <Text style={styles.cardTitle}>
             {nearest ? `Dichtstbijzijnde vuilbak: ${formatDistance(nearest.distanceM)}` : 'Dichtstbijzijnde vuilbak'}
           </Text>

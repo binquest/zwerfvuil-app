@@ -39,7 +39,10 @@
     "typecheck": "tsc --noEmit",
     "lint": "expo lint",
     "test": "jest",
-    "doctor": "npx --yes expo-doctor@1.20.4"
+    "doctor": "npx --yes expo-doctor@1.20.4",
+    "export:staging": "node scripts/staging.mjs npx --yes expo export --platform ios --output-dir dist-staging --clear",
+    "check:staging-bundle": "node scripts/staging.mjs npx --yes expo export --platform ios --output-dir dist-staging --clear --no-bytecode && node scripts/check-staging-bundle.mjs dist-staging",
+    "test:scripts": "node --test scripts/staging.test.mjs"
   },
   "private": true,
   "jest": {

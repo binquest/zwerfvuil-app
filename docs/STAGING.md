@@ -11,8 +11,8 @@ dev-omgeving.
   `infra/staging/.env` (gitignored).
 
 > Dit runbook wordt per fase aangevuld. Nu beschreven: de VM zelf (fase 1),
-> Supabase (fase 2), deployen (fase 3) en backups (fase 4). De app en het delen
-> van de node volgen.
+> Supabase (fase 2), deployen (fase 3), backups (fase 4) en het staging-profiel
+> van de app (fase 5). De IPA-build en het delen van de node volgen.
 
 ## Overzicht
 
@@ -381,6 +381,63 @@ Stand na de eerste deploy (12 oktober 2026): 9 migraties, database gemarkeerd al
   `/opt/binquest/templates` binnen het Docker-netwerk.
 - Gevolg: wie geen SSH-toegang heeft (bv. de cofounder), kan de inlogcode niet
   zelf lezen. Tot er echte mail is, geef jij de code door uit Mailpit.
+
+## App: staging-profiel
+
+Een staging-build van de app praat met `https://binquest-staging.<tailnet>.ts.net`
+(alleen bereikbaar met Tailscale aan) en heeft bundle-ID `be.zwerfvuil.app`.
+
+### Configuratie
+
+Eenmalig, in de map `app`:
+
+```powershell
+Copy-Item staging.env.example staging.env.local
+```
+
+en vul de twee waarden in; je vindt ze zo (in je eigen terminal):
+
+```powershell
+ssh binquest-staging "tailscale status --json | jq -r .Self.DNSName"
+ssh binquest-staging "sudo bq-secret SUPABASE_PUBLISHABLE_KEY"
+```
+
+`staging.env.local` staat in `.gitignore`. De publishable key is publiek van aard
+(hij zit in elke build), de ts.net-naam houden we toch uit git.
+
+- `app/scripts/staging.mjs` draait een commando met die waarden, zet
+  `EXPO_PUBLIC_APP_ENV=staging` en zet het laden van `.env`-bestanden uit
+  (`EXPO_NO_DOTENV=1`): je lokale dev-instellingen uit `.env.local` kunnen zo nooit
+  in een staging-build belanden. Het controleert dat de URL `https://…ts.net` is en
+  de key een publishable key.
+- Met `APP_ENV=staging` weigert de app een URL zonder `https://`.
+- `app/eas.json` heeft een buildprofiel `staging` (Release, interne distributie,
+  EAS-omgeving `preview`) voor als de IPA via EAS gebouwd wordt; de URL en key
+  komen dan uit de EAS-omgevingsvariabelen, niet uit git.
+
+### De nep-locatie zit niet in de build
+
+Alle code van de verborgen nep-locatie-toggle (long-press, badge, paarse marker,
+het verzoekveld `fake_location`, de dev-labels in admin en profiel) staat achter een
+letterlijke `__DEV__`. Een release-export vervangt die door `false` en laat de code
+weg. Controle:
+
+```powershell
+npm --prefix app run check:staging-bundle
+```
+
+Dat exporteert de iOS-bundel met het staging-profiel (`dist-staging`, gitignored) en
+doorzoekt hem:
+
+- geen teksten van de toggle, geen `fake_location` (de kolomnaam `is_fake_location`
+  in de geschiedenis mag), geen `ALLOW_FAKE_LOCATION`, geen Mailpit-hint;
+- de staging-URL en -key staan erin, de URL en key uit `.env.local` niet;
+- gewone app-teksten worden wel gevonden (de controle leest de echte bundel).
+
+Resultaat (12 oktober 2026): alle controles slagen. Tegenproef: dezelfde export met
+`--dev` (waar `__DEV__` blijft) faalt op 8 controles. De `·` in "DEV · nep-locatie"
+wordt in de bundel geëscapet; daarom zoekt de controle ook op ASCII-stukken van de
+teksten.
 
 ## Supabase updaten
 

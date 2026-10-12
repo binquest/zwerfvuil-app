@@ -129,7 +129,7 @@ export default function AdminScreen() {
             <Text style={styles.meta}>
               {formatDistance(item.distance_m)} van de vuilbak · gps ±{Math.round(item.accuracy_m)} m
             </Text>
-            {item.is_fake_location ? <Text style={styles.flag}>Nep-locatie (dev)</Text> : null}
+            {__DEV__ && item.is_fake_location ? <Text style={styles.flag}>Nep-locatie (dev)</Text> : null}
             {item.is_mocked ? <Text style={styles.flag}>Gesimuleerde locatie gemeld</Text> : null}
             <View style={styles.row}>
               <Button

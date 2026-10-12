@@ -40,7 +40,9 @@ function fromDevice(location: Location.LocationObject): CurrentPosition {
 export function LocationProvider({ enabled, children }: { enabled: boolean; children: ReactNode }) {
   const [permission, setPermission] = useState<PermissionState>('unknown');
   const [device, setDevice] = useState<CurrentPosition | null>(null);
-  const [fakeMode, setFakeModeState] = useState(false);
+  const [fakeModeState, setFakeModeState] = useState(false);
+  // Literal __DEV__ so release builds compile fake mode away entirely.
+  const fakeMode = __DEV__ && fakeModeState;
   const [fakeLocation, setFakeLocationState] = useState<(LatLon & { timestamp: number }) | null>(null);
 
   const requestPermission = useCallback(async () => {
