@@ -42,7 +42,11 @@ fi
 
 section tailscale
 command -v tailscale >/dev/null && tailscale status --self --peers=false
-command -v tailscale >/dev/null && tailscale serve status
+if command -v tailscale >/dev/null; then
+  tailscale serve status | sed -E 's#https://[^ ]+\.ts\.net#https://<name>.ts.net#'
+  funnel=$(tailscale serve status --json | jq -r '.AllowFunnel // {} | to_entries[] | select(.value) | .key')
+  echo "funnel: ${funnel:-off}"
+fi
 
 section listening sockets
 ss -Htlnup | awk '{ print $1, $5, $7 }' | sort -k2

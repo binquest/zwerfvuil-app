@@ -206,6 +206,17 @@ Alle andere paden (Studio op `/`, `/pg`, `/analytics`, `/graphql`, realtime) gev
 via het tailnet 404. Docker publiceert alleen `127.0.0.1:8000` (gateway) en
 `127.0.0.1:5432` (Postgres); `70-supabase.sh` weigert elke andere binding.
 
+Getest vanaf de pc:
+
+- Via `https://…ts.net` werken de vier API-paden; `/`, `/project/default`,
+  `/api/platform/profile`, `/pg`, `/analytics`, `/graphql`, `/realtime`, `/auth`,
+  `/rest` en varianten zoals `/auth/v1x` geven 404, ook met path traversal
+  (`/rest/v1/../../pg/…`, `%2e%2e`, `%2f`).
+- Op het LAN-IP is alleen 22 open; op het Tailscale-IP alleen 443. 3000, 4000, 5000,
+  5432, 6543, 8000, 8080, 8443, 9000, 9999 en 10000 zijn op beide dicht.
+- `tailscale serve` stuurt identiteitsheaders mee (`Tailscale-User-Login`, met
+  het e-mailadres); die komen niet in de logs van Logflare terecht.
+
 De tunnel (laat het venster open, stoppen met Ctrl+C):
 
 ```powershell
@@ -263,6 +274,10 @@ controle op de dataschijf altijd geldt.
   Tailscale. De eerste keer moet Serve voor het tailnet aangezet worden: het
   script toont dan een URL (`login.tailscale.com/f/serve?node=…`); open die, zet
   Serve aan en draai het script opnieuw.
+- **Funnel blijft uit** (publiceren naar het internet). De node heeft het
+  Funnel-recht niet in de tailnet-policy, en `75-tailscale-serve.sh` faalt als
+  het toch Funnel op een poort vindt (voor en na het instellen). `status` toont
+  `funnel: off`. Zet nooit `tailscale funnel` aan voor deze node.
 - De ts.net-naam staat in de publieke Certificate Transparency-logs (zo werken
   HTTPS-certificaten); de naam zelf geeft geen toegang.
 
