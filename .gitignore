@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+
+# OSM downloads and generated data (regenerate with scripts/osm/osm_bins.py)
+data/*
+!data/.gitkeep
+
+# Environment files and secrets
+.env
+.env.*
+!.env.example
+*.local
+
+# Expo
+app/.expo/
+app/dist/
+app/web-build/
+app/ios/
+app/android/
+*.tsbuildinfo
+
+# Supabase CLI state
+supabase/.branches/
+supabase/.temp/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
