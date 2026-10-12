@@ -103,14 +103,18 @@ dicht, behalve:
 
 | Poort | Vanaf | Waarom |
 |---|---|---|
-| 22/tcp | `LAN_CIDR` | SSH vanaf het LAN. Logins vanaf de pc komen binnen vanaf de router (de Tailscale subnet router doet SNAT); die valt binnen `LAN_CIDR` |
-| 22/tcp | `tailscale0` | SSH via het tailnet |
+| 22/tcp | `LAN_CIDR`, niet via `tailscale0` | SSH, alleen vanaf het LAN. Van buitenaf kom je binnen via de Tailscale subnet router: die doet SNAT naar zijn eigen LAN-adres, dat binnen `LAN_CIDR` valt |
 | 443/tcp | `tailscale0` | `tailscale serve` (de API, vanaf fase 2) |
-| 41641/udp | overal | directe WireGuard-verbindingen van Tailscale |
+| 41641/udp | overal | directe WireGuard-verbindingen van Tailscale (die komen binnen op de LAN-interface, niet op `tailscale0`) |
 
+- SSH via het Tailscale-IP van de VM werkt dus **niet**, ook niet voor jezelf.
+  Zo kan iemand met wie de node gedeeld is nooit aan SSH. Gebruik het LAN-IP
+  (de alias `binquest-staging`).
 - De tabellen van Docker en Tailscale blijven ongemoeid. Een pakket dat deze
   tabel weigert, komt er niet door, ook als Docker of Tailscale het elders
-  toelaat.
+  toelaat. Dat is nodig: Tailscale zet in zijn eigen chain
+  `iifname "tailscale0" accept`. Getest: via het Tailscale-IP zijn 22 en een
+  testpoort dicht en is alleen 443 bereikbaar.
 - **Docker-poorten omzeilen deze firewall** (ze worden naar de container
   ge-DNAT voor de input-hook). Daarom staat in `/etc/docker/daemon.json`
   `"ip": "127.0.0.1"`: een gepubliceerde poort zonder IP luistert alleen lokaal.
@@ -140,10 +144,54 @@ dicht, behalve:
 - Schijf groter maken: in Proxmox vergroten, daarna op de VM
   `sudo resize2fs /dev/sdb` (er is geen partitietabel).
 
-## Updates
+## Tailscale
 
-- **Automatisch**: Debian-security-updates (unattended-upgrades, dagelijks).
-  Geen automatische reboot.
+- De VM staat op het tailnet als `binquest-staging`, met `--accept-dns=false`
+  (DNS blijft die van het LAN) en `--accept-routes=false` (de VM zit zelf op het
+  LAN en mag dat niet via de subnet router routeren). Key expiry staat uit.
+- Vanaf fase 2 publiceert `tailscale serve` alleen de API op
+  `https://binquest-staging.<tailnet>.ts.net`.
+
+### Tailnet-ACL voor gedeelde gebruikers
+
+Wie de node gedeeld krijgt (bv. de cofounder), valt onder `autogroup:shared`.
+Een regel met `"src": ["*"]` geldt ook voor hen, dus vervang die door
+`autogroup:member` en geef gedeelde gebruikers alleen 443 op deze node. In de
+Tailscale admin console → Access controls (`<TAILSCALE_IP_VM>`: `tailscale ip -4`
+op de VM):
+
+```jsonc
+{
+  "hosts": {
+    "binquest-staging": "<TAILSCALE_IP_VM>",
+  },
+  "grants": [
+    // Eigen leden: alles, zoals het standaardbeleid.
+    {"src": ["autogroup:member"], "dst": ["*"], "ip": ["*"]},
+    // Gedeelde gebruikers: alleen HTTPS naar staging.
+    {"src": ["autogroup:shared"], "dst": ["binquest-staging"], "ip": ["tcp:443"]},
+  ],
+}
+```
+
+Gebruikt je policy nog `acls` in plaats van `grants`, dan is het equivalent
+`{"action": "accept", "src": ["autogroup:shared"], "dst": ["binquest-staging:443"]}`,
+en wordt de bestaande regel met `"src": ["*"]` `"src": ["autogroup:member"]`.
+Heb je getagde toestellen die zelf verbindingen moeten openen, voeg dan ook
+`autogroup:tagged` toe als bron. Een getagd toestel kan niet gedeeld worden; laat
+`binquest-staging` dus ongetagd. Ook zonder deze ACL kunnen gedeelde gebruikers
+niet aan SSH (de firewall laat 22 op `tailscale0` niet toe).
+
+## Updates en reboots
+
+- **Automatisch**: Debian-security-updates. De pakketlijsten worden om 02:00
+  vernieuwd (+ max. 30 min), de updates om 04:00 geïnstalleerd. Heeft een update
+  een reboot nodig (bv. een nieuwe kernel, `/run/reboot-required`), dan herstart
+  de VM om **04:30**, na de database-backup van 03:30. Zonder zo'n update geen
+  reboot. Duurt de upgrade tot na 04:30, dan volgt de reboot de nacht erna.
+- Getest: met `/run/reboot-required` plant `unattended-upgrade` een reboot om
+  04:30 in (`/run/systemd/shutdown/scheduled`); `sudo shutdown -c` annuleert hem.
+  Na een reboot komen firewall, dataschijf, Docker en Tailscale vanzelf terug.
 - **Met de hand**: alle andere updates, Docker en Tailscale:
 
   ```powershell
@@ -151,4 +199,17 @@ dicht, behalve:
   ```
 
 - `stagingctl.py status` meldt "reboot needed" als er een nieuwere kernel
-  geïnstalleerd is dan er draait. Herstarten: `ssh binquest-staging "sudo systemctl reboot"`.
+  geïnstalleerd is dan er draait. Meteen herstarten:
+  `ssh binquest-staging "sudo systemctl reboot"`.
+
+## Backups van de VM (vzdump)
+
+- De VM zit in het vzdump-schema van Proxmox. Alleen de systeemschijf gaat mee;
+  de dataschijf staat op Backup uit (die krijgt in fase 4 eigen database-dumps).
+- **Die vzdump is de enige kopie van de secrets buiten de VM.** Alles in
+  `/opt/binquest` (de gegenereerde keys, wachtwoorden en `.env` van Supabase)
+  bestaat alleen op de VM en in die vzdump. Gaan beide verloren, dan moeten alle
+  secrets opnieuw gegenereerd worden, en zijn alle bestaande sessies en de
+  anon-key in de app ongeldig.
+- Dankzij de QEMU guest agent bevriest vzdump het bestandssysteem tijdens de
+  snapshot, zodat ook de Postgres-data op de systeemschijf consistent is.

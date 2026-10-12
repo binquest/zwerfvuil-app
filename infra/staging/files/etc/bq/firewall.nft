@@ -25,14 +25,16 @@ table inet bq_filter {
     iif "lo" accept
     meta l4proto { icmp, ipv6-icmp } accept
 
-    # SSH from the home LAN. Logins from the PC arrive from the router
-    # (the Tailscale subnet router SNATs them), which is inside LAN_CIDR.
-    ip saddr $LAN_CIDR tcp dport 22 accept
+    # SSH only from the home LAN, never on tailscale0, so users this node is
+    # shared with cannot reach it. From outside, SSH still works through the
+    # Tailscale subnet router, which SNATs to its own address in LAN_CIDR.
+    iifname != "tailscale0" ip saddr $LAN_CIDR tcp dport 22 accept
 
-    # From the tailnet: SSH, and HTTPS for `tailscale serve`.
-    iifname "tailscale0" tcp dport { 22, 443 } accept
+    # From the tailnet only HTTPS, for `tailscale serve`.
+    iifname "tailscale0" tcp dport 443 accept
 
-    # Tailscale direct (peer-to-peer) WireGuard connections.
+    # Tailscale direct (peer-to-peer) WireGuard connections. They arrive on
+    # the LAN interface, not on tailscale0.
     udp dport 41641 accept
   }
 }

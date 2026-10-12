@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Firewall (nftables): everything inbound closed except SSH from the LAN and
-# the tailnet, HTTPS on the tailnet, and Tailscale's WireGuard port.
+# Firewall (nftables): everything inbound closed except SSH from the LAN,
+# HTTPS on the tailnet, and Tailscale's WireGuard port.
 #
 #   LAN_CIDR=192.168.x.0/24 30-firewall.sh   apply; rolled back after 5 minutes
 #   30-firewall.sh confirm                    keep it (after a new SSH login worked)
@@ -18,9 +18,9 @@ LAN_CIDR="${LAN_CIDR:-}"
 is_ipv4_cidr "$LAN_CIDR" || die "set LAN_CIDR (e.g. 192.168.1.0/24) in infra/staging/.env"
 
 # Refuse rules that would lock out the session that is applying them.
-if [ -n "${BQ_SSH_FROM:-}" ] && [[ "$BQ_SSH_FROM" != 100.* ]]; then
-  ip_in_cidr "$BQ_SSH_FROM" "$LAN_CIDR" ||
-    die "this SSH session comes from $BQ_SSH_FROM, which is outside LAN_CIDR $LAN_CIDR"
+if [ -n "${BQ_SSH_FROM:-}" ]; then
+  [[ "$BQ_SSH_FROM" =~ ^[0-9.]+$ ]] && ip_in_cidr "$BQ_SSH_FROM" "$LAN_CIDR" ||
+    die "this SSH session comes from $BQ_SSH_FROM, which is outside LAN_CIDR $LAN_CIDR (SSH is LAN-only)"
 fi
 vm_ip=$(ip -4 -o route get 1.1.1.1 | sed -n 's/.* src \([0-9.]*\).*/\1/p')
 ip_in_cidr "$vm_ip" "$LAN_CIDR" || warn "the VM's own address $vm_ip is outside LAN_CIDR $LAN_CIDR"

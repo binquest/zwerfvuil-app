@@ -93,10 +93,12 @@ echte gebruikersdata vraagt meer.
 - [ ] **`deploy` heeft sudo zonder wachtwoord.** Wie de SSH-key heeft, is root op de
   VM. Voor een omgeving met echte data: aparte rollen, of sudo met wachtwoord en
   alleen voor de nodige commando's.
-- [ ] **Alleen Debian-security-updates gaan automatisch.** Docker, Tailscale en
-  Debian-point-releases worden met de hand bijgewerkt, en er is geen automatische
-  reboot na een kernelupdate (`stagingctl.py status` meldt "reboot needed"). Er is
-  geen melding als niemand kijkt.
+- [ ] **Alleen Debian-security-updates gaan automatisch** (met een reboot om 04:30
+  als dat nodig is). Docker, Tailscale en Debian-point-releases worden met de hand
+  bijgewerkt; niemand krijgt een melding als daar een security-update voor klaarstaat.
+- [ ] **Secrets hebben maar één kopie buiten de VM**: de vzdump van de VM, op de
+  homeserver zelf. Voor een omgeving met echte data: een secrets-manager of een
+  versleutelde kopie op een andere plek.
 - [ ] **Geen monitoring of alerts**: valt de VM, de dataschijf of Docker uit, dan
   merkt niemand dat tot iemand test.
 
