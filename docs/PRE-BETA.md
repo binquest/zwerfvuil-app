@@ -14,8 +14,10 @@ voor echte gebruikers. Wordt aangevuld telkens zo'n keuze gemaakt wordt.
   goedgekeurde check-in herroept en de punten aftrekt, met reden.
 - [ ] **Audit log.** Alleen `reviewed_by`/`reviewed_at` worden bewaard. Wijzigingen
   aan `eligible_override` (uitsluiten/toelaten) laten geen spoor na.
-- [ ] **Admins beheren.** Admin worden kan nu alleen via SQL (Studio). Er is geen
-  manier om admins te zien of in te trekken in de app.
+- [ ] **Admins beheren.** Admin worden of af gaat nu via `scripts/seed-admin`
+  (alleen lokale database) of SQL. Er is geen manier om admins te zien of te
+  beheren in de app, en het script maakt een ontbrekend account meteen bevestigd
+  aan (zonder e-mailverificatie).
 
 ## Fraude en misbruik
 

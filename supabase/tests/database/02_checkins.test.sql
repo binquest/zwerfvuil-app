@@ -48,6 +48,18 @@ language sql as $$
       '11111111-1111-1111-1111-111111111111/x.jpg') r;
 $$;
 
+-- Noise: another user's activity, as in a dev database with real data.
+-- Every count and pick above and below must stay scoped to the test users.
+insert into auth.users (id, email, aud, role) values
+  ('44444444-4444-4444-4444-444444444444', 'noise@example.test', 'authenticated', 'authenticated');
+insert into checkins (user_id, bin_id, photo_path, user_geom, accuracy_m, distance_m)
+select '44444444-4444-4444-4444-444444444444', (select id from bins where osm_id = 900000000000207), '44444444-4444-4444-4444-444444444444/c.jpg', 'SRID=4326;POINT(0 0)', 5, 1
+from generate_series(1, 3);
+insert into storage.objects (bucket_id, name) values
+  ('report-photos', '44444444-4444-4444-4444-444444444444/n.jpg');
+insert into bin_reports (user_id, geom, photo_path) values
+  ('44444444-4444-4444-4444-444444444444', 'SRID=4326;POINT(0 0)', '44444444-4444-4444-4444-444444444444/n.jpg');
+
 -- ---------------------------------------------------------------------------
 -- Who may call record_checkin
 -- ---------------------------------------------------------------------------
@@ -115,8 +127,9 @@ select is((select reason from pg_temp.checkin(900000000000201, 5)), null,
 insert into checkins (user_id, bin_id, photo_path, user_geom, accuracy_m, distance_m, created_at)
 select '11111111-1111-1111-1111-111111111111', pg_temp.bin(900000000000201), 'f.jpg',
        'SRID=4326;POINT(0 0)', 5, 1, local_day_start(now())
-from generate_series(1, 20 - (select count(*)::int from checkins where created_at >= local_day_start(now())));
-select is((select count(*)::int from checkins where created_at >= local_day_start(now())), 20,
+from generate_series(1, 20 - (select count(*)::int from checkins
+                              where user_id = '11111111-1111-1111-1111-111111111111' and created_at >= local_day_start(now())));
+select is((select count(*)::int from checkins where user_id = '11111111-1111-1111-1111-111111111111' and created_at >= local_day_start(now())), 20,
   'alice has 20 check-ins today');
 select is((select reason from pg_temp.checkin(900000000000207, 1)), 'daily_limit',
   'the 21st check-in of the day is refused');

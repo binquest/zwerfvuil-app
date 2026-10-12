@@ -25,6 +25,18 @@ insert into bin_reports (user_id, geom, photo_path, note) values
   ('11111111-1111-1111-1111-111111111111', st_project('SRID=4326;POINT(0 0)'::geography, 30, 0),
    '11111111-1111-1111-1111-111111111111/r.jpg', 'Bij de bushalte');
 
+-- Noise: another user's activity, as in a dev database with real data.
+-- Every count and pick above and below must stay scoped to the test users.
+insert into auth.users (id, email, aud, role) values
+  ('44444444-4444-4444-4444-444444444444', 'noise@example.test', 'authenticated', 'authenticated');
+insert into checkins (user_id, bin_id, photo_path, user_geom, accuracy_m, distance_m)
+select '44444444-4444-4444-4444-444444444444', current_setting('test.b1')::bigint, '44444444-4444-4444-4444-444444444444/c.jpg', 'SRID=4326;POINT(0 0)', 5, 1
+from generate_series(1, 3);
+insert into storage.objects (bucket_id, name) values
+  ('report-photos', '44444444-4444-4444-4444-444444444444/n.jpg');
+insert into bin_reports (user_id, geom, photo_path) values
+  ('44444444-4444-4444-4444-444444444444', 'SRID=4326;POINT(0 0)', '44444444-4444-4444-4444-444444444444/n.jpg');
+
 -- regular user ---------------------------------------------------------------
 
 set local role authenticated;
@@ -59,24 +71,24 @@ select throws_ok($$ select * from set_bin_eligibility(-1, false) $$, 'P0002', nu
 select throws_ok($$ select * from set_bin_eligibility(current_setting('test.b1')::bigint, null) $$, '22023', null,
   'eligible must not be null');
 
-select is((select count(*)::int from pending_checkins()), 1, 'admins see pending check-ins');
+select is((select count(*)::int from pending_checkins() where user_id = '11111111-1111-1111-1111-111111111111'), 1, 'admins see pending check-ins');
 select ok(
   (select c.display_name = 'alice' and c.bin_id = current_setting('test.b1')::bigint
           and abs(c.bin_latitude) < 1e-9 and abs(c.bin_longitude) < 1e-9
           and abs(c.latitude - 12 / 110574.3) < 1e-6 and c.photo_path like '%/c.jpg'
-   from pending_checkins() c),
+   from pending_checkins() c where c.user_id = '11111111-1111-1111-1111-111111111111'),
   'pending check-ins include the user, the bin and both locations');
 
-select is((select count(*)::int from pending_bin_reports()), 1, 'admins see pending reports');
+select is((select count(*)::int from pending_bin_reports() where user_id = '11111111-1111-1111-1111-111111111111'), 1, 'admins see pending reports');
 select ok(
   (select r.display_name = 'alice' and r.note = 'Bij de bushalte' and abs(r.nearest_bin_m - 30) < 0.01
-   from pending_bin_reports() r),
+   from pending_bin_reports() r where r.user_id = '11111111-1111-1111-1111-111111111111'),
   'pending reports include the note and the distance to the nearest active bin');
 
-select lives_ok($$ select review_checkin((select id from pending_checkins() limit 1), true) $$,
+select lives_ok($$ select review_checkin((select id from pending_checkins() where user_id = '11111111-1111-1111-1111-111111111111'), true) $$,
   'admins can review the listed check-in');
-select is((select count(*)::int from pending_checkins()), 0, 'reviewed check-ins leave the queue');
-select lives_ok($$ select review_bin_report((select id from pending_bin_reports() limit 1), false) $$,
+select is((select count(*)::int from pending_checkins() where user_id = '11111111-1111-1111-1111-111111111111'), 0, 'reviewed check-ins leave the queue');
+select lives_ok($$ select review_bin_report((select id from pending_bin_reports() where user_id = '11111111-1111-1111-1111-111111111111'), false) $$,
   'admins can review the listed report');
 
 reset role;

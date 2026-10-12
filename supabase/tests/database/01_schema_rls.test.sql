@@ -42,6 +42,18 @@ select is(
   'new profiles start with 0 points'
 );
 
+-- Noise: another user's activity, as in a dev database with real data.
+-- Every count and pick above and below must stay scoped to the test users.
+insert into auth.users (id, email, aud, role) values
+  ('44444444-4444-4444-4444-444444444444', 'noise@example.test', 'authenticated', 'authenticated');
+insert into checkins (user_id, bin_id, photo_path, user_geom, accuracy_m, distance_m)
+select '44444444-4444-4444-4444-444444444444', (select id from bins where osm_id = 900000000000101), '44444444-4444-4444-4444-444444444444/c.jpg', 'SRID=4326;POINT(0 0)', 5, 1
+from generate_series(1, 3);
+insert into storage.objects (bucket_id, name) values
+  ('report-photos', '44444444-4444-4444-4444-444444444444/n.jpg');
+insert into bin_reports (user_id, geom, photo_path) values
+  ('44444444-4444-4444-4444-444444444444', 'SRID=4326;POINT(0 0)', '44444444-4444-4444-4444-444444444444/n.jpg');
+
 -- ---------------------------------------------------------------------------
 -- anon
 -- ---------------------------------------------------------------------------
@@ -159,27 +171,28 @@ reset role;
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"33333333-3333-3333-3333-333333333333","role":"authenticated"}', true);
 
-select is((select count(*)::int from checkins), 2, 'admins see all check-ins');
-select is((select count(*)::int from storage.objects where bucket_id = 'report-photos'), 1,
+select is((select count(*)::int from checkins where user_id in ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222')), 2, 'admins see all check-ins');
+select is((select count(*)::int from storage.objects where bucket_id = 'report-photos'
+                                  and name like '11111111-1111-1111-1111-111111111111/%'), 1,
   'admins can read report photos');
 select throws_ok($$ update checkins set status = 'approved' $$, '42501', null,
   'admins cannot update check-ins directly either');
 
 select is(
-  (select r.status from review_bin_report((select id from bin_reports limit 1), true) r),
+  (select r.status from review_bin_report((select id from bin_reports where user_id = '11111111-1111-1111-1111-111111111111'), true) r),
   'approved',
   'admins can approve a report'
 );
 select ok(
   exists (
     select 1 from bin_reports r join bins b on b.id = r.bin_id
-    where b.source = 'user' and b.status = 'active' and b.eligible
+    where r.user_id = '11111111-1111-1111-1111-111111111111' and b.source = 'user' and b.status = 'active' and b.eligible
       and st_equals(b.geom::geometry, r.geom::geometry)
   ),
   'approving a report creates an active user bin at the reported location'
 );
 select throws_ok(
-  $$ select review_bin_report((select id from bin_reports limit 1), false) $$,
+  $$ select review_bin_report((select id from bin_reports where user_id = '11111111-1111-1111-1111-111111111111'), false) $$,
   '55000', null, 'a report can only be reviewed once');
 select throws_ok(
   $$ select review_bin_report(gen_random_uuid(), true) $$,

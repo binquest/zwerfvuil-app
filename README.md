@@ -10,104 +10,164 @@ alleen de testregio rond de Oude Houtlei in Gent (+600 m).
 | `supabase/` | Migraties, edge function `submit-checkin`, e-mailtemplate, database- en functietests |
 | `scripts/osm/` | Testregio bepalen, Belgium-PBF downloaden, vuilbakken extraheren |
 | `scripts/import-bins/` | `data/bins.geojson` importeren in de database |
+| `scripts/seed-admin/` | Een account admin maken op basis van een e-mailadres |
 | `config/region.json` | De testregio (gedeeld door scripts en app) |
 | `docs/PRE-BETA.md` | Wat nog moet gebeuren voor er echte gebruikers bij komen |
 
+## In het kort (eerste keer)
+
+Alle commando's draai je vanuit de root van de repo, in PowerShell (zie de
+stappen hieronder voor details en WSL).
+
+```powershell
+npm install
+npm --prefix app install
+py -m venv .venv
+.venv\Scripts\python -m pip install -r scripts\requirements.txt
+Copy-Item .env.example .env
+Copy-Item supabase\functions\.env.example supabase\functions\.env
+Copy-Item app\.env.example app\.env.local
+npm run db:start
+.venv\Scripts\python scripts\osm\osm_bins.py all
+.venv\Scripts\python scripts\import-bins\import_bins.py
+.venv\Scripts\python scripts\seed-admin\seed_admin.py --email jij@voorbeeld.be
+cd app
+npx expo start --clear
+```
+
+Vul vóór `npx expo start` eerst `app/.env.local` in (stap 6). De `Copy-Item`-regels
+zijn alleen voor de eerste keer: ze overschrijven bestaande bestanden.
+
 ## Vereisten
 
-- Windows met PowerShell (of WSL), Docker Desktop, Node.js 20+, Python 3.12+
-- Op de iPhone: Expo Go (SDK 57)
-
-Alle commando's hieronder draai je vanuit de root van de repo, tenzij anders vermeld.
+- Windows met PowerShell (of WSL), Docker Desktop (draaiend), Node.js 20+,
+  Python 3.12+ (op Windows via `py`)
+- Op de iPhone: Expo Go (SDK 57); voor testen op straat ook Tailscale
 
 ## 1. Installeren
 
-```bash
-npm install
-```
-
-```bash
-npm --prefix app install
-```
-
-Python-omgeving voor de scripts (PowerShell):
-
 ```powershell
+npm install
+npm --prefix app install
 py -m venv .venv
 .venv\Scripts\python -m pip install -r scripts\requirements.txt
 ```
 
-In WSL: `python3 -m venv .venv && .venv/bin/pip install -r scripts/requirements.txt`
-(en gebruik daarna `.venv/bin/python` in plaats van `.venv\Scripts\python`).
+`npm install` in de root installeert de Supabase CLI en Deno (vaste versies in
+`package.json`); je hoeft niets globaal te installeren.
 
-## 2. Supabase starten
+In WSL: `python3 -m venv .venv && .venv/bin/pip install -r scripts/requirements.txt`,
+en gebruik daarna overal `.venv/bin/python` in plaats van `.venv\Scripts\python`.
 
-Kopieer eerst de env van de edge functions (de dev-escape staat daarin standaard uit):
+## 2. Configuratie
+
+Er zijn drie configuratiebestanden. Ze staan alle drie in `.gitignore`; in git
+staan alleen de `.example`-versies met placeholders.
+
+| Bestand | Voor | Voorbeeld |
+|---|---|---|
+| `.env` | de Python-scripts (`ADMIN_EMAIL`, `DATABASE_URL`, `OSM_CONTACT`) | `.env.example` |
+| `supabase/functions/.env` | de edge functions (`ALLOW_FAKE_LOCATION`) | `supabase/functions/.env.example` |
+| `app/.env.local` | de app (Supabase-URL, publishable key, Metro-host) | `app/.env.example` |
 
 ```powershell
+Copy-Item .env.example .env
 Copy-Item supabase\functions\.env.example supabase\functions\.env
+Copy-Item app\.env.example app\.env.local
 ```
+
+Doe dit alleen de eerste keer: `Copy-Item` overschrijft een bestaand bestand.
+Zet je e-mailadres alleen in `.env` (of geef het mee met `--email`), nooit in
+een bestand dat in git komt.
+
+## 3. Supabase starten en migreren
 
 ```bash
 npm run db:start
 ```
 
-De eerste keer downloadt dit de Docker-images. Bij de eerste start worden de
-migraties toegepast. Daarna:
+De eerste keer downloadt dit de Docker-images en past het alle migraties uit
+`supabase/migrations/` toe. Daarna:
 
-- Studio: http://127.0.0.1:54323
-- Mailpit (inlogcodes): http://127.0.0.1:54324
-- `npm run db:reset` bouwt de database opnieuw op (alle data weg, importeer daarna opnieuw)
-- Na een wijziging in `supabase/functions/.env` of `supabase/config.toml`: `npm run db:stop` en `npm run db:start`
+| Wat | Hoe |
+|---|---|
+| Studio (database bekijken) | http://127.0.0.1:54323 |
+| Mailpit (inlogcodes) | http://127.0.0.1:54324 |
+| Nieuwe migraties toepassen, data behouden | `npm run supabase -- migration up` |
+| Database opnieuw opbouwen (alle data weg) | `npm run db:reset`, daarna stap 4 en 5 opnieuw |
+| Na een wijziging in `supabase/functions/.env` of `supabase/config.toml` | `npm run db:stop` en `npm run db:start` |
+| Status, URL's en keys | `npm run supabase -- status` |
 
-## 3. OSM-vuilbakken importeren
+## 4. OSM-vuilbakken importeren
 
 ```powershell
 .venv\Scripts\python scripts\osm\osm_bins.py all
 .venv\Scripts\python scripts\import-bins\import_bins.py
 ```
 
-Het eerste script haalt de regio op (gecachet in `config/region.json`), downloadt
-`belgium-latest.osm.pbf` (gecachet 7 dagen) en schrijft `data/bins.geojson`. Het
-tweede doet een upsert en zet uit OSM verdwenen vuilbakken op `removed`.
+- `osm_bins.py all` haalt de testregio op via Nominatim (gecachet in
+  `config/region.json`), downloadt `belgium-latest.osm.pbf` van Geofabrik naar
+  `data/` (opnieuw na 7 dagen) en schrijft `data/bins.geojson`.
+- `import_bins.py` doet in één transactie een upsert op `(osm_type, osm_id)` en
+  zet vuilbakken die uit OSM verdwenen zijn op `removed`. Met `--dry-run` zie je
+  wat er zou veranderen zonder iets op te slaan.
 
-## 4. Admin-gebruiker
-
-Meld je eerst één keer aan in de app (stap 5), zodat je account bestaat. Maak het
-daarna admin in Studio → SQL editor:
-
-```sql
-update public.profiles set is_admin = true
-where id = (select id from auth.users where email = 'jij@voorbeeld.be');
-```
-
-## 5. App starten in Expo Go
+## 5. Admin-gebruiker
 
 ```powershell
-Copy-Item app\.env.example app\.env.local
+.venv\Scripts\python scripts\seed-admin\seed_admin.py --email jij@voorbeeld.be
 ```
 
-Vul in `app/.env.local` in:
+Of zet `ADMIN_EMAIL=...` in `.env` en draai het script zonder `--email`.
 
-- `EXPO_PUBLIC_SUPABASE_URL=http://<PC_HOST>:54321`
-- `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`: de "Publishable" key uit `npm run supabase -- status`
-- `REACT_NATIVE_PACKAGER_HOSTNAME=<PC_HOST>`
+- Bestaat het account nog niet, dan maakt het script het aan (bevestigd, zonder
+  wachtwoord). Meld je daarna in de app aan met dat adres; de code van 6 cijfers
+  staat in Mailpit.
+- Het script kan veilig opnieuw draaien. In de uitvoer wordt het adres
+  gemaskeerd (`ji*@voorbeeld.be`).
+- Admin-rechten intrekken: voeg `--revoke` toe.
+- Na `npm run db:reset` moet je het script opnieuw draaien.
 
-`<PC_HOST>` is het adres waarop je iPhone je pc bereikt: het LAN-IP (zelfde wifi,
-zie `ipconfig`) of het Tailscale-IP (mobiele data, zie hieronder). Het moet
-`.env.local` zijn: Expo leest `REACT_NATIVE_PACKAGER_HOSTNAME` alleen uit
-`.local`-bestanden.
+## 6. App starten in Expo Go
 
-```bash
+Vul `app/.env.local` in:
+
+```
+EXPO_PUBLIC_SUPABASE_URL=http://<PC_HOST>:54321
+EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<publishable key>
+REACT_NATIVE_PACKAGER_HOSTNAME=<PC_HOST>
+```
+
+- De publishable key vind je met `npm run supabase -- status` ("Publishable").
+- `<PC_HOST>` is het adres waarop je iPhone je pc bereikt:
+  - **zelfde wifi**: het LAN-IP van je pc (`ipconfig`, "IPv4 Address" van de
+    wifi-adapter);
+  - **mobiele data**: het Tailscale-IP (zie hieronder).
+- Het moet `.env.local` zijn: Expo leest `REACT_NATIVE_PACKAGER_HOSTNAME` alleen
+  uit `.local`-bestanden.
+
+```powershell
 cd app
 npx expo start --clear
 ```
 
-Scan de QR-code met de camera van je iPhone. Inloggen gaat met een code van 6
-cijfers per e-mail; lokaal komt die mail in Mailpit (zie hierboven).
+Scan de QR-code met de camera van je iPhone. Expo zet de waarden uit
+`.env.local` vast in de app: herstart na een wijziging altijd met `--clear`.
 
-De firewall moet poort 54321 (Supabase) en 8081 (Metro) toelaten op het netwerk
-dat je gebruikt; zie het firewallcommando hieronder.
+**Firewall op wifi.** Windows Firewall moet poort 54321 (Supabase) en 8081
+(Metro) toelaten op het netwerk van je wifi. Kijk welk profiel dat netwerk heeft:
+
+```powershell
+Get-NetConnectionProfile | Select-Object InterfaceAlias, NetworkCategory
+```
+
+Docker Desktop en Node.js krijgen bij installatie meestal toegang op
+"Openbaar"; staat je wifi op "Privé" en lukt de verbinding niet, voeg dan (in
+PowerShell als administrator) een regel toe voor je lokale netwerk:
+
+```powershell
+New-NetFirewallRule -DisplayName "Zwerfvuil dev via LAN" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 54321,54324,8081 -RemoteAddress LocalSubnet -Profile Private
+```
 
 ## Testen op straat via Tailscale
 
@@ -125,10 +185,10 @@ te zetten naar het internet.
    `tailscale status` mag niet "Tailscale is stopped" tonen. `tailscale ip -4` geeft
    het Tailscale-IP van je pc (`100.x.y.z`), hieronder `<TAILSCALE_IP>`.
 
-2. **Firewall** (eenmalig, PowerShell als administrator). Docker Desktop krijgt
-   bij installatie vaak alleen toegang op "openbare" netwerken, terwijl Windows het
-   Tailscale-netwerk als "privé" ziet. Deze regel laat Supabase (54321), Mailpit
-   (54324) en Metro (8081) alleen toe vanaf je eigen Tailscale-apparaten:
+2. **Firewall** (eenmalig, PowerShell als administrator). Windows ziet het
+   Tailscale-netwerk als "Privé", terwijl Docker Desktop vaak alleen toegang
+   heeft op "Openbaar". Deze regel laat Supabase (54321), Mailpit (54324) en
+   Metro (8081) alleen toe vanaf je eigen Tailscale-apparaten:
 
    ```powershell
    New-NetFirewallRule -DisplayName "Zwerfvuil dev via Tailscale" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 54321,54324,8081 -InterfaceAlias Tailscale -RemoteAddress 100.64.0.0/10 -Profile Private
@@ -143,9 +203,6 @@ te zetten naar het internet.
    REACT_NATIVE_PACKAGER_HOSTNAME=<TAILSCALE_IP>
    ```
 
-   Expo zet `EXPO_PUBLIC_*` vast in de bundel: herstart na een wijziging met
-   `npx expo start --clear`.
-
 4. **Controleren vanaf de iPhone** (Tailscale aan, wifi uit), in Safari:
    - `http://<TAILSCALE_IP>:54321/rest/v1/` → een JSON-foutmelding over een
      ontbrekende API key betekent: bereikbaar.
@@ -159,14 +216,11 @@ Tips:
 - Meld je thuis één keer aan; de sessie blijft bewaard, zodat je op straat geen
   code nodig hebt. Heb je toch een code nodig: Mailpit staat op
   `http://<TAILSCALE_IP>:54324`.
-- Terug naar wifi thuis kan via Tailscale gewoon verder; overschakelen naar het
+- Thuis op wifi kan je gewoon via Tailscale blijven werken; overschakelen naar het
   LAN-IP is niet nodig.
 - `tailscale status` toont of de iPhone `direct` of via een relay (`relay "…"`)
   verbonden is. Op mobiele data is dat vaak een relay (DERP): dat werkt, maar met
   meer vertraging (~100 ms). `tailscale ping <iphone-naam>` meet die vertraging.
-- In dev logt de app elke inworppoging naar de Metro-console als
-  `[submit-checkin] {...}` (status, duur, uploadgrootte, fout), en toont ze
-  technische details onder de foutmelding.
 
 ## Dev: nep-locatie (thuis testen)
 
@@ -191,13 +245,29 @@ npm --prefix app test
 ```
 
 ```powershell
+.venv\Scripts\python -m unittest discover -s scripts
 .venv\Scripts\python -m unittest discover -s scripts/osm
 .venv\Scripts\python -m unittest discover -s scripts/import-bins
+.venv\Scripts\python -m unittest discover -s scripts/seed-admin
 ```
 
-`db:test`, `test:functions:integration` en de import-tests hebben een draaiende
-Supabase nodig. De integratietests maken tijdelijke gebruikers en data aan en
-ruimen die zelf op.
+`db:test`, `test:functions:integration` en de import- en seed-tests hebben een
+draaiende Supabase nodig. De integratietests maken tijdelijke accounts en data
+aan (`@example.test`) en ruimen die zelf op. Met `CHECKIN_API_URL=http://<host>:54321`
+stuurt de check-in-test zijn requests via een ander adres, bijvoorbeeld je
+Tailscale-IP.
+
+## Problemen oplossen
+
+| Probleem | Oplossing |
+|---|---|
+| De app toont "App niet geconfigureerd" | `app/.env.local` ontbreekt of bevat nog placeholders; vul het in en start met `npx expo start --clear` |
+| `expo start` meldt "Refused to load personal environment variables" | `REACT_NATIVE_PACKAGER_HOSTNAME` staat in `app/.env`; verplaats alles naar `app/.env.local` |
+| Expo Go laadt niet of de app krijgt geen verbinding | Open de controle-URL's uit de Tailscale-stappen in Safari; controleer de firewall, `tailscale status` en `<PC_HOST>` in `app/.env.local` |
+| Geen inlogcode ontvangen | Lokaal gaan mails naar Mailpit (poort 54324), niet naar je echte mailbox; per account kan er maximaal 1 mail per seconde vertrekken |
+| Inworp mislukt | De melding zegt wat er mis is (netwerk, timeout, serverfout, weigering). In dev staat elke poging als `[submit-checkin] {...}` in de Metro-console |
+| Na `npm run db:reset` is alles leeg | Importeer opnieuw (stap 4) en maak jezelf opnieuw admin (stap 5) |
+| Poorten 54321–54327 bezet | `npm run db:stop`, of stop een ander Supabase-project |
 
 ## Data en licentie
 

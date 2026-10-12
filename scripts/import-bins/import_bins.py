@@ -10,24 +10,25 @@ Usage (from anywhere, paths are resolved from the repo root):
     python scripts/import-bins/import_bins.py --dry-run
     python scripts/import-bins/import_bins.py --file path/to/bins.geojson
 
-The database URL comes from DATABASE_URL and defaults to the local Supabase
-database. Non-local hosts are refused unless --allow-remote is given.
+The database URL comes from DATABASE_URL (shell or the repo-root .env) and
+defaults to the local Supabase database. Non-local hosts are refused unless
+--allow-remote is given.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlparse
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import devenv  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_FILE = ROOT / "data" / "bins.geojson"
-DEFAULT_DATABASE_URL = "postgresql://postgres:postgres@127.0.0.1:54322/postgres"
-LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
+DEFAULT_DATABASE_URL = devenv.DEFAULT_DATABASE_URL
 
 OSM_TYPES = ("node", "way", "relation")
 # Bins that must not earn points. A bin is only excluded when *all* its waste
@@ -179,10 +180,7 @@ def import_bins(conn, rows: list[BinRow], *, allow_mass_removal: bool = False) -
     return ImportResult(total=len(rows), inserted=inserted, updated=updated, removed=removed)
 
 
-def check_local(url: str, allow_remote: bool) -> None:
-    host = urlparse(url).hostname or ""
-    if host not in LOCAL_HOSTS and not allow_remote:
-        sys.exit(f"Refusing to import into non-local database host {host!r}; pass --allow-remote to override")
+check_local = devenv.require_local
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -196,7 +194,8 @@ def main(argv: list[str] | None = None) -> None:
 
     import psycopg  # imported lazily so the pure helpers can be tested without it
 
-    url = os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL)
+    devenv.load_env_file()
+    url = devenv.database_url()
     check_local(url, args.allow_remote)
     if not args.file.exists():
         sys.exit(f"{args.file} not found, run scripts/osm/osm_bins.py first")

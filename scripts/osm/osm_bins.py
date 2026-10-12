@@ -28,6 +28,9 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import devenv  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[2]
 REGION_PATH = ROOT / "config" / "region.json"
 DATA_DIR = ROOT / "data"
@@ -48,11 +51,15 @@ PBF_MAX_AGE_DAYS = 7
 BIN_TAG = ("amenity", "waste_basket")
 COORD_DECIMALS = 7  # OSM stores coordinates with 7 decimals
 
-# Nominatim usage policy: identify the application. Set OSM_CONTACT (an email
-# address or URL) to include a contact in the User-Agent.
-_contact = os.environ.get("OSM_CONTACT", "").strip()
-USER_AGENT = "zwerfvuil-app-mvp/0.1 (Gent test region import" + (f"; {_contact})" if _contact else ")")
 MIN_REQUEST_INTERVAL_S = 1.0  # Nominatim: max 1 request per second
+
+
+def user_agent() -> str:
+    """Nominatim usage policy: identify the application. OSM_CONTACT (shell or the
+    repo-root .env; an email address or URL) adds a contact."""
+    contact = os.environ.get("OSM_CONTACT", "").strip()
+    return "zwerfvuil-app-mvp/0.1 (Gent test region import" + (f"; {contact})" if contact else ")")
+
 
 _last_request_at = 0.0
 
@@ -218,7 +225,7 @@ def http_get(url: str):
     wait = _last_request_at + MIN_REQUEST_INTERVAL_S - time.monotonic()
     if wait > 0:
         time.sleep(wait)
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    request = urllib.request.Request(url, headers={"User-Agent": user_agent()})
     try:
         return urllib.request.urlopen(request, timeout=60)
     finally:
@@ -531,6 +538,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--force", action="store_true", help="download even if the cached file is recent")
     p.set_defaults(func=cmd_all)
     args = parser.parse_args(argv)
+    devenv.load_env_file()
     args.func(args)
 
 
