@@ -153,6 +153,18 @@ class DatabaseImportTests(unittest.TestCase):
         self.run_import(feature(a, tags={"access": "private"}))
         self.assertFalse(self.fetch(a)[1])
 
+    def test_import_never_touches_eligible_override(self):
+        a = FAKE_ID + 30
+        self.run_import(feature(a), allow_mass_removal=True)
+        with self.conn.cursor() as cur:
+            cur.execute("update public.bins set eligible_override = true where osm_type = 'node' and osm_id = %s", (a,))
+        result = self.run_import(feature(a, tags={"waste": "sharps"}))
+        self.assertEqual(result.updated, 1)
+        with self.conn.cursor() as cur:
+            cur.execute("""select eligible, eligible_override, eligible_effective from public.bins
+                           where osm_type = 'node' and osm_id = %s""", (a,))
+            self.assertEqual(cur.fetchone(), (False, True, True))
+
     def test_user_bins_are_never_marked_removed(self):
         with self.conn.cursor() as cur:
             cur.execute("""insert into public.bins (geom, source) values

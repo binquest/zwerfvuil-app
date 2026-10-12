@@ -386,6 +386,14 @@ deno_version = 2
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
+# Local function env vars (e.g. ALLOW_FAKE_LOCATION) go in supabase/functions/.env,
+# see supabase/functions/.env.example.
+[functions.submit-checkin]
+enabled = true
+verify_jwt = true
+import_map = "./functions/submit-checkin/deno.json"
+entrypoint = "./functions/submit-checkin/index.ts"
+
 [analytics]
 # Disabled for local development: the log collector needs the Docker daemon
 # socket, which is not exposed by default on Docker Desktop for Windows.

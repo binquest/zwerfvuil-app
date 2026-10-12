@@ -8,9 +8,13 @@
     "db:stop": "supabase stop",
     "db:reset": "supabase db reset",
     "db:test": "supabase test db",
-    "db:lint": "supabase db lint --schema public --level warning"
+    "db:lint": "supabase db lint --schema public --level warning",
+    "functions:check": "deno check --config supabase/functions/submit-checkin/deno.json supabase/functions/submit-checkin/index.ts && deno lint --config supabase/functions/deno.json supabase/functions && deno fmt --check --config supabase/functions/deno.json supabase/functions",
+    "test:functions": "deno test --config supabase/functions/deno.json supabase/functions/tests",
+    "test:functions:integration": "deno test --config supabase/functions/deno.json --allow-net --allow-env --allow-read --allow-run=node supabase/functions/tests/submit-checkin.integration.ts"
   },
   "devDependencies": {
+    "deno": "2.9.6",
     "supabase": "2.120.0"
   }
 }

@@ -1,0 +1,14 @@
+{
+  "imports": {
+    "@std/assert": "jsr:@std/assert@1.0.13",
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2.117.3"
+  },
+  "fmt": {
+    "lineWidth": 120
+  },
+  "lint": {
+    "rules": {
+      "tags": ["recommended"]
+    }
+  }
+}
