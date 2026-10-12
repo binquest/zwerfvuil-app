@@ -4,6 +4,10 @@
 Usage (from the repo root):
     python infra/staging/stagingctl.py run vm/10-base.sh [args...]
     python infra/staging/stagingctl.py status
+    python infra/staging/stagingctl.py tunnel
+
+`tunnel` forwards Studio (with the API gateway) and Postgres of the VM to
+localhost on this PC until Ctrl+C; they are not reachable any other way.
 
 `run` packs infra/staging/ (without .env and Python files) into a tar
 archive, unpacks it in a temporary directory on the VM and runs the script
@@ -35,6 +39,12 @@ DEFAULT_SSH_HOST = "binquest-staging"
 # Packed for the VM; everything else in infra/staging stays on the PC.
 PACKED_DIRS = ("vm", "files")
 ENV_NAME = re.compile(r"[A-Z][A-Z0-9_]*")
+# (local port on the PC, port on the VM's 127.0.0.1, what it is). The local
+# ports differ from the local Supabase stack (5432x) so they cannot be mixed up.
+TUNNELS = (
+    (58000, 8000, "Studio: http://localhost:58000 (user binquest), API gateway on the same port"),
+    (55432, 5432, "Postgres: postgresql://postgres:<password>@localhost:55432/postgres"),
+)
 
 
 def load_config(path: Path = ENV_FILE) -> dict[str, str]:
@@ -78,6 +88,23 @@ def remote_command(script: str, args: list[str], env: dict[str, str]) -> str:
     return f'd=$(mktemp -d) && tar -xzf - -C "$d" && {run}; rc=$?; rm -rf "$d"; exit $rc'
 
 
+def tunnel_command(host: str) -> list[str]:
+    forwards = []
+    for local, remote, _ in TUNNELS:
+        forwards += ["-L", f"127.0.0.1:{local}:127.0.0.1:{remote}"]
+    return ["ssh", "-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes", "-N", *forwards, host]
+
+
+def open_tunnel() -> int:
+    for _, _, description in TUNNELS:
+        print(description)
+    print("Passwords: see docs/STAGING.md. Stop with Ctrl+C.", flush=True)
+    try:
+        return subprocess.run(tunnel_command(ssh_host(load_config())), check=False).returncode
+    except KeyboardInterrupt:
+        return 0
+
+
 def run_script(script: str, args: list[str]) -> int:
     config = load_config()
     if not (HERE / script).is_file():
@@ -94,10 +121,13 @@ def main(argv: list[str] | None = None) -> None:
     run.add_argument("script", help="path relative to infra/staging, e.g. vm/10-base.sh")
     run.add_argument("args", nargs=argparse.REMAINDER, help="arguments for the script")
     sub.add_parser("status", help="run vm/status.sh")
+    sub.add_parser("tunnel", help="forward Studio and Postgres to localhost until Ctrl+C")
     args = parser.parse_args(argv)
 
     if args.command == "status":
         sys.exit(run_script("vm/status.sh", []))
+    if args.command == "tunnel":
+        sys.exit(open_tunnel())
     sys.exit(run_script(args.script.replace("\\", "/"), args.args))
 
 

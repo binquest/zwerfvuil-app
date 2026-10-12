@@ -54,6 +54,15 @@ class PackTest(unittest.TestCase):
                 self.assertEqual(tar.extractfile("vm/a.sh").read(), b"echo a\necho b\n")
 
 
+class TunnelTest(unittest.TestCase):
+    def test_binds_only_loopback_on_both_ends(self):
+        command = stagingctl.tunnel_command("binquest-staging")
+        forwards = [command[i + 1] for i, arg in enumerate(command) if arg == "-L"]
+        self.assertEqual(forwards, ["127.0.0.1:58000:127.0.0.1:8000", "127.0.0.1:55432:127.0.0.1:5432"])
+        self.assertIn("ExitOnForwardFailure=yes", command)
+        self.assertEqual(command[-1], "binquest-staging")
+
+
 class ConfigTest(unittest.TestCase):
     def test_ssh_host_default_and_override(self):
         self.assertEqual(stagingctl.ssh_host({}), "binquest-staging")

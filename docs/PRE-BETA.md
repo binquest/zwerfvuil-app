@@ -101,6 +101,18 @@ echte gebruikersdata vraagt meer.
   versleutelde kopie op een andere plek.
 - [ ] **Geen monitoring of alerts**: valt de VM, de dataschijf of Docker uit, dan
   merkt niemand dat tot iemand test.
+- [ ] **Supabase staat vast op een niet-uitgebrachte upstream-commit** (`ff80bb1`,
+  na release 0.8.2) en wordt alleen met de hand bijgewerkt. Kies voor een omgeving
+  met echte data een release, en volg de security-meldingen van de images.
+- [ ] **Elke edge function krijgt de volledige container-omgeving**, ook
+  `SUPABASE_DB_URL` (met het Postgres-wachtwoord), de service-role-key en het
+  JWT-secret: zo werkt de upstream-router (`functions/main`). Elke functie heeft
+  dus volledige databasetoegang; houd het aantal functies klein en review ze.
+- [ ] **Secrets vervangen is niet gescript.** Een gelekte key vervangen vraagt
+  handwerk (`utils/db-passwd.sh`, nieuwe JWT-keys, nieuwe app-build).
+- [ ] **Logs (Logflare) hebben geen ingestelde bewaartermijn**; ze staan in de
+  database `_supabase` op de systeemschijf. Volg de groei op, of stel een
+  bewaartermijn in.
 
 ## Licentie (ODbL)
 

@@ -10,8 +10,8 @@ dev-omgeving.
 - Machine-specifieke waarden (IP-adressen, LAN-bereik) staan alleen in
   `infra/staging/.env` (gitignored).
 
-> Dit runbook wordt per fase aangevuld. Nu beschreven: de VM zelf (fase 1).
-> Supabase, deployen, backups, de app en het delen van de node volgen.
+> Dit runbook wordt per fase aangevuld. Nu beschreven: de VM zelf (fase 1) en
+> Supabase (fase 2). Deployen, backups, de app en het delen van de node volgen.
 
 ## Overzicht
 
@@ -80,6 +80,9 @@ Tailscale, luisterende poorten) en verandert niets.
 | `vm/40-datadisk.sh` | Dataschijf formatteren (alleen als ze helemaal leeg is) en mounten |
 | `vm/50-docker.sh` | Docker Engine en compose uit de officiële repo van Docker |
 | `vm/60-tailscale.sh` | Tailscale uit de officiële repo; de eerste keer toont het een login-URL |
+| `vm/70-supabase.sh` | Supabase self-hosted: upstream ophalen, secrets genereren (alleen de eerste keer), images, `bq-supabase.service` starten |
+| `vm/75-tailscale-serve.sh` | De API publiceren op het tailnet via `tailscale serve` |
+| `vm/check-supabase.sh` | Smoketest van de stack (alleen lezen, ruimt zijn testbucket op) |
 
 `20-ssh.sh` en `30-firewall.sh` zetten een **rollback** klaar: na 5 minuten
 wordt de wijziging teruggedraaid, tenzij je ze bevestigt. Open daarom na het
@@ -144,13 +147,124 @@ dicht, behalve:
 - Schijf groter maken: in Proxmox vergroten, daarna op de VM
   `sudo resize2fs /dev/sdb` (er is geen partitietabel).
 
+## Supabase
+
+De officiële self-hosted setup (`docker/` uit
+[supabase/supabase](https://github.com/supabase/supabase)), niet `supabase start`.
+Vastgepind op de commit in `infra/staging/files/opt/binquest/compose/SUPABASE_REF`:
+nu `ff80bb1` (30 september 2026, de laatste commit op `docker/`, na release
+0.8.2). De upstream-bestanden worden nooit aangepast; al onze wijzigingen staan
+in `docker-compose.bq.yml`.
+
+### Op de VM
+
+| Pad | Wat |
+|---|---|
+| `/opt/binquest/upstream` | sparse checkout van `supabase/supabase` (alleen `docker/`), op `SUPABASE_REF` |
+| `/opt/binquest/compose` | `docker-compose.bq.yml`, `settings.env` (zonder secrets), `host.env` (de ts.net-URL), `SUPABASE_REF` |
+| `/opt/binquest/secrets/supabase.env` | alle secrets (root, chmod 600) |
+| `/opt/binquest/data/db` | Postgres-data (systeemschijf) |
+| `/opt/binquest/functions` | edge functions: de upstream-router `main` plus onze functies |
+| `/srv/bq-data/storage` | Storage: de foto's (dataschijf) |
+| `/usr/local/sbin/bq-compose` | `docker compose` met alle bestanden en env-files hierboven |
+
+`bq-supabase.service` start de stack (en wacht tot alles gezond is), en vereist,
+net als Docker, de dataschijf. Getest: zonder schijf faalt de start; na een reboot
+start alles vanzelf.
+
+### Services
+
+| Service | | Waarom |
+|---|---|---|
+| db, auth, rest, storage, functions | aan | de app gebruikt ze |
+| api-gw (Envoy) | aan | de API-gateway; upstream gebruikt sinds kort Envoy in plaats van Kong |
+| studio, meta | aan | Studio (meta is de database-API van Studio) |
+| analytics (Logflare), vector | aan | logs in Studio; ze staan in de database `_supabase` |
+| realtime | **uit** | de app gebruikt geen realtime-kanalen |
+| imgproxy | **uit** | geen beeldtransformaties, alleen signed URL's naar de originele foto |
+| supavisor (pooler) | **uit** | geen connection pooling nodig; Postgres staat rechtstreeks op `127.0.0.1:5432` |
+
+Samen gebruiken ze ongeveer 1,5 GB RAM (Logflare ~0,5 GB).
+
+### API-keys
+
+Zoals bij de lokale Supabase CLI zijn de nieuwe keys actief: `sb_publishable_…`
+(voor de app) en `sb_secret_…` (server en scripts). Envoy vertaalt ze naar
+ES256-JWT's. De oude anon- en service-role-JWT's (HS256) werken ook; de edge
+functions gebruiken `SUPABASE_SERVICE_ROLE_KEY`. Auth tekent sessies met de
+ES256-key; de andere services controleren met `JWT_JWKS`.
+
+### Bereikbaarheid
+
+| Wat | Waar | Voor wie |
+|---|---|---|
+| API | `https://binquest-staging.<tailnet>.ts.net`, alleen `/auth/v1`, `/rest/v1`, `/storage/v1`, `/functions/v1` | het tailnet (en later wie de node gedeeld krijgt) |
+| Studio en logs | `http://localhost:58000` via de tunnel, gebruiker `binquest` | alleen via SSH |
+| Postgres | `localhost:55432` via de tunnel, gebruiker `postgres` | alleen via SSH |
+
+Alle andere paden (Studio op `/`, `/pg`, `/analytics`, `/graphql`, realtime) geven
+via het tailnet 404. Docker publiceert alleen `127.0.0.1:8000` (gateway) en
+`127.0.0.1:5432` (Postgres); `70-supabase.sh` weigert elke andere binding.
+
+De tunnel (laat het venster open, stoppen met Ctrl+C):
+
+```powershell
+.venv\Scripts\python infra\staging\stagingctl.py tunnel
+```
+
+### Secrets
+
+- `70-supabase.sh` maakt `/opt/binquest/secrets/supabase.env` één keer aan met
+  `openssl rand` en (voor de ES256-sleutels) Node in een container zonder
+  netwerk. Het script toont geen enkele waarde, controleert dat er geen enkele
+  upstream-default overblijft, en overschrijft een bestaand bestand nooit.
+- Een waarde opzoeken doe je **zelf, in je eigen terminal** (niet in een chat),
+  bv. het Studio-wachtwoord:
+
+  ```powershell
+  ssh binquest-staging "sudo grep ^DASHBOARD_PASSWORD= /opt/binquest/secrets/supabase.env"
+  ```
+
+- Secrets vervangen gaat niet door het bestand te wissen: `POSTGRES_PASSWORD`
+  wordt alleen gebruikt bij het aanmaken van de database (daarna:
+  `utils/db-passwd.sh` van upstream), en nieuwe JWT-keys maken alle sessies en de
+  key in de app ongeldig.
+
+### Beheer
+
+| Wat | Commando |
+|---|---|
+| Overzicht (containers, geheugen, schijven) | `.venv\Scripts\python infra\staging\stagingctl.py status` |
+| Smoketest | `.venv\Scripts\python infra\staging\stagingctl.py run vm/check-supabase.sh` |
+| Herstarten | `ssh binquest-staging "sudo systemctl restart bq-supabase"` |
+| Logs van één service | `ssh binquest-staging "sudo bq-compose logs --tail 100 auth"` (of in Studio: Logs) |
+| Containers | `ssh binquest-staging "sudo bq-compose ps"` |
+
+Start en stop de stack met `systemctl`, niet met `bq-compose up/down`, zodat de
+controle op de dataschijf altijd geldt.
+
+### Updaten
+
+1. Lees in `docker/CHANGELOG.md` van upstream wat er veranderd is, vooral regels
+   met "requires … update" en wijzigingen aan `docker-compose.yml`.
+2. Maak een Proxmox-snapshot van de VM (of minstens een database-dump).
+3. Zet de nieuwe commit in `SUPABASE_REF`, commit, en draai `70-supabase.sh`:
+   dat checkt de commit uit, haalt de images en maakt de gewijzigde containers
+   opnieuw aan.
+4. Draai `check-supabase.sh`.
+
 ## Tailscale
 
 - De VM staat op het tailnet als `binquest-staging`, met `--accept-dns=false`
   (DNS blijft die van het LAN) en `--accept-routes=false` (de VM zit zelf op het
   LAN en mag dat niet via de subnet router routeren). Key expiry staat uit.
-- Vanaf fase 2 publiceert `tailscale serve` alleen de API op
-  `https://binquest-staging.<tailnet>.ts.net`.
+- `tailscale serve` (`vm/75-tailscale-serve.sh`) publiceert alleen de API-paden
+  op `https://binquest-staging.<tailnet>.ts.net`, met een certificaat van
+  Tailscale. De eerste keer moet Serve voor het tailnet aangezet worden: het
+  script toont dan een URL (`login.tailscale.com/f/serve?node=…`); open die, zet
+  Serve aan en draai het script opnieuw.
+- De ts.net-naam staat in de publieke Certificate Transparency-logs (zo werken
+  HTTPS-certificaten); de naam zelf geeft geen toegang.
 
 ### Tailnet-ACL voor gedeelde gebruikers
 

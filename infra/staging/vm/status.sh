@@ -32,8 +32,17 @@ section docker
 systemctl is-active docker
 command -v docker >/dev/null && docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 
+section supabase
+if [ -x /usr/local/sbin/bq-compose ]; then
+  echo "bq-supabase: $(systemctl is-active bq-supabase.service), upstream $(cut -c1-12 /opt/binquest/compose/SUPABASE_REF 2>/dev/null)"
+  bq-compose ps --format 'table {{.Service}}\t{{.Status}}'
+  docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.CPUPerc}}'
+  du -sh /opt/binquest/data/db "$BQ_DATA/storage" 2>/dev/null
+fi
+
 section tailscale
 command -v tailscale >/dev/null && tailscale status --self --peers=false
+command -v tailscale >/dev/null && tailscale serve status
 
 section listening sockets
 ss -Htlnup | awk '{ print $1, $5, $7 }' | sort -k2
