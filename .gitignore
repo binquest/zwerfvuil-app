@@ -34,3 +34,22 @@ Thumbs.db
 
 # Supabase Studio SQL snippets (local, may contain personal data)
 supabase/snippets/
+
+# Local tool settings and caches
+.claude/settings.local.json
+**/.claude/settings.local.json
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+coverage/
+.coverage
+*.log
+desktop.ini
+
+# Keys and certificates
+*.pem
+*.key
+*.p8
+*.p12
+*.jks
