@@ -11,8 +11,8 @@ dev-omgeving.
   `infra/staging/.env` (gitignored).
 
 > Dit runbook wordt per fase aangevuld. Nu beschreven: de VM zelf (fase 1),
-> Supabase (fase 2) en deployen (fase 3). Backups, de app en het delen van de
-> node volgen.
+> Supabase (fase 2), deployen (fase 3) en backups (fase 4). De app en het delen
+> van de node volgen.
 
 ## Overzicht
 
@@ -88,6 +88,8 @@ Tailscale, luisterende poorten) en verandert niets.
 | `vm/check-auth.sh` | Login met code via Mailpit en weigering van een nep-locatie (ruimt zijn testaccount op) |
 | `vm/check-fake-location.sh` | Bewijst dat `submit-checkin` niet start met `ALLOW_FAKE_LOCATION` |
 | `vm/cleanup-test-accounts.sh` | Verwijdert testaccounts (`…@example.test`) via de Auth admin-API |
+| `vm/85-backup.sh` | Nachtelijke database-dump (`bq-backup.timer`) installeren en meteen één backup maken |
+| `vm/check-restore.sh` | Restore-test van de nieuwste dump in een wegwerpcontainer |
 
 `20-ssh.sh` en `30-firewall.sh` zetten een **rollback** klaar: na 5 minuten
 wordt de wijziging teruggedraaid, tenzij je ze bevestigt. Open daarom na het
@@ -228,6 +230,30 @@ De tunnel (laat het venster open, stoppen met Ctrl+C):
 ```powershell
 .venv\Scripts\python infra\staging\stagingctl.py tunnel
 ```
+
+### Inloggen in Studio
+
+1. Open de tunnel in een apart venster (hierboven) en laat het open.
+2. In een tweede venster, in de root van de repo:
+
+   ```powershell
+   .venv\Scripts\python infra\staging\stagingctl.py studio-login
+   ```
+
+   Dat toont de gebruikersnaam (`binquest`) en zet het wachtwoord op je
+   klembord. Het wachtwoord verschijnt nergens: niet in de terminal, niet als
+   argument van een proces (het gaat via stdin naar `Set-Clipboard`).
+3. Open `http://localhost:58000`, vul de gebruikersnaam in en plak het
+   wachtwoord met Ctrl+V.
+4. Na **60 seconden** wordt het klembord weer leeggemaakt, maar alleen als het
+   wachtwoord er dan nog op staat (een proces op de achtergrond vergelijkt een
+   hash; heb je intussen iets anders gekopieerd, dan blijft dat staan). Langer of
+   nooit wissen: `--clear-after 300` of `--clear-after 0`.
+
+Let op: staat de klembordgeschiedenis van Windows aan (Win+V), dan bewaart Windows
+daar een kopie. Verwijder die daar, of zet de geschiedenis uit
+(Instellingen → Systeem → Klembord). De browser kan het wachtwoord ook
+onthouden voor `localhost:58000`.
 
 ### Secrets
 
@@ -432,6 +458,85 @@ niet aan SSH (de firewall laat 22 op `tailscale0` niet toe).
 - `stagingctl.py status` meldt "reboot needed" als er een nieuwere kernel
   geïnstalleerd is dan er draait. Meteen herstarten:
   `ssh binquest-staging "sudo systemctl reboot"`.
+
+## Database-backups
+
+| | |
+|---|---|
+| Wat | `pg_dump` van de database `postgres` (alle schema's: public, private, auth, storage, migraties), als `supabase_admin`, custom format. Niet: de logs (`_supabase`) en de foto's zelf |
+| Wanneer | elke nacht om **03:30** (`bq-backup.timer`), vóór de updates (04:00) en de eventuele reboot (04:30). Was de VM uit, dan bij de volgende boot |
+| Waar | `/srv/bq-data/backups/pg/postgres-<datum>-<tijd>.dump` met een `.sha256` ernaast, op de dataschijf (de HDD) |
+| Bewaren | 7 dagen (vandaag en de 6 dagen ervoor); de nieuwste dump wordt nooit verwijderd |
+| Rechten | map `700`, bestanden `600`, alleen root: de dumps bevatten persoonsgegevens (e-mailadressen, locaties) |
+
+- Een dump wordt eerst als `.partial` geschreven en pas hernoemd als
+  `pg_restore --list` hem kan lezen; een mislukte backup laat de unit falen
+  (`stagingctl.py status` toont "last run").
+- Met de hand een backup maken: `ssh binquest-staging "sudo systemctl start bq-backup"`.
+- Getest: de retentie (nepdumps van 3, 6,5, 7,5 en 10 dagen: alleen die van 7,5 en
+  10 dagen verdwenen) en de controlesommen.
+
+### Restore-test
+
+```powershell
+.venv\Scripts\python infra\staging\stagingctl.py run vm/check-restore.sh
+```
+
+Het script controleert de `.sha256`, start een wegwerpcontainer van hetzelfde
+`supabase/postgres`-image als de live database, met dezelfde init-scripts
+(rollen, webhooks, jwt, …) maar een eigen wachtwoord, zonder netwerk en met de data
+in het geheugen. Daarin zet het de dump terug (`pg_restore --clean --if-exists`),
+vergelijkt het per tabel het aantal rijen met de live database, en verwijdert het
+de container. De live database wordt alleen gelezen.
+
+Resultaat op 12 oktober 2026 (dump `postgres-20261012-170145.dump`, 524 KB):
+0 fouten van `pg_restore`, en alle tabellen gelijk:
+
+| Tabel | Live | Teruggezet |
+|---|---|---|
+| `public.bins` | 120 | 120 |
+| `public.profiles` | 1 | 1 |
+| `public.checkins` | 0 | 0 |
+| `public.bin_reports` | 0 | 0 |
+| `private.app_environment` | 1 (`staging`) | 1 (`staging`) |
+| `auth.users` / `auth.identities` | 1 / 1 | 1 / 1 |
+| `storage.buckets` / `storage.objects` | 2 / 0 | 2 / 0 |
+| `supabase_migrations.schema_migrations` | 9 | 9 |
+
+Een eerste poging zonder de init-scripts van de stack gaf 7 fouten (de rol
+`supabase_functions_admin` ontbrak); daarom neemt het script de init-mounts van de
+live container over.
+
+Draai de test opnieuw na een Supabase-update, en af en toe met echte data.
+
+### Echt terugzetten
+
+Niet uitgevoerd op de live database; de restore-test hierboven doet hetzelfde op
+een verse database van hetzelfde image.
+
+1. Kies de dump en controleer hem:
+   `ssh binquest-staging "sudo bash -c 'cd /srv/bq-data/backups/pg && sha256sum -c postgres-<…>.dump.sha256'"`.
+2. Op de VM (`ssh binquest-staging`), eerst nog een dump van de huidige stand:
+   `sudo systemctl start bq-backup`.
+3. Stop alles behalve de database:
+   `sudo bq-compose stop api-gw auth rest storage functions meta studio analytics vector mailpit mail-templates`.
+4. Zet terug:
+   `sudo bash -c 'docker exec -i supabase-db pg_restore -U supabase_admin -d postgres --clean --if-exists < /srv/bq-data/backups/pg/postgres-<…>.dump'`.
+5. `sudo systemctl restart bq-supabase`, daarna `check-supabase.sh` en `check-auth.sh`.
+
+De foto's zitten niet in de dump: `storage.objects` verwijst naar bestanden in
+`/srv/bq-data/storage`. Na het terugzetten van een oudere dump kunnen er foto's
+zijn zonder rij (nieuwer dan de dump). Bij een volledig nieuwe VM: eerst de VM en
+Supabase opbouwen met de **oude secrets** uit de vzdump (`/opt/binquest/secrets`),
+dan de dump terugzetten en `/srv/bq-data/storage` terugplaatsen; met nieuwe secrets
+werken bestaande sessies en de key in de app niet meer.
+
+### Alles op één schijf
+
+De dataschijf (foto's én dumps) is één virtueel bestand op één fysieke HDD
+(`media1tb-vzdump`), zonder tweede kopie: de vzdump van de VM sluit die schijf uit
+en komt op dezelfde HDD terecht. Gaat de HDD stuk, dan zijn de foto's weg; van de
+database blijft de live kopie op de SSD (en de vzdump, als die elders staat).
 
 ## Backups van de VM (vzdump)
 

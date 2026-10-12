@@ -98,6 +98,16 @@ echte gebruikersdata vraagt meer.
 - [ ] **Alleen Debian-security-updates gaan automatisch** (met een reboot om 04:30
   als dat nodig is). Docker, Tailscale en Debian-point-releases worden met de hand
   bijgewerkt; niemand krijgt een melding als daar een security-update voor klaarstaat.
+- [ ] **Foto's en database-backups staan op één fysieke HDD, zonder tweede kopie.**
+  De dataschijf van de VM (`/srv/bq-data`: Storage en de nachtelijke dumps) is één
+  virtueel bestand op de HDD `media1tb-vzdump`; de vzdump sluit die schijf uit en
+  staat op dezelfde HDD. Een defecte HDD = alle foto's weg. Nodig: een kopie op
+  een ander toestel of offsite (versleuteld), en een geteste terugzetprocedure
+  voor de foto's.
+- [ ] **Database-dumps zijn niet versleuteld** en bevatten persoonsgegevens
+  (e-mailadressen, locaties). Nu alleen beschermd door root-rechten op de VM.
+- [ ] **De restore-test draait met de hand** (`vm/check-restore.sh`), niet
+  automatisch; een backup die niet terug te zetten is, valt pas op bij die test.
 - [ ] **Secrets hebben maar één kopie buiten de VM**: de vzdump van de VM, op de
   homeserver zelf. Voor een omgeving met echte data: een secrets-manager of een
   versleutelde kopie op een andere plek.

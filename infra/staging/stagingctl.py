@@ -7,6 +7,12 @@ Usage (from the repo root):
     python infra/staging/stagingctl.py tunnel
     python infra/staging/stagingctl.py deploy
     python infra/staging/stagingctl.py migrate [--apply]
+    python infra/staging/stagingctl.py studio-login [--clear-after SECONDS]
+
+`studio-login` shows the Studio user name and copies the dashboard password
+to the Windows clipboard (Set-Clipboard). The password is never printed and
+never passed as a command-line argument; the clipboard is cleared again after
+60 seconds if it still holds the password.
 
 `run` packs infra/staging/vm and infra/staging/files into a tar archive,
 unpacks it in a temporary directory on the VM and runs the script there with
@@ -33,6 +39,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import io
 import os
 import re
@@ -61,6 +68,20 @@ DEPLOY_SOURCES = {
     "deploy/templates": ROOT / "supabase" / "templates",
 }
 SUPABASE_CLI = ROOT / "node_modules" / "supabase" / "dist" / "supabase.js"
+SETTINGS_ENV = HERE / "files" / "opt" / "binquest" / "compose" / "settings.env"
+POWERSHELL = ["powershell.exe", "-NoProfile", "-NonInteractive"]
+# Reads one line from stdin and puts it on the clipboard: the value never
+# appears in a command line.
+SET_CLIPBOARD = "$v = [Console]::In.ReadLine(); Set-Clipboard -Value $v"
+# Clears the clipboard after a delay, only if it still holds the value whose
+# SHA-256 is given (so the background process never sees the value itself).
+CLEAR_CLIPBOARD = (
+    "Start-Sleep -Seconds {seconds}; $c = Get-Clipboard -Raw; if ($c) {{ "
+    "$h = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash("
+    "[Text.Encoding]::UTF8.GetBytes($c))).Replace('-', '').ToLower(); "
+    "if ($h -eq '{digest}') {{ Add-Type -AssemblyName System.Windows.Forms; "
+    "[System.Windows.Forms.Clipboard]::Clear() }} }}"
+)
 ENV_NAME = re.compile(r"[A-Z][A-Z0-9_]*")
 # (local port on the PC, port on the VM's 127.0.0.1, what it is). The local
 # ports differ from the local Supabase stack (5432x) so they cannot be mixed up.
@@ -245,6 +266,36 @@ def migrate(apply: bool) -> int:
         return supabase_cli(["migration", "list", "--db-url", db_url], cli_env)
 
 
+def copy_to_clipboard(value: str, clear_after: int) -> None:
+    """Puts `value` on the Windows clipboard via stdin; optionally clears it later."""
+    if sys.platform != "win32":
+        sys.exit("studio-login copies to the Windows clipboard (Set-Clipboard); run it in Windows PowerShell")
+    result = subprocess.run([*POWERSHELL, "-Command", SET_CLIPBOARD], input=value + "\n",
+                            capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        sys.exit(f"Set-Clipboard failed: {result.stderr.strip()}")
+    if clear_after > 0:
+        digest = hashlib.sha256(value.encode("utf-8")).hexdigest()
+        script = CLEAR_CLIPBOARD.format(seconds=int(clear_after), digest=digest)
+        # Its own hidden console, so it outlives this terminal and ignores its
+        # Ctrl+C. (With DETACHED_PROCESS, PowerShell cannot read the clipboard.)
+        flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+        subprocess.Popen([*POWERSHELL, "-Command", script], creationflags=flags,
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def studio_login(clear_after: int) -> int:
+    user = devenv.parse_env(SETTINGS_ENV.read_text(encoding="utf-8")).get("DASHBOARD_USERNAME")
+    if not user:
+        sys.exit(f"DASHBOARD_USERNAME missing in {SETTINGS_ENV}")
+    copy_to_clipboard(read_secret("DASHBOARD_PASSWORD"), clear_after)
+    print("Studio:   http://localhost:58000 (needs the tunnel: python infra/staging/stagingctl.py tunnel)")
+    print(f"User:     {user}")
+    cleared = f"; cleared again after {clear_after} s" if clear_after > 0 else ""
+    print(f"Password: copied to the clipboard (paste it with Ctrl+V){cleared}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -256,6 +307,10 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("deploy", help="install the edge functions and email templates on the VM")
     mig = sub.add_parser("migrate", help="push supabase/migrations to staging (dry run unless --apply)")
     mig.add_argument("--apply", action="store_true", help="really push the migrations")
+    login = sub.add_parser("studio-login", help="show the Studio user, copy the password to the clipboard")
+    login.add_argument("--clear-after", type=int, default=60, metavar="SECONDS",
+                       help="clear the clipboard after this many seconds if it still holds the password "
+                            "(0: never; default 60)")
     args = parser.parse_args(argv)
 
     if args.command == "status":
@@ -266,6 +321,8 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(deploy())
     if args.command == "migrate":
         sys.exit(migrate(args.apply))
+    if args.command == "studio-login":
+        sys.exit(studio_login(args.clear_after))
     sys.exit(run_script(args.script.replace("\\", "/"), args.args))
 
 

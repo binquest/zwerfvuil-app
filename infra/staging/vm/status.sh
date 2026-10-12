@@ -40,6 +40,13 @@ if [ -x /usr/local/sbin/bq-compose ]; then
   du -sh /opt/binquest/data/db "$BQ_DATA/storage" 2>/dev/null
 fi
 
+section backups
+if [ -d "$BQ_DATA/backups/pg" ]; then
+  newest=$(ls -1t "$BQ_DATA"/backups/pg/postgres-*.dump 2>/dev/null | head -1)
+  echo "dumps: $(ls -1 "$BQ_DATA"/backups/pg/postgres-*.dump 2>/dev/null | wc -l), newest: ${newest:+$(basename "$newest") ($(du -h "$newest" | cut -f1))}"
+  echo "last run: $(systemctl show -p Result --value bq-backup.service), next: $(systemctl show -p NextElapseUSecRealtime --value bq-backup.timer)"
+fi
+
 section tailscale
 command -v tailscale >/dev/null && tailscale status --self --peers=false
 if command -v tailscale >/dev/null; then

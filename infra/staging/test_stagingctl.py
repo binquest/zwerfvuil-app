@@ -1,9 +1,11 @@
+import hashlib
 import io
 import shlex
 import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import stagingctl
 
@@ -83,6 +85,48 @@ class DeployPackTest(unittest.TestCase):
     def test_secret_names_are_validated(self):
         with self.assertRaises(ValueError):
             stagingctl.read_secret("X; rm -rf /")
+
+
+class ClipboardTest(unittest.TestCase):
+    SECRET = "s3cr3t-value-for-test"
+
+    def _copy(self, clear_after):
+        calls = {}
+
+        def fake_run(args, **kwargs):
+            calls["run"] = (args, kwargs)
+            return mock.Mock(returncode=0, stderr="")
+
+        def fake_popen(args, **kwargs):
+            calls["popen"] = args
+            return mock.Mock()
+
+        with mock.patch.object(stagingctl.sys, "platform", "win32"), \
+                mock.patch.object(stagingctl.subprocess, "run", side_effect=fake_run), \
+                mock.patch.object(stagingctl.subprocess, "Popen", side_effect=fake_popen), \
+                mock.patch.object(stagingctl.subprocess, "CREATE_NO_WINDOW", 0x08000000, create=True), \
+                mock.patch.object(stagingctl.subprocess, "CREATE_NEW_PROCESS_GROUP", 512, create=True):
+            stagingctl.copy_to_clipboard(self.SECRET, clear_after)
+        return calls
+
+    def test_value_goes_through_stdin_only(self):
+        calls = self._copy(clear_after=60)
+        args, kwargs = calls["run"]
+        self.assertEqual(kwargs["input"], self.SECRET + "\n")
+        self.assertIn("Set-Clipboard", " ".join(args))
+        for argv in (args, calls["popen"]):
+            self.assertNotIn(self.SECRET, " ".join(argv))
+
+    def test_clearing_compares_a_hash_and_can_be_switched_off(self):
+        calls = self._copy(clear_after=60)
+        digest = hashlib.sha256(self.SECRET.encode()).hexdigest()
+        self.assertIn(digest, " ".join(calls["popen"]))
+        self.assertIn("Start-Sleep -Seconds 60", " ".join(calls["popen"]))
+        self.assertNotIn("popen", self._copy(clear_after=0))
+
+    def test_refuses_outside_windows(self):
+        with mock.patch.object(stagingctl.sys, "platform", "linux"), self.assertRaises(SystemExit):
+            stagingctl.copy_to_clipboard(self.SECRET, 60)
 
 
 class ConfigTest(unittest.TestCase):
