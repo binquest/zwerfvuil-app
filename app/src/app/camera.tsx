@@ -218,7 +218,16 @@ export default function CameraScreen() {
               ) : null}
               <Host matchContents={{ vertical: true }} style={{ alignSelf: 'stretch' }}>
                 <HStack spacing={10}>
-                  <GlassAction label="Opnieuw" symbol="arrow.counterclockwise" onPress={() => setPhotoUri(null)} busy={busy} />
+                  <GlassAction
+                    label="Opnieuw"
+                    symbol="arrow.counterclockwise"
+                    onPress={() => {
+                      // The camera remounts; wait for onCameraReady again.
+                      setReady(false);
+                      setPhotoUri(null);
+                    }}
+                    busy={busy}
+                  />
                   <GlassAction
                     label={mode === 'checkin' ? 'Versturen' : 'Melden'}
                     symbol="paperplane.fill"

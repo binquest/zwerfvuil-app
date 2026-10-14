@@ -30,6 +30,7 @@ const IOS = process.env.EXPO_OS === 'ios';
 export class SoundBoard {
   private pools = new Map<SoundName, AudioPlayer[]>();
   private turn = new Map<SoundName, number>();
+  private disposed = false;
 
   async load(): Promise<void> {
     try {
@@ -42,6 +43,7 @@ export class SoundBoard {
     } catch {
       // Sounds are a bonus; the reveal works without them.
     }
+    if (this.disposed) return;
     for (const name of Object.keys(SOURCES) as SoundName[]) {
       const size = name === 'tick' ? 4 : 1;
       this.pools.set(
@@ -61,8 +63,11 @@ export class SoundBoard {
     const index = (this.turn.get(name) ?? 0) % pool.length;
     this.turn.set(name, index + 1);
     const player = pool[index];
-    player.seekTo(0).catch(() => {});
-    player.play();
+    // seekTo is asynchronous on iOS: play once the player is back at the start.
+    player
+      .seekTo(0)
+      .then(() => player.play())
+      .catch(() => {});
   }
 
   /** Streak stage k (1-based), each a whole tone higher. */
@@ -75,6 +80,7 @@ export class SoundBoard {
   }
 
   dispose(): void {
+    this.disposed = true;
     for (const pool of this.pools.values()) for (const player of pool) player.remove();
     this.pools.clear();
   }

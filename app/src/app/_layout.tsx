@@ -52,6 +52,8 @@ function RootStack() {
               <Stack.Screen name="(tabs)" />
               <Stack.Screen
                 name="bin/[id]"
+                // One bin sheet: tapping another pin while it is open shows that bin.
+                dangerouslySingular={() => 'bin'}
                 options={{
                   presentation: 'formSheet',
                   sheetAllowedDetents: [0.4, 0.75],

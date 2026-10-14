@@ -50,6 +50,8 @@ export default function LoginScreen() {
   const [step, setStep] = useState<'email' | 'code'>('email');
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
+  // Changes on every code request, so the code field starts empty again.
+  const [codeRound, setCodeRound] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Keeps the typed address when going back from the code step.
@@ -74,6 +76,7 @@ export default function LoginScreen() {
     }
     setEmail(address);
     setCode('');
+    setCodeRound((n) => n + 1);
     setStep('code');
   };
 
@@ -132,7 +135,7 @@ export default function LoginScreen() {
           <>
             <Section title="Code" footer={<Text>{`We hebben een code van 6 cijfers gestuurd naar ${email}.`}</Text>}>
               <TextField
-                key="code"
+                key={`code-${codeRound}`}
                 placeholder="123456"
                 autoFocus
                 maxLength={6}

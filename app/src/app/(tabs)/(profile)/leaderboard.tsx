@@ -57,10 +57,22 @@ export default function LeaderboardScreen() {
     }
   }, [period, includeTest]);
 
+  // On focus and on every period switch; an older answer that arrives late
+  // (fast switches) is ignored.
   useFocusEffect(
     useCallback(() => {
-      load();
-    }, [load]),
+      let active = true;
+      fetchLeaderboard(period, includeTest)
+        .then((next) => {
+          if (!active) return;
+          setRows(next);
+          setError(null);
+        })
+        .catch((e) => active && setError(genericErrorMessage(e as Error)));
+      return () => {
+        active = false;
+      };
+    }, [period, includeTest]),
   );
 
   return (
@@ -98,8 +110,8 @@ export default function LeaderboardScreen() {
           <Section
             title={period === 'week' ? 'Deze week' : 'Altijd'}
             footer={<Text>Alleen weergavenamen zijn zichtbaar. Je naam wijzig je in je profiel.</Text>}>
-            {(rows ?? []).map((row) => (
-              <Row key={`${row.place}-${row.display_name}-${row.is_me}`} row={row} />
+            {(rows ?? []).map((row, index) => (
+              <Row key={index} row={row} />
             ))}
           </Section>
         )}

@@ -66,6 +66,8 @@ export default function RevealScreen() {
   const [message, setMessage] = useState<string | null>(null);
 
   const sounds = useRef<SoundBoard | null>(null);
+  const answering = useRef(false);
+  const mounted = useRef(true);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const [scale] = useState(() => new Animated.Value(1));
   const [flash] = useState(() => new Animated.Value(0));
@@ -84,8 +86,11 @@ export default function RevealScreen() {
     const board = new SoundBoard();
     sounds.current = board;
     board.load();
+    mounted.current = true;
     return () => {
+      mounted.current = false;
       timers.current.forEach(clearTimeout);
+      timers.current = [];
       board.dispose();
     };
   }, []);
@@ -140,21 +145,17 @@ export default function RevealScreen() {
     schedule(reduceMotion ? 0 : 700, showQuestion);
   }, [points, question, chipScales, punch, schedule, reduceMotion, showQuestion]);
 
-  // Play the beats once the Reduce Motion setting is known. All state changes
-  // run from timers, which a skip (or leaving the screen) cancels.
+  // Play the beats once, as soon as the Reduce Motion setting is known (a
+  // later change of the setting does not restart the reveal). All state
+  // changes run from timers: a skip cancels them, and leaving the screen too
+  // (the cleanup of the sound effect above).
   const started = useRef(false);
   useEffect(() => {
     if (!points || reduceMotion === null || started.current) return;
     started.current = true;
-    const pending = timers.current;
-    const stop = () => {
-      pending.forEach(clearTimeout);
-      timers.current = [];
-      started.current = false;
-    };
     if (reduceMotion) {
       schedule(0, finish);
-      return stop;
+      return;
     }
     schedule(0, () => {
       setPhase('playing');
@@ -186,26 +187,29 @@ export default function RevealScreen() {
         schedule(t, finish);
       }
     }
-    return stop;
   }, [points, reduceMotion, finish, popChip, punch, schedule]);
 
   const answer = async (option: BonusOption) => {
-    if (!points || !question) return;
+    if (!points || !question || answering.current) return;
+    answering.current = true;
     setPhase('answering');
+    let bonus = question.points;
     if (data?.checkinId && !data.preview) {
       try {
-        await answerBonus(data.checkinId, option.key);
+        bonus = await answerBonus(data.checkinId, option.key);
       } catch (error) {
+        if (!mounted.current) return;
         setMessage(bonusErrorMessage(error as { code?: string }));
         setPhase('answered');
         return;
       }
     }
+    if (!mounted.current) return;
     setPhase('answered');
     setBonusShown(true);
-    const beat = bonusBeat(points.total, question.points);
+    const beat = bonusBeat(points.total, bonus);
     if (beat.kind !== 'count' || reduceMotion) {
-      setValue(points.total + question.points);
+      setValue(points.total + bonus);
       sounds.current?.play('bonus');
       haptic.success();
       return;
@@ -236,7 +240,9 @@ export default function RevealScreen() {
     <Pressable
       style={{ flex: 1, experimental_backgroundImage: 'linear-gradient(180deg, #0E3A24 0%, #050806 65%)' }}
       onPress={playing ? finish : undefined}
-      accessibilityLabel={playing ? 'Tik om over te slaan' : undefined}>
+      // Not one big VoiceOver element: the answers and buttons inside stay reachable.
+      accessible={false}
+      onAccessibilityEscape={() => router.back()}>
       <Animated.View
         pointerEvents="none"
         style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'white', opacity: flash }}
@@ -297,7 +303,13 @@ export default function RevealScreen() {
         </View>
 
         {playing ? (
-          <Text style={[type.footnote, { color: 'rgba(255,255,255,0.5)', textAlign: 'center' }]}>Tik om over te slaan</Text>
+          <Text
+            onPress={finish}
+            accessibilityRole="button"
+            accessibilityLabel="Overslaan"
+            style={[type.footnote, { color: 'rgba(255,255,255,0.5)', textAlign: 'center' }]}>
+            Tik om over te slaan
+          </Text>
         ) : null}
 
         {question && (phase === 'question' || phase === 'answering') ? (
@@ -318,11 +330,14 @@ export default function RevealScreen() {
                   </Button>
                 </Host>
               ))}
-              <Text
-                onPress={() => setPhase('done')}
-                style={[type.subheadline, { color: 'rgba(255,255,255,0.7)', textAlign: 'center', paddingTop: spacing.xs }]}>
-                Overslaan
-              </Text>
+              {phase === 'question' ? (
+                <Text
+                  onPress={() => setPhase('done')}
+                  accessibilityRole="button"
+                  style={[type.subheadline, { color: 'rgba(255,255,255,0.7)', textAlign: 'center', paddingTop: spacing.xs }]}>
+                  Overslaan
+                </Text>
+              ) : null}
             </GlassPanel>
           </Animated.View>
         ) : null}
