@@ -1,10 +1,6 @@
 // The sound files of the reveal (scripts/generate-sfx.mjs writes them into
-// assets/sfx/) and how many voices each one gets.
-//
-// A voice is a player of its own: a sound that is still ringing when it is
-// triggered again needs a second one. Every sound plays at most a few times in
-// a row and the files are short, so the pools are small; the whole set is about
-// three dozen players, primed once (see engine.ts).
+// assets/sfx/). Most of them are only mixed into the soundtrack of a reveal
+// (soundtrack.ts); the few played on their own get voices (engine.ts).
 
 export const SFX_SOURCES = {
   tick_0: require('../../../assets/sfx/tick_0.wav'),
@@ -39,34 +35,11 @@ export type SfxId = keyof typeof SFX_SOURCES;
 export const SFX_IDS = Object.keys(SFX_SOURCES) as SfxId[];
 
 /**
- * Voices per sound. Ticks come every 55-90 ms and a file lasts about that long,
- * and two in a row share a pitch: two voices. The multipliers play once per
- * reveal, 200 ms or more apart: one voice each.
+ * The sounds played on their own, outside a soundtrack, and their voices: the
+ * chord when a reveal is skipped (twice in a row is possible) and the tock of
+ * a skipped bonus question.
  */
-export const SFX_VOICES: Record<SfxId, number> = {
-  tick_0: 2,
-  tick_1: 2,
-  tick_2: 2,
-  tick_3: 2,
-  tick_4: 2,
-  transient: 3,
-  mult_1: 1,
-  mult_2: 1,
-  mult_3: 1,
-  mult_4: 1,
-  mult_5: 1,
-  mult_6: 1,
-  mult_7: 1,
-  mult_8: 1,
-  riser: 1,
+export const ONE_SHOT_VOICES: Partial<Record<SfxId, number>> = {
   total_chord: 2,
-  whoosh_up: 2,
-  bonus_tick_1: 1,
-  bonus_tick_2: 1,
-  bonus_tick_3: 1,
-  bonus_tick_4: 1,
-  bonus_tick_5: 1,
-  bonus_land: 2,
   neutral_tock: 1,
-  heat_loop: 1,
 };

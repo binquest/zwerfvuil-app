@@ -1,30 +1,29 @@
-// The sound engine of the reveal: one module-level set of preloaded, primed
-// players ("voices"), triggered without awaiting anything.
+// One-shot sounds outside the mixed soundtrack (soundtrack.ts): the chord of a
+// skip and the tock of a skipped bonus question. A small module-level set of
+// preloaded, primed players ("voices"), triggered without awaiting anything.
 //
 // Why it looks like this (expo-audio 57 on iOS):
 // - Every player keeps the audio session active. By default expo-audio turns the
 //   session off 100 ms after the last sound ends or pauses, and every play()
-//   turns it on again; in the gaps between beats that cuts off or delays the
-//   start of the next sound.
+//   turns it on again, which cuts off or delays the start of the next sound.
 // - play() never waits for a seek. A voice is rewound right after it finishes
 //   (pause + exact seekTo(0, 0, 0)), so the next trigger is a plain play().
 //   seekTo without tolerances lets AVPlayer land anywhere near 0.
-// - Each sound has a small pool of voices: a voice still ringing is not cut off
+// - A sound can have more than one voice: a voice still ringing is not cut off
 //   by the next trigger; only when all are busy is the oldest one restarted.
-// - initSfx() loads every file and plays each voice once at volume 0, so the
-//   first real sound does not pay for starting the decoder and the hardware.
-// - The voices are created once (the camera and the Dev mode screen start it)
-//   and kept for the next reveal. Creating three dozen players right before a
-//   reveal kept the native side busy and the screen lagged behind the sounds;
-//   and expo-audio's remove() only unregisters a player, the native player
-//   lives on until the JS object is garbage collected.
+// - initSfx() plays each voice once at volume 0, so the first real sound does
+//   not pay for starting the decoder and the hardware.
+// - The voices are created once and kept. Every AVPlayer start costs main-thread
+//   time (measured on the phone: up to 150 ms stalls with two dozen of them per
+//   reveal), and expo-audio's remove() only unregisters a player: the native
+//   player lives on until the JS object is garbage collected.
 //
 // The audio mode follows the ring/silent switch (playsInSilentMode: false) and
 // mixes with the user's music.
 import { createAudioPlayer, setAudioModeAsync, setIsAudioActiveAsync, type AudioPlayer, type AudioStatus } from 'expo-audio';
 
 import { AUDIO_LEAD_MS } from '../reveal/tuning';
-import { SFX_IDS, SFX_SOURCES, SFX_VOICES, type SfxId } from './sources';
+import { ONE_SHOT_VOICES, SFX_SOURCES, type SfxId } from './sources';
 
 export { AUDIO_LEAD_MS };
 export type { SfxId };
@@ -39,21 +38,20 @@ const PRIME_SEEK_TIMEOUT_MS = 1000;
 const FINISH_TOLERANCE_MS = 15;
 /** Used until a file reports its duration. */
 const FALLBACK_DURATION_MS = 400;
-/** stopAll and stopLoop lower the volume in steps of this long. */
+/** stopAll lowers the volume in steps of this long. */
 const FADE_STEP_MS = 10;
 
 interface Voice {
   id: SfxId;
   player: AudioPlayer;
   durationMs: number;
-  /** When the current play ends; 0 when idle, Infinity while looping. */
+  /** When the current play ends; 0 when idle. */
   busyUntil: number;
   startedAt: number;
   /** At the start: the next trigger is a plain play(). */
   rewound: boolean;
   /** Changes with every trigger, so a seek that completes late does not mark a playing voice as rewound. */
   seekToken: number;
-  looping: boolean;
   fading: boolean;
   volume: number;
   subscription: { remove(): void } | null;
@@ -69,6 +67,20 @@ let generation = 0;
 
 const now = () => performance.now();
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** Sets the audio mode once (silent switch respected, mixing with other audio). */
+export function ensureAudioMode(): Promise<void> {
+  modePromise ??= setAudioModeAsync({
+    playsInSilentMode: false,
+    interruptionMode: 'mixWithOthers',
+    shouldPlayInBackground: false,
+    allowsRecording: false,
+  }).catch(() => {
+    // Sounds are a bonus; try again next time.
+    modePromise = null;
+  });
+  return modePromise;
+}
 
 function isLoaded(voice: Voice): boolean {
   try {
@@ -90,7 +102,7 @@ function rewind(voice: Voice): void {
 }
 
 function onStatus(voice: Voice, status: AudioStatus): void {
-  if (!status.didJustFinish || voice.looping) return;
+  if (!status.didJustFinish) return;
   // A late event of a play that was restarted since: the voice is playing again.
   if (now() < voice.busyUntil - FINISH_TOLERANCE_MS) return;
   voice.busyUntil = 0;
@@ -112,7 +124,6 @@ function createVoice(id: SfxId): Voice {
     startedAt: 0,
     rewound: true,
     seekToken: 0,
-    looping: false,
     fading: false,
     volume: 1,
     subscription: null,
@@ -125,7 +136,7 @@ function createVoice(id: SfxId): Voice {
 function headroom(t: number): number {
   let active = 1;
   for (const pool of pools.values()) {
-    for (const voice of pool) if (!voice.looping && !voice.fading && voice.busyUntil > t) active++;
+    for (const voice of pool) if (!voice.fading && voice.busyUntil > t) active++;
   }
   return Math.max(0.5, 1 / Math.sqrt(active));
 }
@@ -151,13 +162,13 @@ function trigger(voice: Voice, volume: number, t: number): void {
 /**
  * Plays sound `id` now. Synchronous and fire-and-forget: returns nothing, never
  * waits. Uses a free voice (a rewound one first); when all are busy, restarts
- * the one that started longest ago.
+ * the one that started longest ago. Only sounds with voices (ONE_SHOT_VOICES) play.
  */
 export function play(id: SfxId, volume = 1): void {
   const pool = pools.get(id);
   if (!pool?.length) return;
   const t = now();
-  const usable = pool.filter((voice) => !voice.looping && !voice.fading);
+  const usable = pool.filter((voice) => !voice.fading);
   const free = usable.filter((voice) => voice.busyUntil <= t);
   const voice =
     free.find((v) => v.rewound) ?? free[0] ?? usable.reduce<Voice | undefined>((a, b) => (!a || b.startedAt < a.startedAt ? b : a), undefined);
@@ -165,38 +176,15 @@ export function play(id: SfxId, volume = 1): void {
   trigger(voice, volume * headroom(t), t);
 }
 
-/** Starts sound `id` as a loop, or changes its volume when it is already looping. */
-export function loop(id: SfxId, volume: number): void {
-  const voice = pools.get(id)?.[0];
-  if (!voice || voice.fading) return;
-  try {
-    voice.player.volume = volume;
-    voice.volume = volume;
-    if (voice.looping) return;
-    voice.player.loop = true;
-    voice.seekToken++;
-    if (!voice.rewound) voice.player.seekTo(0, 0, 0).catch(() => {});
-    voice.player.play();
-  } catch {
-    return;
-  }
-  voice.looping = true;
-  voice.rewound = false;
-  voice.startedAt = now();
-  voice.busyUntil = Infinity;
-}
-
 function fadeOut(voice: Voice, fadeMs: number): void {
   if (voice.fading) return;
   voice.fading = true;
   const finish = () => {
     try {
-      voice.player.loop = false;
       voice.player.pause();
     } catch {
       // Released meanwhile.
     }
-    voice.looping = false;
     voice.fading = false;
     voice.busyUntil = 0;
     rewind(voice);
@@ -224,17 +212,11 @@ function fadeOut(voice: Voice, fadeMs: number): void {
   fades.add(timer);
 }
 
-/** Fades the loop of sound `id` out and stops it. */
-export function stopLoop(id: SfxId, fadeMs = 120): void {
-  const voice = pools.get(id)?.[0];
-  if (voice?.looping) fadeOut(voice, fadeMs);
-}
-
-/** Fades out and stops everything that sounds (a skip). */
+/** Fades out and stops every one-shot that sounds (a skip). */
 export function stopAll(fadeMs = 30): void {
   const t = now();
   for (const pool of pools.values()) {
-    for (const voice of pool) if (voice.looping || voice.busyUntil > t) fadeOut(voice, fadeMs);
+    for (const voice of pool) if (voice.busyUntil > t) fadeOut(voice, fadeMs);
   }
 }
 
@@ -247,7 +229,7 @@ async function prepare(voices: Voice[], gen: number): Promise<boolean> {
     const seconds = voice.player.duration;
     if (seconds > 0) voice.durationMs = seconds * 1000;
   }
-  await modePromise;
+  await ensureAudioMode();
   if (gen !== generation) return false;
 
   // Prime: play every voice silently, then put it back at the start.
@@ -289,26 +271,17 @@ async function prepare(voices: Voice[], gen: number): Promise<boolean> {
 }
 
 /**
- * Creates and primes every voice, once; later calls return the same promise.
- * Resolves true when every file loaded within READY_TIMEOUT_MS. Call it early
- * (the camera does, before the upload), so the reveal does not wait.
+ * Creates and primes the one-shot voices, once; later calls return the same
+ * promise. Resolves true when every file loaded within READY_TIMEOUT_MS.
  */
-export function initSfx(): Promise<boolean> {
+export function initSfx(voiceCounts: Partial<Record<SfxId, number>> = ONE_SHOT_VOICES): Promise<boolean> {
   if (readyPromise) return readyPromise;
   const gen = ++generation;
-  modePromise ??= setAudioModeAsync({
-    playsInSilentMode: false,
-    interruptionMode: 'mixWithOthers',
-    shouldPlayInBackground: false,
-    allowsRecording: false,
-  }).catch(() => {
-    // Sounds are a bonus; try again on the next init.
-    modePromise = null;
-  });
+  ensureAudioMode();
   const voices: Voice[] = [];
   try {
-    for (const id of SFX_IDS) {
-      const pool = Array.from({ length: SFX_VOICES[id] }, () => createVoice(id));
+    for (const [id, count] of Object.entries(voiceCounts) as [SfxId, number][]) {
+      const pool = Array.from({ length: count }, () => createVoice(id));
       pools.set(id, pool);
       voices.push(...pool);
     }
@@ -318,11 +291,6 @@ export function initSfx(): Promise<boolean> {
   }
   readyPromise = prepare(voices, gen).catch(() => false);
   return readyPromise;
-}
-
-/** The promise of initSfx (and starts it when nobody did yet). */
-export function sfxReady(): Promise<boolean> {
-  return initSfx();
 }
 
 /** When (performance.now()) every voice was loaded and primed; null until then. */

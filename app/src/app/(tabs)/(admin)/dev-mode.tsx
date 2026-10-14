@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react';
 import { Alert } from 'react-native';
 
 import { EmptyState } from '@/components/EmptyState';
-import { initSfx } from '@/feedback/sfx/engine';
+import { warmUpSounds } from '@/feedback/sfx/soundtrack';
 import { adminErrorMessage } from '@/lib/errors';
 import { formatPoints, formatWeeks } from '@/lib/format';
 import { BASE_POINTS, MAX_STAGES, pointStages, totalMultiplier, type BonusQuestion } from '@/lib/points';
@@ -42,7 +42,7 @@ export default function DevModeScreen() {
   // Load the reveal sounds while you set up the preview: the first load after
   // starting the app can take longer than the reveal waits for them.
   useEffect(() => {
-    if (dev.available) initSfx();
+    if (dev.available) warmUpSounds();
   }, [dev.available]);
 
   if (!dev.available) {
@@ -68,7 +68,7 @@ export default function DevModeScreen() {
 
   const playPreview = () => {
     // The reveal waits for the sounds; start loading them now.
-    if (!previewNoSound) initSfx();
+    if (!previewNoSound) warmUpSounds();
     setPendingReveal({
       points: pointStages(previewBase, previewWeeks),
       question: previewBonus ? PREVIEW_QUESTION : null,

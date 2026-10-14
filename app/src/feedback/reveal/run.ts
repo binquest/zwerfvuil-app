@@ -10,11 +10,16 @@ export interface TimelineRun {
   cancel(): void;
 }
 
-/** `lateMs`: how long after its planned time the batch runs (for the Dev mode diagnostics). */
+/**
+ * `lateMs`: how long after its planned time the batch runs (for the Dev mode
+ * diagnostics). `now` is the clock (the audio clock when a soundtrack plays)
+ * and `start` the clock time of the timeline's 0 (default: now).
+ */
 export function runTimeline(
   events: readonly Event[],
   onEvents: (batch: Event[], lateMs: number) => void,
   now: () => number = () => performance.now(),
+  startAt?: number,
 ): TimelineRun {
   const batches: { atMs: number; events: Event[] }[] = [];
   for (const event of events) {
@@ -24,7 +29,7 @@ export function runTimeline(
   }
   batches.sort((a, b) => a.atMs - b.atMs);
 
-  const start = now();
+  const start = startAt ?? now();
   let next = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let cancelled = false;

@@ -18,7 +18,7 @@ import { submitCheckin, submitReport } from '@/lib/api';
 import { FAILURE_TITLE } from '@/lib/checkin';
 import { describeError, devLog } from '@/lib/devlog';
 import { haptic } from '@/feedback/haptics';
-import { initSfx } from '@/feedback/sfx/engine';
+import { warmUpSounds } from '@/feedback/sfx/soundtrack';
 import { genericErrorMessage, reportErrorMessage } from '@/lib/errors';
 import { compressPhoto } from '@/lib/photo';
 import { setPendingReveal } from '@/lib/reveal';
@@ -72,7 +72,7 @@ export default function CameraScreen() {
   // Load and prime the reveal sounds while the photo is taken, well before the
   // reveal; they stay loaded for the next check-in.
   useEffect(() => {
-    if (mode === 'checkin') initSfx();
+    if (mode === 'checkin') warmUpSounds();
   }, [mode]);
 
   const close = () => router.back();

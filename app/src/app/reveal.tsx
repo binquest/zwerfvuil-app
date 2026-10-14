@@ -34,10 +34,12 @@ import { GlassPanel } from '@/components/GlassPanel';
 import { fireHaptic, setHapticProbe } from '@/feedback/haptics';
 import { createDiagnostics, describeMeasurements, type RevealMeasurements } from '@/feedback/reveal/diagnostics';
 import { playFeedback } from '@/feedback/reveal/feedback';
-import { runTimeline, type TimelineRun } from '@/feedback/reveal/run';
+import { FrameProbe } from '@/feedback/reveal/FrameProbe';
+import { playTimeline, preloadTimeline, type Playback, type PlaybackStart } from '@/feedback/reveal/playback';
 import { buildBonusTimeline, buildRevealTimeline, type Event } from '@/feedback/reveal/timeline';
 import { VOLUME } from '@/feedback/reveal/tuning';
-import { initSfx, play, READY_TIMEOUT_MS, sfxReadySince, stopAll } from '@/feedback/sfx/engine';
+import { play, stopAll } from '@/feedback/sfx/engine';
+import { bonusSoundtrack, revealSoundtrack, warmUpSounds } from '@/feedback/sfx/soundtrack';
 import { answerBonus, markBonusShown } from '@/lib/api';
 import { formatWeeks } from '@/lib/format';
 import { formatMultiplier, MAX_STAGES, totalMultiplier, type BonusOption } from '@/lib/points';
@@ -81,10 +83,11 @@ export default function RevealScreen() {
   // Dev mode preview only: timing measurements, shown when the reveal is done.
   const [diagnostics] = useState(() => (data?.preview ? createDiagnostics() : null));
   const [measured, setMeasured] = useState<RevealMeasurements | null>(null);
+  const [probing, setProbing] = useState(false);
 
-  // False when the sounds were not ready in time: the reveal then runs with haptics only.
+  // False when the soundtrack did not play: a skip then lands without its chord.
   const withSound = useRef(false);
-  const runs = useRef<TimelineRun[]>([]);
+  const playbacks = useRef<Playback[]>([]);
   const answering = useRef(false);
   const mounted = useRef(true);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -102,15 +105,14 @@ export default function RevealScreen() {
   }, [data]);
 
   useEffect(() => {
-    // Usually long ready: the camera and the Dev mode screen start it, and the
-    // voices stay for the next reveal. Creating them again right before a
-    // reveal made the screen lag behind the sounds.
-    if (!noSound) initSfx();
+    // Usually long ready: the camera and the Dev mode screen start it, and it
+    // stays loaded for the next reveal.
+    if (!noSound) warmUpSounds();
     mounted.current = true;
     return () => {
       mounted.current = false;
-      runs.current.forEach((run) => run.cancel());
-      runs.current = [];
+      playbacks.current.forEach((playback) => playback.cancel(30));
+      playbacks.current = [];
       timers.current.forEach(clearTimeout);
       timers.current = [];
       setHapticProbe(null);
@@ -124,9 +126,21 @@ export default function RevealScreen() {
     diagnostics?.committed(value);
   }, [diagnostics, value]);
 
+  const startDiagnostics = useCallback(
+    (start: PlaybackStart) => {
+      if (!diagnostics) return;
+      diagnostics.sound(start.sound, start.timings);
+      setHapticProbe(diagnostics.haptic);
+      diagnostics.start();
+      setProbing(true);
+    },
+    [diagnostics],
+  );
+
   const stopDiagnostics = useCallback(() => {
     if (!diagnostics) return;
     setHapticProbe(null);
+    setProbing(false);
     setMeasured(diagnostics.stop());
   }, [diagnostics]);
 
@@ -157,6 +171,12 @@ export default function RevealScreen() {
     [reduceMotion, chipScales],
   );
 
+  const bonusTimeline = useCallback(
+    (bonus: number) =>
+      buildBonusTimeline({ awarded: bonus > 0, points: bonus, fromTotal: points?.total ?? 0, reduceMotion: !!reduceMotion }),
+    [points, reduceMotion],
+  );
+
   const showQuestion = useCallback(() => {
     if (!question) return;
     setPhase('question');
@@ -164,17 +184,18 @@ export default function RevealScreen() {
     else Animated.spring(sheet, { toValue: 1, friction: 9, tension: 70, useNativeDriver: true }).start();
     // The server measures the answer time from here.
     if (data?.checkinId && !data.preview) markBonusShown(data.checkinId).catch(() => {});
-  }, [question, reduceMotion, sheet, data, setPhase]);
+    // Mix and load the +5 now, so it plays at once after the answer.
+    if (!noSound) preloadTimeline(bonusTimeline(question.points), bonusSoundtrack);
+  }, [question, reduceMotion, sheet, data, setPhase, noSound, bonusTimeline]);
 
-  // Tap to skip: stop the timeline, fade out what sounds, land on the total
+  // Tap to skip: stop the timeline, fade out the soundtrack, land on the total
   // with only its chord and the success haptic.
   const finish = useCallback(() => {
     if (!points) return;
-    runs.current.forEach((run) => run.cancel());
-    runs.current = [];
+    playbacks.current.forEach((playback) => playback.cancel(30));
+    playbacks.current = [];
     timers.current.forEach(clearTimeout);
     timers.current = [];
-    stopAll(30);
     setValue(points.total);
     setStagesShown(points.stages.length);
     chipScales.forEach((chip) => chip.setValue(1));
@@ -199,8 +220,8 @@ export default function RevealScreen() {
   ]);
 
   // Play the timeline once, as soon as the Reduce Motion setting is known (a
-  // later change of the setting does not restart the reveal) and the sounds are
-  // ready, or READY_TIMEOUT_MS has passed (then without sound). A skip and
+  // later change of the setting does not restart the reveal): with its mixed
+  // soundtrack, or without sound when that is not ready in time. A skip and
   // leaving the screen cancel it.
   const started = useRef(false);
   useEffect(() => {
@@ -220,7 +241,7 @@ export default function RevealScreen() {
     const onEvents = (batch: Event[], lateMs: number) => {
       diagnostics?.late(lateMs);
       for (const event of batch) {
-        if (playFeedback(event, withSound.current)) continue;
+        if (playFeedback(event)) continue;
         if (event.type === 'chipIn') {
           setPhase('playing');
           popChip(0);
@@ -242,24 +263,15 @@ export default function RevealScreen() {
         // Shake, flash, hit-stop, heat and particles come with the new reveal screen.
       }
     };
-    const waitStarted = performance.now();
-    const timeout = new Promise<boolean>((resolve) => schedule(READY_TIMEOUT_MS, () => resolve(false)));
-    const soundReady = noSound ? Promise.resolve(false) : Promise.race([initSfx(), timeout]);
-    soundReady.then((ready) => {
-      if (!mounted.current) return;
-      withSound.current = ready;
-      if (diagnostics) {
-        const since = sfxReadySince();
-        diagnostics.ready(
-          performance.now() - waitStarted,
-          noSound ? 'off' : ready ? 'on' : 'not ready',
-          noSound || since === null ? null : performance.now() - since,
-        );
-        setHapticProbe(diagnostics.haptic);
-        diagnostics.start();
-      }
-      runs.current.push(runTimeline(timeline, onEvents));
+    const playback = playTimeline(timeline, noSound ? null : revealSoundtrack, onEvents, {
+      onStarted: (start) => {
+        if (!mounted.current) return;
+        withSound.current = start.sound === 'on';
+        startDiagnostics(start);
+      },
+      onClockCheck: (errorMs, corrections) => diagnostics?.clockError(errorMs, corrections),
     });
+    playbacks.current.push(playback);
   }, [
     points,
     question,
@@ -270,25 +282,29 @@ export default function RevealScreen() {
     punch,
     schedule,
     showQuestion,
+    startDiagnostics,
     stopDiagnostics,
     setPhase,
     setStagesShown,
     setValue,
   ]);
 
-  /** The +5 (or the quiet tock when there are no points) after the bonus question. */
+  /** The +5 with its own soundtrack, or one quiet tock when there are no points. */
   const playBonus = (bonus: number) => {
     if (!points) return;
-    const timeline = buildBonusTimeline({ awarded: bonus > 0, points: bonus, fromTotal: points.total, reduceMotion: !!reduceMotion });
+    if (bonus <= 0) {
+      if (!noSound) play('neutral_tock', VOLUME.tock);
+      return;
+    }
     const onEvents = (batch: Event[]) => {
       for (const event of batch) {
-        if (playFeedback(event, withSound.current)) continue;
+        if (playFeedback(event)) continue;
         if (event.type === 'count') setValue(event.value);
         else if (event.type === 'punch') punch(event.scale);
         else if (event.type === 'badge') setBonusShown(true);
       }
     };
-    runs.current.push(runTimeline(timeline, onEvents));
+    playbacks.current.push(playTimeline(bonusTimeline(bonus), noSound ? null : bonusSoundtrack, onEvents));
   };
 
   const answer = async (option: BonusOption) => {
@@ -334,6 +350,7 @@ export default function RevealScreen() {
         pointerEvents="none"
         style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'white', opacity: flash }}
       />
+      {diagnostics ? <FrameProbe active={probing} onSample={diagnostics.frame} /> : null}
       <SafeAreaView style={{ flex: 1, padding: spacing.xl }}>
         <View style={{ alignItems: 'center', gap: spacing.xs }}>
           <Text style={[type.footnote, { color: 'rgba(255,255,255,0.7)', fontWeight: '700', letterSpacing: 1.5 }]}>
