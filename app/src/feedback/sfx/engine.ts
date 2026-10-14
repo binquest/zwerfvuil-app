@@ -13,6 +13,11 @@
 //   by the next trigger; only when all are busy is the oldest one restarted.
 // - initSfx() loads every file and plays each voice once at volume 0, so the
 //   first real sound does not pay for starting the decoder and the hardware.
+// - The voices are created once (the camera and the Dev mode screen start it)
+//   and kept for the next reveal. Creating three dozen players right before a
+//   reveal kept the native side busy and the screen lagged behind the sounds;
+//   and expo-audio's remove() only unregisters a player, the native player
+//   lives on until the JS object is garbage collected.
 //
 // The audio mode follows the ring/silent switch (playsInSilentMode: false) and
 // mixes with the user's music.
@@ -29,7 +34,7 @@ export const READY_TIMEOUT_MS = 800;
 /** Priming plays every voice silently this long: enough to start the decoder and the hardware. */
 const PRIME_PLAY_MS = 40;
 /** The seeks after priming give up after this long. */
-const PRIME_SEEK_TIMEOUT_MS = 300;
+const PRIME_SEEK_TIMEOUT_MS = 1000;
 /** A finish event this much earlier than the current play can end belongs to an earlier play. */
 const FINISH_TOLERANCE_MS = 15;
 /** Used until a file reports its duration. */
@@ -57,6 +62,7 @@ interface Voice {
 const pools = new Map<SfxId, Voice[]>();
 const fades = new Set<ReturnType<typeof setInterval>>();
 let readyPromise: Promise<boolean> | null = null;
+let readySince: number | null = null;
 let modePromise: Promise<void> | null = null;
 // Bumped by releaseSfx: an init still running for a released set stops.
 let generation = 0;
@@ -277,7 +283,9 @@ async function prepare(voices: Voice[], gen: number): Promise<boolean> {
     voice.busyUntil = 0;
     voice.rewound = true;
   }
-  return loaded.length === voices.length;
+  const ready = loaded.length === voices.length;
+  if (ready) readySince = now();
+  return ready;
 }
 
 /**
@@ -317,9 +325,18 @@ export function sfxReady(): Promise<boolean> {
   return initSfx();
 }
 
-/** Removes every player and lets the audio session go. initSfx can start again afterwards. */
+/** When (performance.now()) every voice was loaded and primed; null until then. */
+export function sfxReadySince(): number | null {
+  return readySince;
+}
+
+/**
+ * Removes every player and lets the audio session go. initSfx can start again
+ * afterwards. Not for every reveal: see the notes at the top.
+ */
 export function releaseSfx(): void {
   generation++;
+  readySince = null;
   for (const timer of fades) clearInterval(timer);
   fades.clear();
   for (const pool of pools.values()) {

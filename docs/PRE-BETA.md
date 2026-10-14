@@ -184,8 +184,10 @@ echte gebruikersdata vraagt meer.
   `production` gemarkeerd is (zie "Infrastructuur en configuratie"). Controleer dat
   bij het opzetten, en kijk `dev_audit_log` na.
 - [ ] **Geluid van de onthulling draait op expo-audio** (`app/src/feedback/sfx/`):
-  ongeveer 35 AVPlayers, voorgeladen en geprimed tijdens de upload. Dat is geen
-  echte low-latency-audio-engine. Is er op toestellen nog hoorbare jitter of
+  ongeveer 35 AVPlayers, aangemaakt zodra de camera opent en daarna blijvend
+  geladen (met een actieve, mengende audiosessie), want ze vlak voor de
+  onthulling opnieuw aanmaken liet het beeld achterlopen. Dat is geen echte
+  low-latency-audio-engine. Is er op toestellen nog hoorbare jitter of
   vertraging, dan stap je over op `react-native-audio-api` (native: nieuwe IPA en
   runtimeversie). Meet ook het geheugen en de starttijd van de 35 players op een
   oudere iPhone.

@@ -1,6 +1,8 @@
 // Dev mode only: measures where the reveal loses time, shown under the preview.
 // Each number is the worst case during the reveal, in milliseconds:
 //   ready   until the sounds were loaded and primed (or the wait gave up)
+//   pool    how long the voices had been ready when the reveal started (a pool
+//           made just before the reveal kept the native side busy)
 //   timers  how late the runner ran an event after its planned time
 //   commit  from an event setting the number to React committing it
 //   haptic  from a haptic call to its promise resolving: haptics run on the
@@ -11,6 +13,7 @@ const PROBE_MS = 50;
 
 export interface RevealMeasurements {
   readyMs: number | null;
+  poolAgeMs: number | null;
   sound: 'on' | 'off' | 'not ready';
   timerLateMs: number;
   commitLagMs: number;
@@ -19,7 +22,7 @@ export interface RevealMeasurements {
 }
 
 export interface RevealDiagnostics {
-  ready(ms: number, sound: RevealMeasurements['sound']): void;
+  ready(ms: number, sound: RevealMeasurements['sound'], poolAgeMs: number | null): void;
   start(): void;
   late(ms: number): void;
   /** The number was set to `value`; committed() reports when React shows it. */
@@ -30,14 +33,23 @@ export interface RevealDiagnostics {
 }
 
 export function createDiagnostics(now: () => number = () => performance.now()): RevealDiagnostics {
-  const m: RevealMeasurements = { readyMs: null, sound: 'off', timerLateMs: 0, commitLagMs: 0, hapticLagMs: 0, jsStallMs: 0 };
+  const m: RevealMeasurements = {
+    readyMs: null,
+    poolAgeMs: null,
+    sound: 'off',
+    timerLateMs: 0,
+    commitLagMs: 0,
+    hapticLagMs: 0,
+    jsStallMs: 0,
+  };
   const pending = new Map<number, number>();
   let probe: ReturnType<typeof setInterval> | null = null;
   let lastTick = 0;
   return {
-    ready(ms, sound) {
+    ready(ms, sound, poolAgeMs) {
       m.readyMs = Math.round(ms);
       m.sound = sound;
+      m.poolAgeMs = poolAgeMs === null ? null : Math.round(poolAgeMs);
     },
     start() {
       lastTick = now();
@@ -74,5 +86,6 @@ export function createDiagnostics(now: () => number = () => performance.now()): 
 export function describeMeasurements(m: RevealMeasurements): string {
   const sound = m.sound === 'on' ? 'aan' : m.sound === 'off' ? 'uit' : 'niet op tijd klaar';
   const ready = m.readyMs === null ? '' : ` (klaar na ${m.readyMs} ms)`;
-  return `Geluid ${sound}${ready} · timers ≤ ${m.timerLateMs} ms te laat · commit ≤ ${m.commitLagMs} ms · haptiek ≤ ${m.hapticLagMs} ms · JS-stilstand ≤ ${m.jsStallMs} ms`;
+  const pool = m.poolAgeMs === null ? '' : ` · pool ${(m.poolAgeMs / 1000).toFixed(1).replace('.', ',')} s oud`;
+  return `Geluid ${sound}${ready}${pool} · timers ≤ ${m.timerLateMs} ms te laat · commit ≤ ${m.commitLagMs} ms · haptiek ≤ ${m.hapticLagMs} ms · JS-stilstand ≤ ${m.jsStallMs} ms`;
 }

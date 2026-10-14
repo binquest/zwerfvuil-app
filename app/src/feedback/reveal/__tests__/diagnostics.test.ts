@@ -10,7 +10,7 @@ describe('createDiagnostics', () => {
   it('keeps the worst case of every measurement', () => {
     let clock = 0;
     const d = createDiagnostics(() => clock);
-    d.ready(412.4, 'on');
+    d.ready(412.4, 'on', 15320.2);
     d.late(3);
     d.late(12.6);
     d.late(5);
@@ -23,7 +23,15 @@ describe('createDiagnostics', () => {
     clock = 45;
     d.committed(12);
     d.committed(99); // never expected: ignored
-    expect(d.stop()).toEqual({ readyMs: 412, sound: 'on', timerLateMs: 13, commitLagMs: 40, hapticLagMs: 8, jsStallMs: 0 });
+    expect(d.stop()).toEqual({
+      readyMs: 412,
+      poolAgeMs: 15320,
+      sound: 'on',
+      timerLateMs: 13,
+      commitLagMs: 40,
+      hapticLagMs: 8,
+      jsStallMs: 0,
+    });
   });
 
   it('measures how long the JS thread stalls', () => {
@@ -40,10 +48,10 @@ describe('createDiagnostics', () => {
 
   it('describes the measurements in one line', () => {
     expect(
-      describeMeasurements({ readyMs: 120, sound: 'on', timerLateMs: 4, commitLagMs: 9, hapticLagMs: 30, jsStallMs: 12 }),
-    ).toBe('Geluid aan (klaar na 120 ms) · timers ≤ 4 ms te laat · commit ≤ 9 ms · haptiek ≤ 30 ms · JS-stilstand ≤ 12 ms');
-    expect(describeMeasurements({ readyMs: 800, sound: 'not ready', timerLateMs: 0, commitLagMs: 0, hapticLagMs: 0, jsStallMs: 0 })).toContain(
-      'Geluid niet op tijd klaar (klaar na 800 ms)',
-    );
+      describeMeasurements({ readyMs: 2, poolAgeMs: 15320, sound: 'on', timerLateMs: 4, commitLagMs: 9, hapticLagMs: 30, jsStallMs: 12 }),
+    ).toBe('Geluid aan (klaar na 2 ms) · pool 15,3 s oud · timers ≤ 4 ms te laat · commit ≤ 9 ms · haptiek ≤ 30 ms · JS-stilstand ≤ 12 ms');
+    expect(
+      describeMeasurements({ readyMs: 800, poolAgeMs: null, sound: 'not ready', timerLateMs: 0, commitLagMs: 0, hapticLagMs: 0, jsStallMs: 0 }),
+    ).toContain('Geluid niet op tijd klaar (klaar na 800 ms) · timers');
   });
 });

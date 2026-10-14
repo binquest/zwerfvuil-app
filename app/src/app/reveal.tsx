@@ -37,7 +37,7 @@ import { playFeedback } from '@/feedback/reveal/feedback';
 import { runTimeline, type TimelineRun } from '@/feedback/reveal/run';
 import { buildBonusTimeline, buildRevealTimeline, type Event } from '@/feedback/reveal/timeline';
 import { VOLUME } from '@/feedback/reveal/tuning';
-import { initSfx, play, READY_TIMEOUT_MS, releaseSfx, stopAll } from '@/feedback/sfx/engine';
+import { initSfx, play, READY_TIMEOUT_MS, sfxReadySince, stopAll } from '@/feedback/sfx/engine';
 import { answerBonus, markBonusShown } from '@/lib/api';
 import { formatWeeks } from '@/lib/format';
 import { formatMultiplier, MAX_STAGES, totalMultiplier, type BonusOption } from '@/lib/points';
@@ -102,7 +102,9 @@ export default function RevealScreen() {
   }, [data]);
 
   useEffect(() => {
-    // Usually already running: the camera and the Dev mode preview start it.
+    // Usually long ready: the camera and the Dev mode screen start it, and the
+    // voices stay for the next reveal. Creating them again right before a
+    // reveal made the screen lag behind the sounds.
     if (!noSound) initSfx();
     mounted.current = true;
     return () => {
@@ -113,7 +115,7 @@ export default function RevealScreen() {
       timers.current = [];
       setHapticProbe(null);
       diagnostics?.stop();
-      releaseSfx();
+      stopAll(30);
     };
   }, [noSound, diagnostics]);
 
@@ -247,7 +249,12 @@ export default function RevealScreen() {
       if (!mounted.current) return;
       withSound.current = ready;
       if (diagnostics) {
-        diagnostics.ready(performance.now() - waitStarted, noSound ? 'off' : ready ? 'on' : 'not ready');
+        const since = sfxReadySince();
+        diagnostics.ready(
+          performance.now() - waitStarted,
+          noSound ? 'off' : ready ? 'on' : 'not ready',
+          noSound || since === null ? null : performance.now() - since,
+        );
         setHapticProbe(diagnostics.haptic);
         diagnostics.start();
       }

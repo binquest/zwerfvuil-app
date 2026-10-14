@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import * as Audio from 'expo-audio';
 
-import { initSfx, loop, play, releaseSfx, stopAll, stopLoop } from '../engine';
+import { initSfx, loop, play, releaseSfx, sfxReadySince, stopAll, stopLoop } from '../engine';
 import { SFX_IDS, SFX_SOURCES, SFX_VOICES, type SfxId } from '../sources';
 
 type Status = { didJustFinish?: boolean };
@@ -112,6 +112,24 @@ describe('initSfx', () => {
       expect(player.seeks).toEqual([[0, 0, 0]]);
       expect(player.volume).toBe(1);
     }
+  });
+
+  it('records when the voices became ready, until released', async () => {
+    expect(sfxReadySince()).toBeNull();
+    await initSfx();
+    expect(sfxReadySince()).toBe(clock);
+    releaseSfx();
+    expect(sfxReadySince()).toBeNull();
+  });
+
+  it('keeps the same voices after a reveal stops everything', async () => {
+    await ready();
+    const count = mockPlayers.length;
+    play('total_chord');
+    stopAll(0);
+    await initSfx();
+    expect(mockPlayers).toHaveLength(count);
+    expect(mockPlayers.some((p) => p.removed)).toBe(false);
   });
 
   it('is idempotent until released', async () => {
