@@ -1,9 +1,13 @@
 // The points reveal after a check-in: the number counts up to the base, then
 // every streak week lands as its own beat (bigger, faster, higher), then the
 // total, then an optional bonus question. Tap to skip. Respects the silent
-// switch (sounds) and Reduce Motion (no movement, straight to the result).
+// switch (sounds) and Reduce Motion (same sounds and haptics, no movement).
 // The numbers come from the server; the Dev mode preview computes them locally
 // and sends nothing.
+//
+// The beats are a timeline (src/feedback/reveal/timeline.ts) played by
+// runTimeline; sounds and haptics come from src/feedback. This screen only
+// turns the visual events into its (still simple) animations.
 import { Host } from '@expo/ui';
 import { Button, Label, Text as SwiftText } from '@expo/ui/swift-ui';
 import {
@@ -27,11 +31,16 @@ import { AccessibilityInfo, Animated, Easing, Pressable, Text, View } from 'reac
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GlassPanel } from '@/components/GlassPanel';
+import { fireHaptic } from '@/feedback/haptics';
+import { playFeedback } from '@/feedback/reveal/feedback';
+import { runTimeline, type TimelineRun } from '@/feedback/reveal/run';
+import { buildBonusTimeline, buildRevealTimeline, type Event } from '@/feedback/reveal/timeline';
+import { VOLUME } from '@/feedback/reveal/tuning';
+import { initSfx, play, READY_TIMEOUT_MS, releaseSfx, stopAll } from '@/feedback/sfx/engine';
 import { answerBonus, markBonusShown } from '@/lib/api';
-import { haptic, SoundBoard } from '@/lib/feedback';
 import { formatWeeks } from '@/lib/format';
 import { formatMultiplier, MAX_STAGES, totalMultiplier, type BonusOption } from '@/lib/points';
-import { bonusBeat, revealBeats, takePendingReveal, type Beat, type RevealData } from '@/lib/reveal';
+import { takePendingReveal, type RevealData } from '@/lib/reveal';
 import { colors, spacing, type } from '@/theme';
 
 // total: the total has landed and the bonus question is about to appear.
@@ -65,7 +74,9 @@ export default function RevealScreen() {
   const [bonusShown, setBonusShown] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
-  const sounds = useRef<SoundBoard | null>(null);
+  // False when the sounds were not ready in time: the reveal then runs with haptics only.
+  const withSound = useRef(false);
+  const runs = useRef<TimelineRun[]>([]);
   const answering = useRef(false);
   const mounted = useRef(true);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -83,15 +94,16 @@ export default function RevealScreen() {
   }, [data]);
 
   useEffect(() => {
-    const board = new SoundBoard();
-    sounds.current = board;
-    board.load();
+    // Usually already running: the camera and the Dev mode preview start it.
+    initSfx();
     mounted.current = true;
     return () => {
       mounted.current = false;
+      runs.current.forEach((run) => run.cancel());
+      runs.current = [];
       timers.current.forEach(clearTimeout);
       timers.current = [];
-      board.dispose();
+      releaseSfx();
     };
   }, []);
 
@@ -131,63 +143,85 @@ export default function RevealScreen() {
     if (data?.checkinId && !data.preview) markBonusShown(data.checkinId).catch(() => {});
   }, [question, reduceMotion, sheet, data]);
 
+  // Tap to skip: stop the timeline, fade out what sounds, land on the total
+  // with only its chord and the success haptic.
   const finish = useCallback(() => {
     if (!points) return;
+    runs.current.forEach((run) => run.cancel());
+    runs.current = [];
     timers.current.forEach(clearTimeout);
     timers.current = [];
+    stopAll(30);
     setValue(points.total);
     setStagesShown(points.stages.length);
     chipScales.forEach((chip) => chip.setValue(1));
     setPhase(question ? 'total' : 'done');
-    sounds.current?.play('total');
-    haptic.success();
+    if (withSound.current) play('total_chord', VOLUME.total);
+    fireHaptic('success');
     punch(1.25);
     schedule(reduceMotion ? 0 : 700, showQuestion);
   }, [points, question, chipScales, punch, schedule, reduceMotion, showQuestion]);
 
-  // Play the beats once, as soon as the Reduce Motion setting is known (a
-  // later change of the setting does not restart the reveal). All state
-  // changes run from timers: a skip cancels them, and leaving the screen too
-  // (the cleanup of the sound effect above).
+  // Play the timeline once, as soon as the Reduce Motion setting is known (a
+  // later change of the setting does not restart the reveal) and the sounds are
+  // ready, or READY_TIMEOUT_MS has passed (then without sound). A skip and
+  // leaving the screen cancel it.
   const started = useRef(false);
   useEffect(() => {
     if (!points || reduceMotion === null || started.current) return;
     started.current = true;
-    if (reduceMotion) {
-      schedule(0, finish);
-      return;
-    }
-    schedule(0, () => {
-      setPhase('playing');
-      popChip(0);
+    const timeline = buildRevealTimeline({
+      basePoints: points.base,
+      streakWeeks: points.streakWeeks,
+      stages: points.stages,
+      reduceMotion,
+      bonus: !!question,
     });
-    let t = 350;
-    for (const beat of revealBeats(points) as Beat[]) {
-      if (beat.kind === 'count') {
-        const stepMs = beat.durationMs / beat.steps.length;
-        beat.steps.forEach((v, i) => {
-          schedule(t + i * stepMs, () => {
-            setValue(v);
-            sounds.current?.play('tick');
-            haptic.tick();
-          });
-        });
-        t += beat.durationMs + 280;
-      } else if (beat.kind === 'stage') {
-        schedule(t, () => {
-          setStagesShown(beat.stage);
-          popChip(beat.stage);
-          setValue(beat.to);
-          sounds.current?.stage(beat.stage);
-          haptic.stage(beat.stage);
-          punch(beat.scale);
-        });
-        t += beat.durationMs;
-      } else {
-        schedule(t, finish);
+    const onEvents = (batch: Event[]) => {
+      for (const event of batch) {
+        if (playFeedback(event, withSound.current)) continue;
+        if (event.type === 'chipIn') {
+          setPhase('playing');
+          popChip(0);
+        } else if (event.type === 'count') {
+          setValue(event.value);
+        } else if (event.type === 'mult') {
+          setStagesShown(event.stage);
+          popChip(event.stage);
+          setValue(event.total);
+          punch(event.peakScale);
+        } else if (event.type === 'slam') {
+          setValue(event.to);
+          setPhase(question ? 'total' : 'done');
+          punch(1.25);
+        } else if (event.type === 'showBonusQuestion') {
+          showQuestion();
+        }
+        // Shake, flash, hit-stop, heat and particles come with the new reveal screen.
       }
-    }
-  }, [points, reduceMotion, finish, popChip, punch, schedule]);
+    };
+    const timeout = new Promise<boolean>((resolve) => schedule(READY_TIMEOUT_MS, () => resolve(false)));
+    Promise.race([initSfx(), timeout]).then((ready) => {
+      if (!mounted.current) return;
+      withSound.current = ready;
+      runs.current.push(runTimeline(timeline, onEvents));
+    });
+  }, [points, question, reduceMotion, popChip, punch, schedule, showQuestion]);
+
+  /** The +5 (or the quiet tock when there are no points) after the bonus question. */
+  const playBonus = (bonus: number) => {
+    if (!points) return;
+    const timeline = buildBonusTimeline({ awarded: bonus > 0, points: bonus, fromTotal: points.total, reduceMotion: !!reduceMotion });
+    const onEvents = (batch: Event[]) => {
+      for (const event of batch) {
+        if (playFeedback(event, withSound.current)) continue;
+        if (event.type === 'count') setValue(event.value);
+        else if (event.type === 'punch') punch(event.scale);
+        else if (event.type === 'badge') setBonusShown(true);
+      }
+    };
+    runs.current.push(runTimeline(timeline, onEvents));
+  };
 
   const answer = async (option: BonusOption) => {
     if (!points || !question || answering.current) return;
@@ -206,27 +240,12 @@ export default function RevealScreen() {
     }
     if (!mounted.current) return;
     setPhase('answered');
-    setBonusShown(true);
-    const beat = bonusBeat(points.total, bonus);
-    if (beat.kind !== 'count' || reduceMotion) {
-      setValue(points.total + bonus);
-      sounds.current?.play('bonus');
-      haptic.success();
-      return;
-    }
-    const stepMs = beat.durationMs / beat.steps.length;
-    beat.steps.forEach((v, i) =>
-      schedule(i * stepMs, () => {
-        setValue(v);
-        sounds.current?.play('tick');
-        haptic.tick();
-      }),
-    );
-    schedule(beat.durationMs, () => {
-      sounds.current?.play('bonus');
-      haptic.success();
-      punch(1.18);
-    });
+    playBonus(bonus);
+  };
+
+  const skipQuestion = () => {
+    setPhase('done');
+    playBonus(0);
   };
 
   if (!data || !points) return <View style={{ flex: 1, backgroundColor: 'black' }} />;
@@ -332,7 +351,7 @@ export default function RevealScreen() {
               ))}
               {phase === 'question' ? (
                 <Text
-                  onPress={() => setPhase('done')}
+                  onPress={skipQuestion}
                   accessibilityRole="button"
                   style={[type.subheadline, { color: 'rgba(255,255,255,0.7)', textAlign: 'center', paddingTop: spacing.xs }]}>
                   Overslaan

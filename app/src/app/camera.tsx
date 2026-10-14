@@ -17,8 +17,9 @@ import { GlassPanel } from '@/components/GlassPanel';
 import { submitCheckin, submitReport } from '@/lib/api';
 import { FAILURE_TITLE } from '@/lib/checkin';
 import { describeError, devLog } from '@/lib/devlog';
+import { haptic } from '@/feedback/haptics';
+import { initSfx, releaseSfx } from '@/feedback/sfx/engine';
 import { genericErrorMessage, reportErrorMessage } from '@/lib/errors';
-import { haptic } from '@/lib/feedback';
 import { compressPhoto } from '@/lib/photo';
 import { setPendingReveal } from '@/lib/reveal';
 import { useLocation } from '@/providers/LocationProvider';
@@ -86,6 +87,9 @@ export default function CameraScreen() {
   const submit = async () => {
     if (!photoUri) return;
     setBusy(true);
+    // Load and prime the reveal sounds during the upload, so the reveal starts at once.
+    let revealing = false;
+    if (mode === 'checkin') initSfx();
     try {
       const compressed = await compressPhoto(photoUri);
       if (mode === 'checkin') {
@@ -111,6 +115,7 @@ export default function CameraScreen() {
             isTest: outcome.isTest,
             preview: false,
           });
+          revealing = true;
           router.replace('/reveal');
           return;
         }
@@ -142,6 +147,8 @@ export default function CameraScreen() {
       setResult({ ok: false, title: 'Niet gelukt', message });
     } finally {
       setBusy(false);
+      // No reveal after all: the reveal releases the sounds otherwise.
+      if (mode === 'checkin' && !revealing) releaseSfx();
     }
   };
 
