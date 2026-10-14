@@ -26,13 +26,28 @@ const JPEG_WITH_EXIF = new Uint8Array([
   0xd9,
 ]);
 
+const QUESTION = {
+  key: "bin_fullness",
+  prompt: "Hoe vol zat de vuilbak?",
+  options: [{ key: "empty", label: "Bijna leeg" }, { key: "half", label: "Half vol" }, {
+    key: "full",
+    label: "Vol of overvol",
+  }],
+};
+
 const OK_RESULT: RecordCheckinResult = {
   ok: true,
   reason: null,
   checkin_id: CHECKIN,
   distance_m: 12.345,
   retry_after_s: null,
+  streak_weeks: 2,
+  point_stages: [10, 11, 12],
+  points_total: 12,
+  bonus_question: QUESTION,
 };
+
+const NO_POINTS = { streak_weeks: null, point_stages: null, points_total: null, bonus_question: null };
 
 function fakeDeps(overrides: Partial<CheckinDeps> = {}) {
   const calls = {
@@ -93,6 +108,8 @@ Deno.test("accepts a valid check-in, uploads the stripped photo and records it",
     status: "pending",
     distance_m: 12.3,
     message: "Bedankt! Je inworp wacht op goedkeuring.",
+    points: { base: 10, multiplier: 1.1, streak_weeks: 2, stages: [11, 12], total: 12 },
+    bonus_question: { ...QUESTION, points: 5 },
   });
   assertEquals(calls.uploads.length, 1);
   assertEquals(calls.uploads[0].path, `${USER}/${CHECKIN}.jpg`);
@@ -160,24 +177,42 @@ Deno.test("refuses oversized bodies from Content-Length", async () => {
 
 Deno.test("database rejections are reported with details and the photo is deleted", async () => {
   const cases: [RecordCheckinResult, number, string, Record<string, number>, string][] = [
-    [{ ...OK_RESULT, ok: false, reason: "too_far", checkin_id: null, distance_m: 31.66 }, 422, "too_far", {
-      distance_m: 31.7,
-    }, "32 m"],
-    [{ ...OK_RESULT, ok: false, reason: "cooldown", checkin_id: null, retry_after_s: 300 }, 429, "cooldown", {
-      distance_m: 12.3,
-      retry_after_s: 300,
-    }, "5 min"],
     [
-      { ...OK_RESULT, ok: false, reason: "bin_not_eligible", checkin_id: null, distance_m: null },
+      { ...OK_RESULT, ...NO_POINTS, ok: false, reason: "too_far", checkin_id: null, distance_m: 31.66 },
+      422,
+      "too_far",
+      {
+        distance_m: 31.7,
+      },
+      "32 m",
+    ],
+    [
+      { ...OK_RESULT, ...NO_POINTS, ok: false, reason: "cooldown", checkin_id: null, retry_after_s: 300 },
+      429,
+      "cooldown",
+      {
+        distance_m: 12.3,
+        retry_after_s: 300,
+      },
+      "5 min",
+    ],
+    [
+      { ...OK_RESULT, ...NO_POINTS, ok: false, reason: "bin_not_eligible", checkin_id: null, distance_m: null },
       422,
       "bin_not_eligible",
       {},
       "geen punten",
     ],
-    [{ ...OK_RESULT, ok: false, reason: "daily_limit", checkin_id: null, retry_after_s: 3600 }, 429, "daily_limit", {
-      distance_m: 12.3,
-      retry_after_s: 3600,
-    }, "20 inworpen"],
+    [
+      { ...OK_RESULT, ...NO_POINTS, ok: false, reason: "daily_limit", checkin_id: null, retry_after_s: 3600 },
+      429,
+      "daily_limit",
+      {
+        distance_m: 12.3,
+        retry_after_s: 3600,
+      },
+      "20 inworpen",
+    ],
   ];
   for (const [result, status, code, details, text] of cases) {
     const { handler, calls } = fakeDeps({ recordCheckin: () => Promise.resolve(result) });
@@ -191,9 +226,29 @@ Deno.test("database rejections are reported with details and the photo is delete
   }
 });
 
+Deno.test("without a streak the points are just the base, and the bonus question may be absent", async () => {
+  const { handler } = fakeDeps({
+    recordCheckin: () =>
+      Promise.resolve({ ...OK_RESULT, streak_weeks: 0, point_stages: [10], points_total: 10, bonus_question: null }),
+  });
+  const data = await body(await handler(request()));
+  assertEquals(data.points, { base: 10, multiplier: 1.1, streak_weeks: 0, stages: [], total: 10 });
+  assertEquals(data.bonus_question, null);
+});
+
+Deno.test("a recorded check-in without points is still a success, without the points", async () => {
+  const { handler, calls } = fakeDeps({ recordCheckin: () => Promise.resolve({ ...OK_RESULT, ...NO_POINTS }) });
+  const response = await handler(request());
+  assertEquals(response.status, 201);
+  const data = await body(response);
+  assertEquals([data.checkin_id, data.points, data.bonus_question], [CHECKIN, null, null]);
+  assertEquals(calls.errors, ["record_checkin returned no points"]);
+  assertEquals(calls.deletes, []);
+});
+
 Deno.test("an unknown database reason is a server error", async () => {
   const { handler, calls } = fakeDeps({
-    recordCheckin: () => Promise.resolve({ ...OK_RESULT, ok: false, reason: "something_new" }),
+    recordCheckin: () => Promise.resolve({ ...OK_RESULT, ...NO_POINTS, ok: false, reason: "something_new" }),
   });
   assertEquals((await handler(request())).status, 500);
   assertEquals(calls.deletes.length, 1);

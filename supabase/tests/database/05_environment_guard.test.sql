@@ -16,9 +16,10 @@ insert into bins (osm_type, osm_id, geom, status, eligible, eligible_override) v
 create function pg_temp.checkin(fake boolean)
 returns table (ok boolean, reason text, checkin_id uuid, distance_m double precision, retry_after_s integer)
 language sql as $$
-  select * from public.record_checkin(gen_random_uuid(), '55555555-5555-5555-5555-555555555555',
+  select r.ok, r.reason, r.checkin_id, r.distance_m, r.retry_after_s
+  from public.record_checkin(gen_random_uuid(), '55555555-5555-5555-5555-555555555555',
     (select id from public.bins where osm_id = 900000000000501), 0, 0, 5, false, fake,
-    '55555555-5555-5555-5555-555555555555/x.jpg');
+    '55555555-5555-5555-5555-555555555555/x.jpg') r;
 $$;
 
 -- ---------------------------------------------------------------------------

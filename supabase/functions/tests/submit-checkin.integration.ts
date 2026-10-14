@@ -99,6 +99,10 @@ Deno.test("submit-checkin end to end", async (t) => {
     const { data: session, error: signInError } = await client.auth.signInWithPassword({ email, password });
     if (signInError) throw signInError;
     const token = session.session!.access_token;
+    const authed = createClient(apiUrl, anonKey, {
+      auth: { persistSession: false },
+      global: { headers: { Authorization: `Bearer ${token}` } },
+    });
 
     // Bins: A eligible, B not eligible, C and D eligible (all ~200 m apart).
     const { data: bins, error: binError } = await admin.from("bins").insert([
@@ -160,12 +164,18 @@ Deno.test("submit-checkin end to end", async (t) => {
       assertEquals(status, 201, JSON.stringify(body));
       assertEquals(body.status, "pending");
       assertAlmostEquals(body.distance_m, 10, 0.2);
+      // A new user: this week is a one-week streak, so one x1.1 stage.
+      assertEquals(body.points, { base: 10, multiplier: 1.1, streak_weeks: 1, stages: [11], total: 11 });
+      assertEquals(body.bonus_question.key, "bin_fullness");
+      assertEquals(body.bonus_question.points, 5);
+      assertEquals(body.bonus_question.options.map((o: { key: string }) => o.key), ["empty", "half", "full"]);
       checkinId = body.checkin_id;
 
       const { data: row } = await admin.from("checkins").select("*").eq("id", checkinId).single();
       assertEquals(row.user_id, userId);
       assertEquals(row.status, "pending");
       assertEquals(row.points_awarded, 0);
+      assertEquals([row.streak_weeks, row.points_earned, row.bonus_points], [1, 11, 0]);
       assertEquals(row.is_fake_location, false);
       assertEquals(row.photo_path, `${userId}/${checkinId}.jpg`);
     });
@@ -179,6 +189,23 @@ Deno.test("submit-checkin end to end", async (t) => {
 
       const own = await client.storage.from("checkin-photos").download(`${userId}/${checkinId}.jpg`);
       assertEquals(own.error, null);
+    });
+
+    await t.step("the bonus question can be answered once, for 5 points", async () => {
+      const shown = await authed.rpc("mark_bonus_question_shown", { checkin_id: checkinId });
+      assertEquals(shown.error, null);
+      await new Promise((resolve) => setTimeout(resolve, 1300));
+      const answered = await authed.rpc("answer_bonus_question", { checkin_id: checkinId, answer: "half" });
+      assertEquals([answered.error, answered.data], [null, 5]);
+      const again = await authed.rpc("answer_bonus_question", { checkin_id: checkinId, answer: "full" });
+      assertEquals(again.error?.code, "55000");
+
+      const { data: answer } = await admin.from("bonus_answers").select("*").eq("checkin_id", checkinId).single();
+      assertEquals([answer.answer_key, answer.is_suspicious], ["half", false]);
+      assert(answer.response_ms >= 1300, `response_ms ${answer.response_ms}`);
+      const { data: row } = await admin.from("checkins").select("bonus_points, points_awarded").eq("id", checkinId)
+        .single();
+      assertEquals([row?.bonus_points, row?.points_awarded], [5, 0]);
     });
 
     await t.step("a second check-in at the same bin is refused by the cooldown", async () => {
@@ -248,10 +275,6 @@ Deno.test("submit-checkin end to end", async (t) => {
     });
 
     await t.step("no points before approval, and users cannot call record_checkin", async () => {
-      const authed = createClient(apiUrl, anonKey, {
-        auth: { persistSession: false },
-        global: { headers: { Authorization: `Bearer ${token}` } },
-      });
       const { data: profile } = await authed.from("profiles").select("points").eq("id", userId).single();
       assertEquals(profile?.points, 0);
       const { error } = await authed.rpc("record_checkin", {
