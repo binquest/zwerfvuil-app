@@ -61,5 +61,8 @@ run('npx', [
   '--yes', EAS_CLI, 'update',
   '--skip-bundler', '--input-dir', OUT,
   '--channel', CHANNEL, '--platform', 'ios',
+  // Required with --non-interactive. No EAS variables are set there; the values
+  // come from staging.env.local above.
+  '--environment', 'preview',
   '--message', quoted, '--non-interactive',
 ]);
