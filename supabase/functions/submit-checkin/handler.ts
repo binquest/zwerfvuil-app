@@ -72,6 +72,8 @@ export interface CheckinDeps {
   uploadPhoto(path: string, jpeg: Uint8Array): Promise<void>;
   deletePhoto(path: string): Promise<void>;
   recordCheckin(args: RecordCheckinArgs): Promise<RecordCheckinResult>;
+  /** Dev mode for this user: an admin on a local or staging database (dev_mode_allowed_for). */
+  devModeAllowed(userId: string): Promise<boolean>;
   newId(): string;
   logError(message: string, error: unknown): void;
 }
@@ -130,6 +132,9 @@ async function handle(deps: CheckinDeps, req: Request): Promise<Response> {
   );
   const checked = validateCheckinFields(fields, { allowFakeLocation: deps.allowFakeLocation });
   if (!checked.ok) return reject(checked.code, checked.details);
+  // A fake location (Dev mode) from anyone else is refused before the upload;
+  // record_checkin checks the same rule again.
+  if (checked.value.fakeLocation && !(await deps.devModeAllowed(userId))) return reject("fake_location_not_allowed");
 
   const photo = form.get("photo");
   const size = validatePhotoSize(photo instanceof File ? photo.size : 0);

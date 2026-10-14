@@ -336,11 +336,12 @@ hieronder). Lagen, elk getest:
    Het oude `ALLOW_FAKE_LOCATION` is afgeschaft: is het gezet (welke waarde ook),
    dan weigert de functie te starten (`vm/check-fake-location.sh`). Met
    `APP_ENV=production` weigert de functie elke nep-locatie meteen.
-2. De database beslist: `record_checkin` aanvaardt een nep-locatie alleen van een
-   **admin** op een database gemarkeerd als `local` of `staging`, en slaat ze op
-   als testinworp. Van iemand anders: reden `fake_location_not_allowed`, de functie
-   antwoordt 403 (`vm/check-auth.sh`, met een gewoon testaccount, zowel via de
-   functie als rechtstreeks op de database).
+2. De database beslist: een nep-locatie mag alleen van een **admin** op een
+   database gemarkeerd als `local` of `staging` (`dev_mode_allowed_for`), en wordt
+   een testinworp. De functie vraagt dat vóór de upload en antwoordt anders 403
+   `fake_location_not_allowed`; `record_checkin` controleert hetzelfde nog eens
+   (reden `fake_location_not_allowed`). `vm/check-auth.sh` test beide met een
+   gewoon testaccount.
 3. Gebruikers kunnen `record_checkin` niet zelf aanroepen (alleen de functie, met
    de service role).
 

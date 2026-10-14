@@ -72,6 +72,7 @@ function fakeDeps(overrides: Partial<CheckinDeps> = {}) {
       calls.records.push(args);
       return Promise.resolve(OK_RESULT);
     },
+    devModeAllowed: () => Promise.resolve(false),
     newId: () => CHECKIN,
     logError: (message) => {
       calls.errors.push(message);
@@ -300,9 +301,18 @@ Deno.test("unexpected errors become a JSON server error", async () => {
   assertEquals(calls.errors, ["unexpected error"]);
 });
 
+Deno.test("outside production a fake location from someone outside Dev mode is refused before the upload", async () => {
+  const { handler, calls } = fakeDeps({ allowFakeLocation: true });
+  const response = await handler(request({ fake_location: "true", accuracy_m: "" }));
+  assertEquals(response.status, 403);
+  assertEquals((await body(response)).error.code, "fake_location_not_allowed");
+  assertEquals(calls.uploads.length + calls.records.length, 0);
+});
+
 Deno.test("outside production a fake location goes to the database, which records it as a test", async () => {
   const { handler, calls } = fakeDeps({
     allowFakeLocation: true,
+    devModeAllowed: (userId) => Promise.resolve(userId === USER),
     recordCheckin: (args) => {
       calls.records.push(args);
       return Promise.resolve({ ...OK_RESULT, is_test: true });

@@ -66,6 +66,12 @@ const handler = createSubmitCheckinHandler({
     return row;
   },
 
+  async devModeAllowed(userId) {
+    const { data, error } = await admin.rpc("dev_mode_allowed_for", { p_user_id: userId });
+    if (error) throw error;
+    return data === true;
+  },
+
   newId: () => crypto.randomUUID(),
 
   logError(message, error) {

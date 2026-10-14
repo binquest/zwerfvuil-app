@@ -81,6 +81,7 @@ Deno.test("submit-checkin accepts the app's request", async () => {
         is_test: false,
       });
     },
+    devModeAllowed: () => Promise.resolve(false),
     newId: () => "c1",
     logError: () => {},
   });
