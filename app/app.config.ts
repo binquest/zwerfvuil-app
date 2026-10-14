@@ -22,14 +22,17 @@ const DEV_UPDATE_CHANNEL = 'dev';
 export default ({ config }: ConfigContext): ExpoConfig => {
   const base = config as ExpoConfig;
   if (!IS_DEV) return { ...base, updates: { ...base.updates, enabled: false } };
-  if (!EAS_PROJECT_ID || !EAS_OWNER) {
-    throw new Error('APP_VARIANT=development needs EAS_OWNER and EAS_PROJECT_ID in app.config.ts (eas init)');
-  }
-  return {
+  const dev: ExpoConfig = {
     ...base,
     name: 'Zwerfvuil Dev',
-    owner: EAS_OWNER,
     ios: { ...base.ios, bundleIdentifier: 'be.zwerfvuil.app.dev' },
+  };
+  // Until `eas init` has run there is no update URL; ios-dev.yml refuses to
+  // build without one.
+  if (!EAS_PROJECT_ID || !EAS_OWNER) return { ...dev, ...(EAS_OWNER ? { owner: EAS_OWNER } : {}) };
+  return {
+    ...dev,
+    owner: EAS_OWNER,
     runtimeVersion: DEV_RUNTIME_VERSION,
     updates: {
       ...base.updates,
