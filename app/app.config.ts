@@ -10,8 +10,8 @@ import type { ConfigContext, ExpoConfig } from 'expo/config';
 const IS_DEV = process.env.APP_VARIANT === 'development';
 
 // The EAS project that hosts the updates (`eas init`); not a secret.
-const EAS_OWNER: string | null = null;
-const EAS_PROJECT_ID: string | null = null;
+const EAS_OWNER: string | null = 'binquest';
+const EAS_PROJECT_ID: string | null = 'dda1a728-27ff-4675-b3b0-d17b617d3401';
 
 // Updates only reach builds with the same runtime version. Bump it whenever
 // native code changes (a package with native code, a config plugin, app.json)
