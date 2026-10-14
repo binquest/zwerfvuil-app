@@ -45,9 +45,10 @@ const OK_RESULT: RecordCheckinResult = {
   point_stages: [10, 11, 12],
   points_total: 12,
   bonus_question: QUESTION,
+  is_test: false,
 };
 
-const NO_POINTS = { streak_weeks: null, point_stages: null, points_total: null, bonus_question: null };
+const NO_POINTS = { streak_weeks: null, point_stages: null, points_total: null, bonus_question: null, is_test: null };
 
 function fakeDeps(overrides: Partial<CheckinDeps> = {}) {
   const calls = {
@@ -110,6 +111,7 @@ Deno.test("accepts a valid check-in, uploads the stripped photo and records it",
     message: "Bedankt! Je inworp wacht op goedkeuring.",
     points: { base: 10, multiplier: 1.1, streak_weeks: 2, stages: [11, 12], total: 12 },
     bonus_question: { ...QUESTION, points: 5 },
+    is_test: false,
   });
   assertEquals(calls.uploads.length, 1);
   assertEquals(calls.uploads[0].path, `${USER}/${CHECKIN}.jpg`);
@@ -213,6 +215,20 @@ Deno.test("database rejections are reported with details and the photo is delete
       },
       "20 inworpen",
     ],
+    [
+      {
+        ...OK_RESULT,
+        ...NO_POINTS,
+        ok: false,
+        reason: "fake_location_not_allowed",
+        checkin_id: null,
+        distance_m: null,
+      },
+      403,
+      "fake_location_not_allowed",
+      {},
+      "Dev-modus",
+    ],
   ];
   for (const [result, status, code, details, text] of cases) {
     const { handler, calls } = fakeDeps({ recordCheckin: () => Promise.resolve(result) });
@@ -284,10 +300,17 @@ Deno.test("unexpected errors become a JSON server error", async () => {
   assertEquals(calls.errors, ["unexpected error"]);
 });
 
-Deno.test("with the dev escape on, a fake location is recorded as such", async () => {
-  const { handler, calls } = fakeDeps({ allowFakeLocation: true });
+Deno.test("outside production a fake location goes to the database, which records it as a test", async () => {
+  const { handler, calls } = fakeDeps({
+    allowFakeLocation: true,
+    recordCheckin: (args) => {
+      calls.records.push(args);
+      return Promise.resolve({ ...OK_RESULT, is_test: true });
+    },
+  });
   const response = await handler(request({ fake_location: "true", accuracy_m: "" }));
   assertEquals(response.status, 201);
   assertEquals(calls.records[0].p_is_fake_location, true);
+  assertEquals((await body(response)).is_test, true);
   assertEquals(calls.records[0].p_accuracy_m, 0);
 });

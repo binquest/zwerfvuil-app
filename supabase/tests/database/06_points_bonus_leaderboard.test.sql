@@ -33,7 +33,9 @@ create function pg_temp.checkin(who uuid, osm bigint)
 returns table (ok boolean, reason text, checkin_id uuid, distance_m double precision, retry_after_s integer,
                streak_weeks integer, point_stages integer[], points_total integer, bonus_question jsonb)
 language sql as $$
-  select r.* from public.bins b,
+  select r.ok, r.reason, r.checkin_id, r.distance_m, r.retry_after_s, r.streak_weeks, r.point_stages,
+         r.points_total, r.bonus_question
+  from public.bins b,
     lateral public.record_checkin(gen_random_uuid(), who, b.id,
       st_y(st_project(b.geom, 5, 0)::geometry), st_x(st_project(b.geom, 5, 0)::geometry),
       5, false, false, who::text || '/x.jpg') r

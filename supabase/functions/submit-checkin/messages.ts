@@ -20,7 +20,7 @@ export function messageFor(code: RejectCode, details: Details = {}): string {
     case "invalid_photo":
       return "De foto kon niet gelezen worden. Neem een nieuwe foto.";
     case "fake_location_not_allowed":
-      return "Een gekozen locatie is niet toegestaan.";
+      return "Een gekozen locatie kan alleen in Dev-modus, voor admins in een testomgeving.";
     case "mocked_location":
       return "Je locatie lijkt gesimuleerd. Schakel nep-locaties uit en probeer opnieuw.";
     case "low_accuracy":

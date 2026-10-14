@@ -5,13 +5,15 @@
 // admin (review_checkin).
 //
 // Env: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are provided by Supabase.
-// APP_ENV names the deployment (unset locally, "staging" on the staging VM).
-// ALLOW_FAKE_LOCATION=true (local only) accepts a location picked in the app;
-// outside a local environment the function refuses to start when it is set.
+// APP_ENV names the deployment (unset locally, "staging" on the staging VM,
+// "production" later). Fake locations (Dev mode) are refused here when
+// APP_ENV=production and otherwise decided by record_checkin: admins on a local
+// or staging database only. ALLOW_FAKE_LOCATION is retired; outside a local
+// environment the function refuses to start while it is set.
 
 import { createClient } from "@supabase/supabase-js";
 import { createSubmitCheckinHandler, PHOTO_BUCKET, type RecordCheckinResult } from "./handler.ts";
-import { assertFakeLocationConfig, fakeLocationAllowed } from "./rules.ts";
+import { assertFakeLocationConfig, fakeLocationPossible } from "./rules.ts";
 
 assertFakeLocationConfig((name) => Deno.env.get(name));
 
@@ -23,14 +25,13 @@ const admin = createClient(supabaseUrl, serviceRoleKey, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-const allowFakeLocation = fakeLocationAllowed((name) => Deno.env.get(name));
-if (allowFakeLocation) console.warn("submit-checkin: ALLOW_FAKE_LOCATION is on (local development only)");
-else if (Deno.env.get("ALLOW_FAKE_LOCATION") === "true") {
-  console.warn("submit-checkin: ALLOW_FAKE_LOCATION ignored because SUPABASE_URL or APP_ENV is not local");
+const allowFakeLocation = fakeLocationPossible((name) => Deno.env.get(name));
+if (Deno.env.get("ALLOW_FAKE_LOCATION") !== undefined) {
+  console.warn("submit-checkin: ALLOW_FAKE_LOCATION is retired and ignored; remove it (Dev mode replaced it)");
 }
 console.log(
-  `submit-checkin: started (APP_ENV=${Deno.env.get("APP_ENV") ?? "unset"}, fake location ${
-    allowFakeLocation ? "on" : "off"
+  `submit-checkin: started (APP_ENV=${Deno.env.get("APP_ENV") ?? "unset"}, fake locations ${
+    allowFakeLocation ? "decided by the database (Dev mode)" : "refused"
   })`,
 );
 

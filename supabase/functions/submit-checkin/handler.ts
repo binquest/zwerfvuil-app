@@ -28,6 +28,7 @@ const DB_REASONS = new Set<RejectCode>([
   "too_far",
   "cooldown",
   "daily_limit",
+  "fake_location_not_allowed",
 ]);
 
 export interface RecordCheckinArgs {
@@ -59,9 +60,12 @@ export interface RecordCheckinResult {
   point_stages: number[] | null;
   points_total: number | null;
   bonus_question: BonusQuestion | null;
+  /** Dev mode (fake location or streak override): kept apart from real data. */
+  is_test: boolean | null;
 }
 
 export interface CheckinDeps {
+  /** False in production: fake locations are refused before the database. */
   allowFakeLocation: boolean;
   /** Returns the user id for a valid access token, otherwise null. */
   authenticate(authorization: string | null): Promise<string | null>;
@@ -205,6 +209,7 @@ async function handle(deps: CheckinDeps, req: Request): Promise<Response> {
       }
       : null,
     bonus_question: result.bonus_question ? { ...result.bonus_question, points: BONUS_POINTS } : null,
+    is_test: result.is_test === true,
   });
 }
 

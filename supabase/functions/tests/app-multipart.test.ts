@@ -78,6 +78,7 @@ Deno.test("submit-checkin accepts the app's request", async () => {
         point_stages: [10, 11],
         points_total: 11,
         bonus_question: null,
+        is_test: false,
       });
     },
     newId: () => "c1",

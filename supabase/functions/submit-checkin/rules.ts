@@ -2,8 +2,9 @@
 // tested in supabase/functions/tests/rules.test.ts.
 //
 // Rules that need the database (distance <= 25 m, active and eligible bin,
-// 10-minute cooldown per bin, 20 check-ins per day) live in the SQL function
-// public.record_checkin so they are enforced atomically.
+// 10-minute cooldown per bin, 20 check-ins per day, who may send a fake
+// location) live in the SQL function public.record_checkin so they are
+// enforced atomically.
 
 export const MAX_ACCURACY_M = 30;
 export const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
@@ -92,9 +93,10 @@ function parseBinId(value: string | null | undefined): number | null {
  *
  * - is_mocked=true (Android's location.mocked) is refused.
  * - accuracy_m is required and must be <= 30 m.
- * - fake_location=true is only accepted when the dev-only ALLOW_FAKE_LOCATION
- *   escape is on; it then skips the mock and accuracy checks (the location was
- *   picked on the map), but the distance rules in the database still apply.
+ * - fake_location=true (Dev mode: a location picked on the map) is refused
+ *   outright when allowFakeLocation is false (production). Otherwise it skips
+ *   the mock and accuracy checks and the database decides: only admins on a
+ *   local or staging database, as a test check-in; the distance rules apply.
  */
 export function validateCheckinFields(
   fields: Fields,
@@ -141,45 +143,24 @@ export function validatePhotoSize(size: number | null | undefined): Validation<n
   return { ok: true, value: size };
 }
 
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "kong", "host.docker.internal"]);
-
-/** True for the URLs a local Supabase stack uses (kong is the gateway inside Docker). */
-export function isLocalSupabaseUrl(url: string | undefined): boolean {
-  if (!url) return false;
-  try {
-    const host = new URL(url).hostname;
-    return LOCAL_HOSTS.has(host) || host.endsWith(".localhost");
-  } catch {
-    return false;
-  }
-}
-
 /**
- * APP_ENV names the deployment ("staging" on the homeserver VM). The local
- * Supabase CLI does not set it, so unset means a developer's local stack.
+ * Fake locations exist only for Dev mode; the database decides who may use
+ * them (admins on a local or staging database). With APP_ENV=production the
+ * function refuses them before asking the database.
  */
-function isLocalAppEnv(env: (name: string) => string | undefined): boolean {
-  const appEnv = env("APP_ENV");
-  return appEnv === undefined || appEnv === "local";
+export function fakeLocationPossible(env: (name: string) => string | undefined): boolean {
+  return env("APP_ENV") !== "production";
 }
 
 /**
- * The dev escape is on only when ALLOW_FAKE_LOCATION is exactly "true", APP_ENV
- * is unset or "local", AND the function runs against a local Supabase stack, so
- * it can never be enabled on staging or in a hosted project by accident. The
- * database refuses fake locations as well unless it is marked 'local'.
- */
-export function fakeLocationAllowed(env: (name: string) => string | undefined): boolean {
-  return env("ALLOW_FAKE_LOCATION") === "true" && isLocalAppEnv(env) && isLocalSupabaseUrl(env("SUPABASE_URL"));
-}
-
-/**
- * Throws when ALLOW_FAKE_LOCATION is set at all (any value) outside a local
- * environment, so a misconfigured deployment fails to start instead of
- * running with a setting that must not exist there.
+ * ALLOW_FAKE_LOCATION was the old local-only escape and is retired (Dev mode
+ * replaced it). Outside a local environment the function still refuses to
+ * start while it is set at all, so a stale configuration is noticed.
  */
 export function assertFakeLocationConfig(env: (name: string) => string | undefined): void {
-  if (!isLocalAppEnv(env) && env("ALLOW_FAKE_LOCATION") !== undefined) {
-    throw new Error(`ALLOW_FAKE_LOCATION must not be set when APP_ENV=${env("APP_ENV")}`);
+  const appEnv = env("APP_ENV");
+  const local = appEnv === undefined || appEnv === "local";
+  if (!local && env("ALLOW_FAKE_LOCATION") !== undefined) {
+    throw new Error(`ALLOW_FAKE_LOCATION must not be set when APP_ENV=${appEnv}`);
   }
 }
