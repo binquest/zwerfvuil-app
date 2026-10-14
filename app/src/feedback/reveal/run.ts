@@ -10,9 +10,10 @@ export interface TimelineRun {
   cancel(): void;
 }
 
+/** `lateMs`: how long after its planned time the batch runs (for the Dev mode diagnostics). */
 export function runTimeline(
   events: readonly Event[],
-  onEvents: (batch: Event[]) => void,
+  onEvents: (batch: Event[], lateMs: number) => void,
   now: () => number = () => performance.now(),
 ): TimelineRun {
   const batches: { atMs: number; events: Event[] }[] = [];
@@ -33,7 +34,7 @@ export function runTimeline(
     while (!cancelled && next < batches.length && start + batches[next].atMs <= now()) {
       const batch = batches[next++];
       try {
-        onEvents(batch.events);
+        onEvents(batch.events, now() - (start + batch.atMs));
       } catch (error) {
         // One failing event must not stop the rest of the reveal.
         console.warn('reveal event failed', error);

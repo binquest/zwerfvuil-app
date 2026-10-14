@@ -40,6 +40,14 @@ describe('runTimeline', () => {
     expect(seen).toEqual([160, 200, 300]);
   });
 
+  it('tells the handler how late each batch runs', () => {
+    const late: number[] = [];
+    runTimeline([count(0, 1), count(100, 2)], (_, lateMs) => late.push(lateMs), now);
+    lag = 30;
+    jest.advanceTimersByTime(100);
+    expect(late).toEqual([0, 30]);
+  });
+
   it('catches up in order when the thread was blocked past several events', () => {
     const seen: number[] = [];
     runTimeline([count(100, 1), count(200, 2), count(300, 3)], (batch) => batch.forEach((e) => e.type === 'count' && seen.push(e.value)), now);

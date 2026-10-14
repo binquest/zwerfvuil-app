@@ -5,7 +5,7 @@ import { Host } from '@expo/ui';
 import { Button, Form, LabeledContent, Section, Stepper, Text, Toggle } from '@expo/ui/swift-ui';
 import { disabled, monospacedDigit } from '@expo/ui/swift-ui/modifiers';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert } from 'react-native';
 
 import { EmptyState } from '@/components/EmptyState';
@@ -35,8 +35,15 @@ export default function DevModeScreen() {
   const [previewBase, setPreviewBase] = useState(BASE_POINTS);
   const [previewWeeks, setPreviewWeeks] = useState(3);
   const [previewBonus, setPreviewBonus] = useState(true);
+  const [previewNoSound, setPreviewNoSound] = useState(false);
   const [override, setOverride] = useState(dev.status?.streakOverride ?? 4);
   const [busy, setBusy] = useState(false);
+
+  // Load the reveal sounds while you set up the preview: the first load after
+  // starting the app can take longer than the reveal waits for them.
+  useEffect(() => {
+    if (dev.available) initSfx();
+  }, [dev.available]);
 
   if (!dev.available) {
     return (
@@ -61,13 +68,14 @@ export default function DevModeScreen() {
 
   const playPreview = () => {
     // The reveal waits for the sounds; start loading them now.
-    initSfx();
+    if (!previewNoSound) initSfx();
     setPendingReveal({
       points: pointStages(previewBase, previewWeeks),
       question: previewBonus ? PREVIEW_QUESTION : null,
       checkinId: null,
       isTest: true,
       preview: true,
+      noSound: previewNoSound,
     });
     router.push('/reveal');
   };
@@ -110,7 +118,13 @@ export default function DevModeScreen() {
 
         <Section
           title="Onthulling bekijken"
-          footer={<Text>Speelt de puntenonthulling af met geluid en haptiek. Schrijft niets weg.</Text>}>
+          footer={
+            <Text>
+              Speelt de puntenonthulling af met geluid en haptiek. Schrijft niets weg. Na afloop staan onderaan de
+              metingen (vertraging van timers, beeld en haptiek). &quot;Zonder geluid&quot; laadt de geluidsengine niet, om
+              te zien of het geluid de vertraging veroorzaakt.
+            </Text>
+          }>
           <Stepper
             label={`Basispunten: ${previewBase}`}
             value={previewBase}
@@ -127,6 +141,7 @@ export default function DevModeScreen() {
             onValueChange={setPreviewWeeks}
           />
           <Toggle label="Met bonusvraag" isOn={previewBonus} onIsOnChange={setPreviewBonus} />
+          <Toggle label="Zonder geluid (diagnose)" isOn={previewNoSound} onIsOnChange={setPreviewNoSound} />
           <Button label="Speel af" systemImage="play.fill" onPress={playPreview} />
         </Section>
 

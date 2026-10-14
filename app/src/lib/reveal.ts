@@ -14,6 +14,8 @@ export interface RevealData {
   isTest: boolean;
   /** Preview from Dev mode: nothing is sent to the server. */
   preview: boolean;
+  /** Dev mode diagnostics: play the preview without loading the sound engine at all. */
+  noSound?: boolean;
 }
 
 let pending: RevealData | null = null;

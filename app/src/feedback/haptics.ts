@@ -11,8 +11,24 @@ const IMPACT = {
   rigid: Haptics.ImpactFeedbackStyle.Rigid,
 } as const;
 
+// Dev mode diagnostics: how long each haptic takes to come back from the main thread.
+let probe: ((ms: number) => void) | null = null;
+
+export function setHapticProbe(listener: ((ms: number) => void) | null): void {
+  probe = listener;
+}
+
 function swallow(promise: Promise<void>): void {
-  promise.catch(() => {});
+  const listener = probe;
+  if (!listener) {
+    promise.catch(() => {});
+    return;
+  }
+  const started = performance.now();
+  promise.then(
+    () => listener(performance.now() - started),
+    () => {},
+  );
 }
 
 /** Fires one haptic and returns at once. */
