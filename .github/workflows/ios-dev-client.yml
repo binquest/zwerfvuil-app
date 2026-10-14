@@ -112,7 +112,14 @@ jobs:
           test "$compat" != "true" || { echo "::error::Liquid Glass is switched off (UIDesignRequiresCompatibility)"; exit 1; }
           sdk=$(/usr/libexec/PlistBuddy -c "Print DTSDKName" "$plist" 2>/dev/null || echo "?")
           executable=$(/usr/libexec/PlistBuddy -c "Print CFBundleExecutable" "$plist")
-          if strings "$app/$executable" | grep -q "EXDevLauncher"; then launcher="linked"; else launcher="NOT FOUND (check the app on the phone)"; echo "::warning::EXDevLauncher not found in the binary"; fi
+          # Xcode 26 Debug builds put the code in <executable>.debug.dylib
+          # (ENABLE_DEBUG_DYLIB); the executable itself is a small stub.
+          launcher=""
+          for binary in "$app/$executable" "$app/$executable.debug.dylib"; do
+            if [ -f "$binary" ] && strings "$binary" | grep -q "EXDevLauncherController"; then launcher="linked ($(basename "$binary"))"; fi
+          done
+          test -d "$app/EXDevLauncher.bundle" || { echo "::error::EXDevLauncher.bundle missing"; exit 1; }
+          test -n "$launcher" || { echo "::error::EXDevLauncherController not found in the app's binaries"; exit 1; }
           echo "dev launcher: $launcher"
           if [ -f "$app/main.jsbundle" ]; then bundled="yes (unexpected, harmless)"; else bundled="no (loads from Metro)"; fi
           ipa="ZwerfvuilGent-dev-unsigned-${GITHUB_RUN_NUMBER}.ipa"

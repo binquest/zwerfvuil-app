@@ -159,7 +159,11 @@ git push origin ios-dev-<yyyymmdd-hhmm>
   native code, een config-plugin, of `app.json`/`app.config.ts`. JavaScript komt
   altijd van Metro.
 - Een build kost ongeveer 15 macOS-minuten van hetzelfde gratis tegoed als de
-  staging-IPA (200 per maand).
+  staging-IPA (200 per maand). De eerste (14 oktober 2026, Xcode 26.6): 14 min
+  21 s, 15 minuten gefactureerd, IPA 31 MB.
+- Het is een debug-build: de code zit in `ZwerfvuilDev.debug.dylib` naast het
+  kleine uitvoerbare bestand. Je sideload-app moet dus ook losse `.dylib`'s
+  signeren (de gangbare doen dat).
 - `app.config.ts` zet met `APP_VARIANT=development` de naam, de bundle id, het
   dev-client-scheme en http naar je pc (voor Metro en de lokale Supabase); zonder
   `APP_VARIANT` is de config gewoon `app.json`.
