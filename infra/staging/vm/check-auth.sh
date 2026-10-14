@@ -3,7 +3,8 @@
 #   1. request a code for a throwaway address (<random>@example.test)
 #   2. read the mail in Mailpit: subject and template as in supabase/templates
 #   3. sign in with the 6-digit code
-#   4. with that session, a check-in with fake_location=true must be refused
+#   4. with that session (not an admin), a check-in with fake_location=true
+#      must be refused: fake locations are Dev mode, for admins only
 #   5. delete the test account and its mails again
 # Prints statuses only, never the code, the session or a key.
 . "$(dirname "$0")/lib.sh"
@@ -76,15 +77,16 @@ step "submit-checkin, fake_location=true" "$status $reason"
 [ "$status" = 403 ] && [ "$reason" = fake_location_not_allowed ] || die "a fake location was not refused"
 
 # The database itself (record_checkin, as the service role like the function):
-# refused because the database is marked 'staging'. Nothing is stored.
+# a fake location from a user who is not an admin is refused with a reason,
+# nothing is stored.
 response=$(printf 'header = "apikey: %s"\n' "$SEC" |
   curl -sS -K - -w '\n%{http_code}' -X POST -H 'Content-Type: application/json' \
     -d "{\"p_checkin_id\":\"$(cat /proc/sys/kernel/random/uuid)\",\"p_user_id\":\"$user_id\",\"p_bin_id\":$bin_id,
          \"p_lat\":51.0523,\"p_lon\":3.7169,\"p_accuracy_m\":5,\"p_is_mocked\":false,
          \"p_is_fake_location\":true,\"p_photo_path\":\"$user_id/x.jpg\"}" "$GW/rest/v1/rpc/record_checkin")
 status=$(tail -1 <<<"$response")
-pgcode=$(head -n -1 <<<"$response" | jq -r '.code // empty')
-step "record_checkin with a fake location (database)" "$status $pgcode"
-[ "$pgcode" = 42501 ] || die "the database did not refuse a fake location"
+db_reason=$(head -n -1 <<<"$response" | jq -r 'if type == "array" then (.[0].reason // empty) else (.code // empty) end')
+step "record_checkin with a fake location (database, not an admin)" "$status $db_reason"
+[ "$status" = 200 ] && [ "$db_reason" = fake_location_not_allowed ] || die "the database did not refuse a fake location"
 
 log "all auth checks passed (test account and mail are removed)"

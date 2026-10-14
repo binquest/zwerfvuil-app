@@ -396,7 +396,7 @@ deno_version = 2
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
-# Local function env vars (e.g. ALLOW_FAKE_LOCATION) go in supabase/functions/.env,
+# Local function env vars go in supabase/functions/.env,
 # see supabase/functions/.env.example.
 [functions.submit-checkin]
 enabled = true

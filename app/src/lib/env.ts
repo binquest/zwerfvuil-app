@@ -6,7 +6,7 @@
 const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const key = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
-/** "local" (default, the dev build against a PC) or "staging" (the homeserver VM). */
+/** "local" (default, a local Supabase on a PC) or "staging" (the homeserver VM). */
 export const APP_ENV = process.env.EXPO_PUBLIC_APP_ENV || 'local';
 
 function problem(name: string, value: string | undefined): string | null {

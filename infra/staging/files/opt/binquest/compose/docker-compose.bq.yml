@@ -18,8 +18,9 @@
 #   through the SSH tunnel) until a real SMTP provider is chosen. Auth reads the
 #   6-digit-code template from supabase/templates over HTTP (GoTrue only loads
 #   templates from a URL), served by mail-templates inside the Docker network.
-# - APP_ENV=staging switches the fake-location dev escape of submit-checkin off
-#   for good: with ALLOW_FAKE_LOCATION set at all, the function refuses to start.
+# - APP_ENV=staging: fake locations are Dev mode only (admins, decided by the
+#   database). The retired ALLOW_FAKE_LOCATION must not be set: with it set at
+#   all, the function refuses to start.
 
 services:
 

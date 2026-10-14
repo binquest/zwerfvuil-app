@@ -85,8 +85,8 @@ Tailscale, luisterende poorten) en verandert niets.
 | `vm/75-tailscale-serve.sh` | De API publiceren op het tailnet via `tailscale serve` |
 | `vm/check-supabase.sh` | Smoketest van de stack (alleen lezen, ruimt zijn testbucket op) |
 | `vm/80-deploy.sh` | Edge functions en e-mailtemplates installeren (via `stagingctl.py deploy`) |
-| `vm/check-auth.sh` | Login met code via Mailpit en weigering van een nep-locatie (ruimt zijn testaccount op) |
-| `vm/check-fake-location.sh` | Bewijst dat `submit-checkin` niet start met `ALLOW_FAKE_LOCATION` |
+| `vm/check-auth.sh` | Login met code via Mailpit en weigering van een nep-locatie van een gewone gebruiker (ruimt zijn testaccount op) |
+| `vm/check-fake-location.sh` | Bewijst dat `submit-checkin` niet start met het afgeschafte `ALLOW_FAKE_LOCATION` |
 | `vm/cleanup-test-accounts.sh` | Verwijdert testaccounts (`…@example.test`) via de Auth admin-API |
 | `vm/85-backup.sh` | Nachtelijke database-dump (`bq-backup.timer`) installeren en meteen één backup maken |
 | `vm/check-restore.sh` | Restore-test van de nieuwste dump in een wegwerpcontainer |
@@ -327,18 +327,22 @@ versie: migraties, dan functions en templates, dan de controles.
   `ALLOW_FAKE_LOCATION`, dat Auth de template kan laden, en dat `submit-checkin`
   zelf antwoordt.
 
-### Nep-locatie: op staging altijd uit
+### Nep-locatie: alleen Dev-modus, alleen admins
 
-Drie lagen, elk getest:
+Een gekozen locatie (`fake_location=true`) bestaat alleen nog in Dev-modus (zie
+hieronder). Lagen, elk getest:
 
 1. `APP_ENV=staging` staat in `docker-compose.bq.yml` voor de functions-container.
-   Dan staat de nep-locatie uit, en met `ALLOW_FAKE_LOCATION` (welke waarde ook)
-   weigert de functie te starten (`vm/check-fake-location.sh`).
-2. Een check-in met `fake_location=true` krijgt 403 `fake_location_not_allowed`
-   (`vm/check-auth.sh`).
-3. De database (`private.app_environment = 'staging'`) laat `record_checkin`
-   geen nep-locatie opslaan, ook niet als de functie het toch zou doorlaten
-   (`vm/check-auth.sh` roept `record_checkin` rechtstreeks aan: fout `42501`).
+   Het oude `ALLOW_FAKE_LOCATION` is afgeschaft: is het gezet (welke waarde ook),
+   dan weigert de functie te starten (`vm/check-fake-location.sh`). Met
+   `APP_ENV=production` weigert de functie elke nep-locatie meteen.
+2. De database beslist: `record_checkin` aanvaardt een nep-locatie alleen van een
+   **admin** op een database gemarkeerd als `local` of `staging`, en slaat ze op
+   als testinworp. Van iemand anders: reden `fake_location_not_allowed`, de functie
+   antwoordt 403 (`vm/check-auth.sh`, met een gewoon testaccount, zowel via de
+   functie als rechtstreeks op de database).
+3. Gebruikers kunnen `record_checkin` niet zelf aanroepen (alleen de functie, met
+   de service role).
 
 ### Controles na een deploy
 
@@ -415,12 +419,14 @@ ssh binquest-staging "sudo bq-secret SUPABASE_PUBLISHABLE_KEY"
   EAS-omgeving `preview`) voor als de IPA via EAS gebouwd wordt; de URL en key
   komen dan uit de EAS-omgevingsvariabelen, niet uit git.
 
-### De nep-locatie zit niet in de build
+### Wat er in de build zit
 
-Alle code van de verborgen nep-locatie-toggle (long-press, badge, paarse marker,
-het verzoekveld `fake_location`, de dev-labels in admin en profiel) staat achter een
-letterlijke `__DEV__`. Een release-export vervangt die door `false` en laat de code
-weg. Controle:
+De oude verborgen nep-locatie-toggle (long-press op het infovak, badge, de
+dev-labels) is weg. Dev-modus zit **wel** in elke build, ook de staging-build: het is
+een scherm voor admins, en de server weigert het voor iedereen anders en in
+productie (zie "Dev-modus"). Het verzoekveld `fake_location` mag daarom in de bundel
+staan. De Mailpit-hint van de login staat nog achter een letterlijke `__DEV__`.
+Controle:
 
 ```powershell
 npm --prefix app run check:staging-bundle
@@ -429,17 +435,79 @@ npm --prefix app run check:staging-bundle
 Dat exporteert de iOS-bundel met het staging-profiel (`dist-staging`, gitignored) en
 doorzoekt hem:
 
-- geen teksten van de toggle, geen `fake_location` (de kolomnaam `is_fake_location`
-  in de geschiedenis mag), geen `ALLOW_FAKE_LOCATION`, geen Mailpit-hint;
+- geen teksten van de oude toggle, geen `ALLOW_FAKE_LOCATION`, geen Mailpit-hint
+  (Dev-modus en `fake_location` mogen erin);
 - de staging-URL en -key staan erin, de URL en key uit `.env.local` niet;
 - gewone app-teksten worden wel gevonden (de controle leest de echte bundel).
 
-Resultaat (12 oktober 2026): alle controles slagen. Tegenproef: dezelfde export met
+Resultaat (12 oktober 2026, opnieuw 14 oktober met Dev-modus): alle controles
+slagen. Tegenproef: dezelfde export met
 `--dev` (waar `__DEV__` blijft) faalt op 8 controles. De `·` in "DEV · nep-locatie"
 wordt in de bundel geëscapet; daarom zoekt de controle ook op ASCII-stukken van de
 teksten.
 
+## Dev-modus
+
+Met Dev-modus test een admin elke functie op staging zonder rond te lopen of echte
+inworpen te doen. Je vindt het in de app onder **Beheer → Dev-modus**; het scherm
+verschijnt alleen als de server zegt dat het mag (`dev_mode_status()`).
+
+### Wat het kan
+
+| Functie | Wat er gebeurt | Schrijft |
+|---|---|---|
+| Onthulling bekijken | Kies basispunten, een reeks (0–10 weken) en of er een bonusvraag volgt; de app speelt de puntenonthulling af met geluid en haptiek | niets (alleen in de app) |
+| Reeks forceren | `set_dev_streak_override(weken)`: je volgende inworpen gebruiken die reeks (×1,1 per week, max. 8 stappen) | `dev_settings`, auditlog |
+| Testlocatie | Kies je locatie op de kaart en doe een gewone inworp bij een vuilbak, met foto en bonusvraag (de afstandsregels gelden) | een testinworp, auditlog |
+| Reset | `reset_dev_test_data()`: verwijdert jouw testinworpen (met bonusantwoord), testpunten en de geforceerde reeks; de app wist daarna de foto's van die inworpen | auditlog |
+| Ranglijst met testdata | `leaderboard(..., include_test => true)`: toont ook testpunten, om te zien dat ze verschijnen en na een reset verdwijnen | niets |
+
+Een testinworp keur je goed of af in **Beheer** zoals elke inworp (gemarkeerd als
+TEST); de punten gaan naar `profiles.test_points`, nooit naar `points`.
+
+### Waarom het veilig is
+
+Alles staat in de database (migratie `20261014210000_dev_mode.sql`), niet alleen in
+de app:
+
+- **Alleen admins, alleen het eigen account.** Elke functie controleert
+  `dev_mode_allowed()`: `is_admin` van de aanroeper én
+  `private.app_environment` is `local` of `staging`. De functies werken alleen op
+  `auth.uid()`; er is geen parameter voor een ander account.
+- **Nooit in productie.** Op een database gemarkeerd als `production` (of zonder
+  markering) weigert alles, en een eerder bewaarde geforceerde reeks wordt genegeerd.
+- **Alles is testdata.** Inworpen met een testlocatie of geforceerde reeks krijgen
+  `is_test`, hun bonusantwoorden ook, en hun punten gaan naar `test_points`. Echte
+  reeksen (`my_streak`, de reeks van echte inworpen), de ranglijst en de
+  bin-data (`bin_need_answers`, de basis voor de analyse van ontbrekende
+  vuilbakken) laten testdata weg. (Vouchers bestaan nog niet; als ze komen, moeten
+  ze `is_test` en `test_points` ook negeren.)
+- **Alles wordt gelogd** in `dev_audit_log`: elke geforceerde reeks, elke
+  testinworp (met vuilbak, testlocatie ja/nee, reeks) en elke reset (met het aantal
+  verwijderde inworpen), met de omgeving. Alleen admins lezen het; niemand schrijft
+  er rechtstreeks in.
+- **Reset raakt alleen jouw testdata.** Echte inworpen en punten blijven, en de
+  data van andere gebruikers en admins ook. Een storage-policy laat een admin alleen
+  eigen foto's wissen die geen enkele inworp nog gebruikt.
+
+Bewezen door `supabase/tests/database/07_dev_mode.test.sql` (59 controles: geweigerd
+voor niet-admins en in productie, testdata niet in ranglijst of bin-data, reset
+alleen eigen testdata, auditlog), `05_environment_guard.test.sql` en de
+end-to-end-test van `submit-checkin` (testinworpen, reset en het wissen van de
+foto's).
+
+Het auditlog bekijken (Studio via de tunnel, SQL Editor):
+
+```sql
+select created_at, action, details, environment
+from dev_audit_log order by id desc limit 50;
+```
+
 ## IPA bouwen (GitHub Actions)
+
+Er zijn twee workflows. Deze sectie gaat over de staging-app ("Zwerfvuil Gent",
+`be.zwerfvuil.app`). Voor "Zwerfvuil Dev" (`be.zwerfvuil.app.dev`, dezelfde server,
+met EAS Update) zie README stap 6 en `.github/workflows/ios-dev.yml`.
 
 `.github/workflows/ios-staging.yml` bouwt een **ongesigneerde** `.ipa` van de app
 met het staging-profiel, op een macOS-runner van GitHub (`macos-26`). Iedereen

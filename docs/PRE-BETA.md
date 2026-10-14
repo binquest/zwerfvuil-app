@@ -61,8 +61,10 @@ voor echte gebruikers. Wordt aangevuld telkens zo'n keuze gemaakt wordt.
 
 - [ ] Privacyverklaring: welke data (e-mail, locaties, foto's), waarom, hoe lang.
 - [ ] Account en data verwijderen vanuit de app.
-- [ ] `display_name` wordt nu afgeleid van het deel vóór de `@` van het
-  e-mailadres en is zichtbaar voor admins. Laat gebruikers zelf een naam kiezen.
+- [ ] `display_name` wordt afgeleid van het deel vóór de `@` van het
+  e-mailadres en staat **op de ranglijst, zichtbaar voor iedereen**, zodra iemand
+  punten heeft. Gebruikers kunnen hem wijzigen in Profiel, maar pas achteraf. Vraag
+  een naam bij de eerste aanmelding, of begin met een neutrale naam.
 - [ ] De sessie staat in `expo-sqlite`-localStorage (niet versleuteld). Overweeg
   versleutelde opslag voor het refresh token.
 
@@ -99,12 +101,13 @@ voor echte gebruikers. Wordt aangevuld telkens zo'n keuze gemaakt wordt.
   Android.
 - [ ] **Staging-builds hangen af van het gratis tegoed van GitHub Actions**
   (ongeveer 200 macOS-minuten per maand, zonder betaalmethode: daarna geblokkeerd).
-- [ ] **Store build** (EAS). Lokaal draait de app nu in een eigen development
-  build ("Zwerfvuil Dev", ongesigneerd via GitHub Actions, zie README stap 6) in
-  plaats van Expo Go, met de eigen toestemmingsteksten uit `app.json`. De verborgen
-  nep-locatie-toggle bestaat alleen in dev (`__DEV__`); `npm --prefix app run
-  check:staging-bundle` bewijst dat voor de staging-bundel. Voeg dezelfde controle
-  toe voor de productiebuild (eigen profiel, eigen URL).
+- [ ] **Store build** (EAS). Getest wordt nu met "Zwerfvuil Dev" (Release tegen
+  staging, ongesigneerd via GitHub Actions, updates via EAS Update; README stap 6),
+  met de eigen toestemmingsteksten uit `app.json`. Dev-modus zit in elke build en
+  wordt door de server geweigerd in productie; `npm --prefix app run
+  check:staging-bundle` bewijst dat de oude verborgen toggle en de dev-config niet in
+  de bundel zitten. Voeg dezelfde controle toe voor de productiebuild (eigen
+  profiel, eigen URL).
 - [ ] **CORS**: `submit-checkin` antwoordt met `Access-Control-Allow-Origin: *`.
   Beperk dit als er geen webversie komt.
 - [ ] **OSM-import plannen en bewaken**: de import draait nu manueel. De import
@@ -156,6 +159,30 @@ echte gebruikersdata vraagt meer.
 - [ ] **Het omgevingsmerkteken `private.app_environment` is één rij die elke
   databasebeheerder kan wijzigen.** Het beschermt tegen vergissingen (verkeerde
   database, verkeerde config), niet tegen iemand met `postgres`-rechten.
+
+## App, punten en Dev-modus (oktober 2026)
+
+- [ ] **Android.** De schermen gebruiken SwiftUI via `@expo/ui/swift-ui`; op
+  Android crasht dat ("Unable to get view config"). Voor een Android-release:
+  Jetpack Compose- of universele varianten van login, profiel, ranglijst,
+  Dev-modus, bin-sheet en de knoppen.
+- [ ] **Reeksen tellen inworpen die nog wachten.** Wordt een eerdere inworp later
+  afgewezen, dan worden de reeksen (en punten) van latere inworpen niet herrekend.
+- [ ] **Een verdacht snel bonusantwoord krijgt toch +5** (alleen gemarkeerd, de
+  admin ziet het). Beslis of dat zo blijft. `bin_need_answers` bevat verdachte
+  antwoorden, met de vlag; filter ze in de analyse.
+- [ ] **Puntenschaal.** Basis 10 en ×1,1 per week geven kleine sprongen (10 → max.
+  21). Een grotere basis (bv. 100) maakt de onthulling sterker; het is één constante
+  in `checkin_point_stages` (migratie) en `app/src/lib/points.ts`.
+- [ ] **Vouchers bestaan nog niet.** Als ze komen: `is_test` en `test_points`
+  negeren, met een test zoals `07_dev_mode.test.sql`.
+- [ ] **EAS Update.** Updates zijn niet ondertekend (geen code signing in
+  `expo-updates`) en de bundel staat op de servers van Expo, met de staging-URL en
+  publishable key. Voor productie: code signing, en bewust kiezen tussen Expo en een
+  eigen update-server.
+- [ ] **Dev-modus in productie** weigert alleen als de productiedatabase als
+  `production` gemarkeerd is (zie "Infrastructuur en configuratie"). Controleer dat
+  bij het opzetten, en kijk `dev_audit_log` na.
 
 ## Licentie (ODbL)
 
