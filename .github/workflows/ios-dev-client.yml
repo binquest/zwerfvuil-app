@@ -1,0 +1,156 @@
+# Unsigned iOS development build (.ipa) of the app: a debug build with
+# expo-dev-client ("Zwerfvuil Dev", be.zwerfvuil.app.dev) that loads the JS from
+# Metro on your PC, over LAN or Tailscale. It replaces Expo Go.
+#
+# Like the staging IPA it is NOT signed: you sign it on your iPhone with your own
+# certificate in a sideload app. It contains no configuration and no JS bundle,
+# so it needs no secrets. Rebuild only when native code changes (a package with
+# native code, a config plugin, app.json/app.config.ts); JS changes come from
+# Metro. See README ("Development build").
+#
+# Start (a tag works from any branch):
+#   git tag ios-dev-<yyyymmdd-hhmm>
+#   git push origin ios-dev-<yyyymmdd-hhmm>
+
+name: iOS dev client IPA (unsigned)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "ios-dev-*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-dev-client
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build unsigned dev client IPA
+    runs-on: macos-26
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: app
+    env:
+      CI: "1"
+      # Read by app/app.config.ts: dev name, bundle id and plugins.
+      APP_VARIANT: development
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Tools
+        run: |
+          xcodebuild -version
+          node --version
+          echo "started_at=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate the iOS project (expo prebuild, CocoaPods)
+        run: npx --yes expo prebuild --platform ios --clean
+
+      - name: Build (Debug) without code signing
+        # SKIP_BUNDLING: no JS bundle in the app; the dev client loads it from
+        # Metro. The full log goes to a file (uploaded on failure).
+        run: |
+          workspace=$(ls -d ios/*.xcworkspace | head -1)
+          scheme=$(basename "$workspace" .xcworkspace)
+          echo "workspace=$workspace scheme=$scheme"
+          set +e
+          xcodebuild build \
+            -workspace "$workspace" \
+            -scheme "$scheme" \
+            -configuration Debug \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath "$RUNNER_TEMP/derived" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            SKIP_BUNDLING=1 \
+            > "$RUNNER_TEMP/xcodebuild.log" 2>&1
+          status=$?
+          set -e
+          grep -E "^\*\* |error:" "$RUNNER_TEMP/xcodebuild.log" | tail -n 40 || true
+          echo "xcodebuild exit status: $status"
+          test "$status" -eq 0
+
+      - name: Package and verify the .ipa
+        run: |
+          app=$(ls -d "$RUNNER_TEMP"/derived/Build/Products/Debug-iphoneos/*.app | head -1)
+          test -n "$app" || { echo "::error::no .app in Debug-iphoneos"; exit 1; }
+          plist="$app/Info.plist"
+          bundle_id=$(/usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" "$plist")
+          echo "bundle id: $bundle_id"
+          test "$bundle_id" = "be.zwerfvuil.app.dev"
+          test ! -e "$app/embedded.mobileprovision" || { echo "unexpected provisioning profile"; exit 1; }
+          if codesign -dv "$app" 2>&1 | grep -q "not signed at all"; then echo "code signature: none (as intended)"; else codesign -dv "$app" 2>&1; exit 1; fi
+          # http to Metro and the local Supabase must be allowed (app.config.ts).
+          ats=$(/usr/libexec/PlistBuddy -c "Print :NSAppTransportSecurity:NSAllowsArbitraryLoads" "$plist")
+          echo "NSAllowsArbitraryLoads: $ats"
+          test "$ats" = "true"
+          schemes=$(/usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes" "$plist" | grep -E "^[[:space:]]+[a-z]" | sed 's/^[[:space:]]*//' | paste -sd, -)
+          echo "URL schemes: $schemes"
+          echo ",$schemes," | grep -q ",exp+zwerfvuil-app," || { echo "::error::dev client scheme exp+zwerfvuil-app missing"; exit 1; }
+          # Liquid Glass: built with the iOS 26 SDK and not opted out.
+          compat=$(/usr/libexec/PlistBuddy -c "Print :UIDesignRequiresCompatibility" "$plist" 2>/dev/null || echo "not set")
+          echo "UIDesignRequiresCompatibility: $compat"
+          test "$compat" != "true" || { echo "::error::Liquid Glass is switched off (UIDesignRequiresCompatibility)"; exit 1; }
+          sdk=$(/usr/libexec/PlistBuddy -c "Print DTSDKName" "$plist" 2>/dev/null || echo "?")
+          executable=$(/usr/libexec/PlistBuddy -c "Print CFBundleExecutable" "$plist")
+          if strings "$app/$executable" | grep -q "EXDevLauncher"; then launcher="linked"; else launcher="NOT FOUND (check the app on the phone)"; echo "::warning::EXDevLauncher not found in the binary"; fi
+          echo "dev launcher: $launcher"
+          if [ -f "$app/main.jsbundle" ]; then bundled="yes (unexpected, harmless)"; else bundled="no (loads from Metro)"; fi
+          ipa="ZwerfvuilGent-dev-unsigned-${GITHUB_RUN_NUMBER}.ipa"
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          cp -R "$app" "$RUNNER_TEMP/ipa/Payload/"
+          (cd "$RUNNER_TEMP/ipa" && zip -qry "$RUNNER_TEMP/$ipa" Payload)
+          echo "ipa_path=$RUNNER_TEMP/$ipa" >> "$GITHUB_ENV"
+          {
+            echo "### Unsigned dev client IPA"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| File | \`$ipa\` |"
+            echo "| Size | $(du -h "$RUNNER_TEMP/$ipa" | cut -f1) |"
+            echo "| Bundle ID | \`$bundle_id\` |"
+            echo "| URL schemes | \`$schemes\` |"
+            echo "| SDK | \`$sdk\` (Liquid Glass opt-out: $compat) |"
+            echo "| Dev launcher | $launcher |"
+            echo "| JS bundle inside | $bundled |"
+            echo "| Commit | \`${GITHUB_SHA::12}\` (${GITHUB_REF_NAME}) |"
+            echo "| Build time | $(( ($(date +%s) - started_at) / 60 )) min (whole job: see the run's billable time) |"
+            echo ""
+            echo "Sign it in your sideload app with your own certificate; see the README."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the .ipa
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ env.ipa_path }}
+          archive: false
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload the build log (on failure)
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: xcodebuild-log-${{ github.run_number }}
+          path: ${{ runner.temp }}/xcodebuild.log
+          retention-days: 3
+          if-no-files-found: ignore

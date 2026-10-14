@@ -1,6 +1,6 @@
 # Voor er echte gebruikers bij komen
 
-Keuzes die voor de MVP (één tester, lokale Supabase, Expo Go) volstaan, maar niet
+Keuzes die voor de MVP (één tester, lokale Supabase, development build) volstaan, maar niet
 voor echte gebruikers. Wordt aangevuld telkens zo'n keuze gemaakt wordt.
 
 ## Moderatie en punten
@@ -99,8 +99,9 @@ voor echte gebruikers. Wordt aangevuld telkens zo'n keuze gemaakt wordt.
   Android.
 - [ ] **Staging-builds hangen af van het gratis tegoed van GitHub Actions**
   (ongeveer 200 macOS-minuten per maand, zonder betaalmethode: daarna geblokkeerd).
-- [ ] **Development build / store build** (EAS) in plaats van Expo Go, zodat de
-  eigen toestemmingsteksten uit `app.json` gebruikt worden. De verborgen
+- [ ] **Store build** (EAS). Lokaal draait de app nu in een eigen development
+  build ("Zwerfvuil Dev", ongesigneerd via GitHub Actions, zie README stap 6) in
+  plaats van Expo Go, met de eigen toestemmingsteksten uit `app.json`. De verborgen
   nep-locatie-toggle bestaat alleen in dev (`__DEV__`); `npm --prefix app run
   check:staging-bundle` bewijst dat voor de staging-bundel. Voeg dezelfde controle
   toe voor de productiebuild (eigen profiel, eigen URL).

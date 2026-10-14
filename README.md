@@ -6,7 +6,7 @@ alleen de testregio rond de Oude Houtlei in Gent (+600 m).
 
 | Map | Inhoud |
 |---|---|
-| `app/` | Expo-app (TypeScript, Expo Router), draait in Expo Go (SDK 57) |
+| `app/` | Expo-app (TypeScript, Expo Router, SDK 57), draait als development build ("Zwerfvuil Dev") |
 | `supabase/` | Migraties, edge function `submit-checkin`, e-mailtemplate, database- en functietests |
 | `scripts/osm/` | Testregio bepalen, Belgium-PBF downloaden, vuilbakken extraheren |
 | `scripts/import-bins/` | `data/bins.geojson` importeren in de database |
@@ -44,7 +44,8 @@ zijn alleen voor de eerste keer: ze overschrijven bestaande bestanden.
 
 - Windows met PowerShell (of WSL), Docker Desktop (draaiend), Node.js 20+,
   Python 3.12+ (op Windows via `py`)
-- Op de iPhone: Expo Go (SDK 57); voor testen op straat ook Tailscale
+- Op de iPhone: de development build "Zwerfvuil Dev" (zie stap 6), een
+  sideload-app met je eigen certificaat; voor testen op straat ook Tailscale
 
 ## 1. Installeren
 
@@ -134,7 +135,34 @@ Of zet `ADMIN_EMAIL=...` in `.env` en draai het script zonder `--email`.
 Beide scripts werken standaard alleen op de lokale database. Voor de
 staging-omgeving: `--target staging` (zie `docs/STAGING.md`).
 
-## 6. App starten in Expo Go
+## 6. App starten (development build)
+
+De app gebruikt native modules die niet in Expo Go zitten (`@expo/ui`,
+`expo-glass-effect`, …). Daarom draait ze in een eigen development build:
+"Zwerfvuil Dev" (`be.zwerfvuil.app.dev`), een debug-build met `expo-dev-client`
+die de JavaScript van Metro op je pc laadt. Hij staat naast de staging-app op je
+iPhone.
+
+**De development build installeren.** Zonder Apple Developer Program bouwt
+GitHub Actions een **ongesigneerde** `.ipa`
+(`.github/workflows/ios-dev-client.yml`, macOS-runner); je signeert hem zelf in je
+sideload-app, net als de staging-IPA (`docs/STAGING.md`, "IPA bouwen").
+
+```powershell
+git tag ios-dev-<yyyymmdd-hhmm>
+git push origin ios-dev-<yyyymmdd-hhmm>
+```
+
+- Download `ZwerfvuilGent-dev-unsigned-<run>.ipa` bij de run (GitHub → Actions →
+  "iOS dev client IPA (unsigned)" → Artifacts), signeer en installeer hem.
+- Opnieuw bouwen is alleen nodig als de native code verandert: een package met
+  native code, een config-plugin, of `app.json`/`app.config.ts`. JavaScript komt
+  altijd van Metro.
+- Een build kost ongeveer 15 macOS-minuten van hetzelfde gratis tegoed als de
+  staging-IPA (200 per maand).
+- `app.config.ts` zet met `APP_VARIANT=development` de naam, de bundle id, het
+  dev-client-scheme en http naar je pc (voor Metro en de lokale Supabase); zonder
+  `APP_VARIANT` is de config gewoon `app.json`.
 
 Vul `app/.env.local` in:
 
@@ -157,8 +185,10 @@ cd app
 npx expo start --clear
 ```
 
-Scan de QR-code met de camera van je iPhone. Expo zet de waarden uit
-`.env.local` vast in de app: herstart na een wijziging altijd met `--clear`.
+Scan de QR-code met de camera van je iPhone: die opent "Zwerfvuil Dev" en laadt
+de app van je pc. Lukt dat niet, open dan "Zwerfvuil Dev" en vul in het
+startscherm `http://<PC_HOST>:8081` in. Expo zet de waarden uit `.env.local` vast
+in de app: herstart na een wijziging altijd met `--clear`.
 
 **Firewall op wifi.** Windows Firewall moet poort 54321 (Supabase) en 8081
 (Metro) toelaten op het netwerk van je wifi. Kijk welk profiel dat netwerk heeft:
@@ -214,8 +244,8 @@ te zetten naar het internet.
      ontbrekende API key betekent: bereikbaar.
    - `http://<TAILSCALE_IP>:8081/status` → `packager-status:running`.
 
-5. **Starten**: `cd app` en `npx expo start --clear`, scan de QR-code. Expo Go
-   laadt de app via het Tailscale-IP.
+5. **Starten**: `cd app` en `npx expo start --clear`, scan de QR-code. "Zwerfvuil
+   Dev" laadt de app via het Tailscale-IP.
 
 Tips:
 
@@ -306,7 +336,7 @@ onze zijn (`app/scripts/check-ios-assets.mjs`).
 |---|---|
 | De app toont "App niet geconfigureerd" | `app/.env.local` ontbreekt of bevat nog placeholders; vul het in en start met `npx expo start --clear` |
 | `expo start` meldt "Refused to load personal environment variables" | `REACT_NATIVE_PACKAGER_HOSTNAME` staat in `app/.env`; verplaats alles naar `app/.env.local` |
-| Expo Go laadt niet of de app krijgt geen verbinding | Open de controle-URL's uit de Tailscale-stappen in Safari; controleer de firewall, `tailscale status` en `<PC_HOST>` in `app/.env.local` |
+| "Zwerfvuil Dev" laadt niet of de app krijgt geen verbinding | Open de controle-URL's uit de Tailscale-stappen in Safari; controleer de firewall, `tailscale status` en `<PC_HOST>` in `app/.env.local` |
 | Geen inlogcode ontvangen | Lokaal gaan mails naar Mailpit (poort 54324), niet naar je echte mailbox; per account kan er maximaal 1 mail per seconde vertrekken |
 | Inworp mislukt | De melding zegt wat er mis is (netwerk, timeout, serverfout, weigering). In dev staat elke poging als `[submit-checkin] {...}` in de Metro-console |
 | Na `npm run db:reset` is alles leeg | Importeer opnieuw (stap 4) en maak jezelf opnieuw admin (stap 5) |
