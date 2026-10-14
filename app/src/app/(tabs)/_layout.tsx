@@ -1,37 +1,30 @@
-import Ionicons from '@expo/vector-icons/Ionicons';
-import { Tabs } from 'expo-router';
+import { NativeTabs } from 'expo-router/unstable-native-tabs';
+import { View } from 'react-native';
 
 import { useAuth } from '@/providers/AuthProvider';
 import { colors } from '@/theme';
 
+// The system tab bar (Liquid Glass on iOS 26). Each tab has its own stack for
+// headers. Tabs must not change after the first render, so wait for the
+// profile before deciding whether the Beheer tab exists.
 export default function TabsLayout() {
-  const { profile } = useAuth();
+  const { profile, profileLoaded } = useAuth();
+  if (!profileLoaded) return <View style={{ flex: 1, backgroundColor: colors.background }} />;
+  const isAdmin = !!profile?.isAdmin;
   return (
-    <Tabs screenOptions={{ tabBarActiveTintColor: colors.primary, headerTitleStyle: { fontWeight: '700' } }}>
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Kaart',
-          headerShown: false,
-          tabBarIcon: ({ color, size }) => <Ionicons name="map" color={color} size={size} />,
-        }}
-      />
-      <Tabs.Screen
-        name="profile"
-        options={{
-          title: 'Profiel',
-          tabBarIcon: ({ color, size }) => <Ionicons name="person-circle" color={color} size={size} />,
-        }}
-      />
-      <Tabs.Protected guard={!!profile?.isAdmin}>
-        <Tabs.Screen
-          name="admin"
-          options={{
-            title: 'Admin',
-            tabBarIcon: ({ color, size }) => <Ionicons name="shield-checkmark" color={color} size={size} />,
-          }}
-        />
-      </Tabs.Protected>
-    </Tabs>
+    <NativeTabs tintColor={colors.tint} minimizeBehavior="onScrollDown">
+      <NativeTabs.Trigger name="(map)" disableTransparentOnScrollEdge>
+        <NativeTabs.Trigger.Icon sf={{ default: 'map', selected: 'map.fill' }} md="map" />
+        <NativeTabs.Trigger.Label>Kaart</NativeTabs.Trigger.Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="(profile)">
+        <NativeTabs.Trigger.Icon sf={{ default: 'person.crop.circle', selected: 'person.crop.circle.fill' }} md="person" />
+        <NativeTabs.Trigger.Label>Profiel</NativeTabs.Trigger.Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="(admin)" hidden={!isAdmin}>
+        <NativeTabs.Trigger.Icon sf={{ default: 'checkmark.shield', selected: 'checkmark.shield.fill' }} md="verified_user" />
+        <NativeTabs.Trigger.Label>Beheer</NativeTabs.Trigger.Label>
+      </NativeTabs.Trigger>
+    </NativeTabs>
   );
 }

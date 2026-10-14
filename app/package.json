@@ -7,10 +7,11 @@
     "@expo/vector-icons": "^15.0.2",
     "@supabase/supabase-js": "^2.117.3",
     "expo": "~57.0.27",
+    "expo-asset": "~57.0.20",
+    "expo-audio": "~57.0.5",
     "expo-camera": "~57.0.6",
     "expo-constants": "~57.0.22",
     "expo-crypto": "~57.0.4",
-    "expo-dev-client": "~57.0.20",
     "expo-file-system": "~57.0.7",
     "expo-font": "~57.0.4",
     "expo-glass-effect": "~57.0.4",
@@ -25,6 +26,7 @@
     "expo-status-bar": "~57.0.1",
     "expo-symbols": "~57.0.3",
     "expo-system-ui": "~57.0.4",
+    "expo-updates": "~57.0.26",
     "expo-web-browser": "~57.0.3",
     "react": "19.2.3",
     "react-dom": "19.2.3",
@@ -52,7 +54,9 @@
     "doctor": "npx --yes expo-doctor@1.20.4",
     "export:staging": "node scripts/staging.mjs npx --yes expo export --platform ios --output-dir dist-staging --clear",
     "check:staging-bundle": "node scripts/staging.mjs npx --yes expo export --platform ios --output-dir dist-staging --clear --no-bytecode && node scripts/check-staging-bundle.mjs dist-staging",
-    "test:scripts": "node --test scripts/staging.test.mjs scripts/icons.test.mjs"
+    "test:scripts": "node --test scripts/staging.test.mjs scripts/icons.test.mjs scripts/sounds.test.mjs",
+    "update:dev": "node scripts/update-dev.mjs",
+    "sounds": "node scripts/sounds.mjs"
   },
   "private": true,
   "expo": {

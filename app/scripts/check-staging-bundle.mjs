@@ -2,9 +2,14 @@
 // Checks an exported staging bundle (npm run check:staging-bundle):
 //   node scripts/check-staging-bundle.mjs <export dir>
 //
-// Fails when the bundle contains anything of the fake-location dev toggle or
-// other dev-only code, or the local development config from .env.local, and
-// when the staging URL and key are missing. Prints no URL or key.
+// Fails when the bundle contains anything of the old hidden fake-location
+// toggle or other dev-only code, or the local development config from
+// .env.local, and when the staging URL and key are missing. Prints no URL or
+// key.
+//
+// Dev mode (admin screen) may be in a staging bundle: the server allows it only
+// for admins on local or staging, flags everything as test data and logs it.
+// So the request field fake_location is allowed now; the old toggle is not.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,21 +18,22 @@ import { parseEnv } from './staging.mjs';
 
 const APP_DIR = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-// Strings that only exist in dev-only code (behind a literal __DEV__). ASCII
-// variants too, because a minifier may escape characters such as "·".
+// Strings of the old hidden toggle and of other dev-only code (behind a
+// literal __DEV__). ASCII variants too, because a minifier may escape
+// characters such as "·".
 export const FORBIDDEN = [
-  'Nep-locatie aan (dev)', // toggle alert
-  'Tik op de kaart om je locatie te kiezen', // toggle alert text
-  'DEV · nep-locatie', // badge on the map
+  'Nep-locatie aan (dev)', // old toggle alert
+  'Tik op de kaart om je locatie te kiezen', // old toggle alert text
+  'DEV · nep-locatie', // old badge on the map
   'nep-locatie: tik op de kaart', // same badge, ASCII part
-  'Nep-locatie (dev)', // marker title and admin flag
-  'nep-locatie (dev)', // profile history
-  // Request field sent only in fake mode. Not the column is_fake_location,
-  // which the check-in history still selects.
-  /(?<!is_)fake_location/,
-  'ALLOW_FAKE_LOCATION',
+  'Nep-locatie (dev)', // old marker title and admin flag
+  'nep-locatie (dev)', // old profile history label
+  'ALLOW_FAKE_LOCATION', // the retired server escape
   'Mailpit', // local login hint
 ];
+
+// Dev mode texts that may appear (documentation for the reader; not checked).
+export const ALLOWED_DEV_MODE = ['Dev-modus', 'Testlocatie', 'fake_location'];
 // Ordinary app texts: prove that the check reads the real bundle.
 export const EXPECTED = ['Dichtstbijzijnde vuilbak', 'Opnieuw vragen', 'Stuur een nieuwe code'];
 

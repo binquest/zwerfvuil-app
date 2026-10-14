@@ -22,6 +22,8 @@ export interface Bin {
 export interface Profile {
   displayName: string | null;
   points: number;
+  /** Points of approved test check-ins (Dev mode), never part of points. */
+  testPoints: number;
   isAdmin: boolean;
 }
 
@@ -30,9 +32,13 @@ export interface MyCheckin {
   created_at: string;
   status: ReviewStatus;
   points_awarded: number;
+  /** What the check-in earns on approval (base and streak), without the bonus. */
+  points_earned: number;
+  bonus_points: number;
+  streak_weeks: number;
   distance_m: number;
   bin_id: number;
-  is_fake_location: boolean;
+  is_test: boolean;
 }
 
 export interface PendingCheckin {
@@ -45,6 +51,11 @@ export interface PendingCheckin {
   is_mocked: boolean;
   is_fake_location: boolean;
   photo_path: string;
+  streak_weeks: number;
+  points_earned: number;
+  bonus_points: number;
+  bonus_suspicious: boolean;
+  is_test: boolean;
 }
 
 export interface PendingReport {
@@ -72,17 +83,65 @@ export async function fetchBins(): Promise<Bin[]> {
 export async function fetchProfile(userId: string): Promise<Profile> {
   const { data, error } = await supabase
     .from('profiles')
-    .select('display_name, points, is_admin')
+    .select('display_name, points, test_points, is_admin')
     .eq('id', userId)
     .single();
   if (error) throw error;
-  return { displayName: data.display_name, points: data.points, isAdmin: data.is_admin };
+  return { displayName: data.display_name, points: data.points, testPoints: data.test_points, isAdmin: data.is_admin };
+}
+
+/** 1 to 50 characters; shown on the leaderboard. */
+export async function updateDisplayName(userId: string, name: string): Promise<void> {
+  const { error } = await supabase.from('profiles').update({ display_name: name }).eq('id', userId);
+  if (error) throw error;
+}
+
+export interface Streak {
+  /** Consecutive weeks with a check-in; still alive this week if last week counted. */
+  weeks: number;
+  thisWeek: boolean;
+}
+
+export async function fetchMyStreak(): Promise<Streak> {
+  const { data, error } = await supabase.rpc('my_streak');
+  if (error) throw error;
+  const row = (data as { weeks: number; this_week: boolean }[] | null)?.[0];
+  return { weeks: row?.weeks ?? 0, thisWeek: row?.this_week ?? false };
+}
+
+export type LeaderboardPeriod = 'week' | 'all';
+
+export interface LeaderboardRow {
+  place: number;
+  display_name: string;
+  points: number;
+  is_me: boolean;
+}
+
+/** Display names and points only. includeTest is Dev mode only (the server refuses others). */
+export async function fetchLeaderboard(period: LeaderboardPeriod, includeTest = false): Promise<LeaderboardRow[]> {
+  const { data, error } = await supabase.rpc('leaderboard', { period, max_rows: 50, include_test: includeTest });
+  if (error) throw error;
+  return (data ?? []) as LeaderboardRow[];
+}
+
+/** Starts the answer timer of the bonus question (the server flags very fast answers). */
+export async function markBonusShown(checkinId: string): Promise<void> {
+  const { error } = await supabase.rpc('mark_bonus_question_shown', { checkin_id: checkinId });
+  if (error) throw error;
+}
+
+/** Returns the bonus points, granted together with the check-in. */
+export async function answerBonus(checkinId: string, answer: string): Promise<number> {
+  const { data, error } = await supabase.rpc('answer_bonus_question', { checkin_id: checkinId, answer });
+  if (error) throw error;
+  return data as number;
 }
 
 export async function fetchMyCheckins(): Promise<MyCheckin[]> {
   const { data, error } = await supabase
     .from('checkins')
-    .select('id, created_at, status, points_awarded, distance_m, bin_id, is_fake_location')
+    .select('id, created_at, status, points_awarded, points_earned, bonus_points, streak_weeks, distance_m, bin_id, is_test')
     .order('created_at', { ascending: false })
     .limit(50);
   if (error) throw error;
@@ -130,8 +189,8 @@ export async function submitCheckin(input: CheckinInput): Promise<CheckinOutcome
     accuracy_m: input.accuracy === null ? '' : String(input.accuracy),
     is_mocked: String(input.mocked),
   };
-  // Literal __DEV__: release builds drop this line, so they never send the field.
-  if (__DEV__ && input.fake) fields.fake_location = 'true';
+  // Dev mode test location; the server only accepts it from admins on local or staging.
+  if (input.fake) fields.fake_location = 'true';
   const { body, contentType } = buildMultipart(fields, {
     field: 'photo',
     filename: 'photo.jpg',
@@ -240,4 +299,50 @@ export async function photoUrl(bucket: 'checkin-photos' | 'report-photos', path:
   const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 600);
   if (error) throw error;
   return data.signedUrl;
+}
+
+// --- Dev mode (admins on local or staging; the server checks everything) -----
+
+export interface DevModeStatus {
+  allowed: boolean;
+  environment: string | null;
+  streakOverride: number | null;
+  testPoints: number;
+  testCheckins: number;
+}
+
+export async function fetchDevModeStatus(): Promise<DevModeStatus> {
+  const { data, error } = await supabase.rpc('dev_mode_status');
+  if (error) throw error;
+  const row = (data as Record<string, unknown>[] | null)?.[0] ?? {};
+  return {
+    allowed: row.allowed === true,
+    environment: typeof row.environment === 'string' ? row.environment : null,
+    streakOverride: typeof row.streak_override === 'number' ? row.streak_override : null,
+    testPoints: typeof row.test_points === 'number' ? row.test_points : 0,
+    testCheckins: typeof row.test_checkins === 'number' ? row.test_checkins : 0,
+  };
+}
+
+/** null clears the override. */
+export async function setDevStreakOverride(weeks: number | null): Promise<void> {
+  const { error } = await supabase.rpc('set_dev_streak_override', { weeks });
+  if (error) throw error;
+}
+
+/**
+ * Removes my test check-ins (with bonus answers), test points and override,
+ * then the photos of those check-ins. Returns how many check-ins were removed.
+ */
+export async function resetDevTestData(): Promise<number> {
+  const { data, error } = await supabase.rpc('reset_dev_test_data');
+  if (error) throw error;
+  const row = (data as { deleted_checkins: number; photo_paths: string[] }[] | null)?.[0];
+  const paths = row?.photo_paths ?? [];
+  if (paths.length) {
+    // The storage policy only allows my own photos that no check-in uses.
+    const removed = await supabase.storage.from('checkin-photos').remove(paths);
+    if (removed.error) devLog('dev-reset', false, { stage: 'photos', error: describeError(removed.error) });
+  }
+  return row?.deleted_checkins ?? 0;
 }

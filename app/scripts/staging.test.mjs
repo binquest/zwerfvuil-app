@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { checkBundle, EXPECTED, FORBIDDEN } from './check-staging-bundle.mjs';
+import { ALLOWED_DEV_MODE, checkBundle, EXPECTED, FORBIDDEN } from './check-staging-bundle.mjs';
 import { parseEnv, stagingEnv, validate } from './staging.mjs';
 
 const STAGING = {
@@ -32,11 +32,13 @@ test('the bundle check fails on dev-only strings and on the local config', () =>
   const clean = [...EXPECTED, ...Object.values(STAGING)].join(' ');
   assert.ok(checkBundle(clean, { staging: STAGING, local }).every((r) => r.ok));
   for (const marker of FORBIDDEN) {
-    const sample = marker instanceof RegExp ? 'fields.fake_location="true"' : marker;
-    assert.ok(checkBundle(clean + sample, { staging: STAGING, local }).some((r) => !r.ok), String(marker));
+    assert.ok(checkBundle(clean + marker, { staging: STAGING, local }).some((r) => !r.ok), String(marker));
   }
-  // The history query's column name is allowed.
-  assert.ok(checkBundle(clean + "select('is_fake_location')", { staging: STAGING, local }).every((r) => r.ok));
+  // Dev mode may be in a staging bundle, including the fake_location request field.
+  for (const allowed of ALLOWED_DEV_MODE) {
+    assert.ok(checkBundle(clean + allowed, { staging: STAGING, local }).every((r) => r.ok), allowed);
+  }
+  assert.ok(checkBundle(clean + 'fields.fake_location="true"', { staging: STAGING, local }).every((r) => r.ok));
   assert.ok(checkBundle(clean + local.EXPO_PUBLIC_SUPABASE_URL, { staging: STAGING, local }).some((r) => !r.ok));
   assert.ok(checkBundle(EXPECTED.join(' '), { staging: STAGING, local }).some((r) => !r.ok), 'staging config missing');
 });
