@@ -189,7 +189,13 @@ echte gebruikersdata vraagt meer.
   AVPlayer; beeld en haptiek volgen die op een audioklok. Losse AVPlayers per
   geluid blokkeerden de hoofdthread tot 150 ms. De spelers blijven geladen zodra
   de camera opent (met een actieve, mengende audiosessie). Dat is geen echte
-  low-latency-audio-engine. Is er op toestellen nog hoorbare jitter of
+  low-latency-audio-engine.
+- [ ] **Reanimated staat niet in `app/package.json`.** De onthulling importeert
+  `react-native-reanimated` (4.7.1, met worklets 0.13), dat via expo-router
+  geïnstalleerd en in de IPA gelinkt is. Een directe dependency toevoegen
+  verandert de lockfile; doe dat samen met de volgende native build, en kijk dan
+  ook naar de versies die SDK 57 verwacht (4.5.x / 0.10.x, zie
+  `expo.install.exclude`). Is er op toestellen nog hoorbare jitter of
   vertraging, dan stap je over op `react-native-audio-api` (native: nieuwe IPA en
   runtimeversie). Meet ook het geheugen en de starttijd van de 35 players op een
   oudere iPhone.

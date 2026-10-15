@@ -1,33 +1,21 @@
-// The points reveal after a check-in: the number counts up to the base, then
-// every streak week lands as its own beat (bigger, faster, higher), then the
-// total, then an optional bonus question. Tap to skip. Respects the silent
-// switch (sounds) and Reduce Motion (same sounds and haptics, no movement).
-// The numbers come from the server; the Dev mode preview computes them locally
-// and sends nothing.
+// The points reveal after a check-in. The POINTS chip counts up to the base,
+// the MULT badge climbs with every streak week (bigger, faster, hotter), the
+// total slams in, then an optional bonus question with its +5. Tap to skip.
+// Respects the silent switch (sounds) and Reduce Motion (same sounds and
+// haptics, no movement). The numbers come from the server; the Dev mode
+// preview computes them locally and sends nothing.
 //
-// The beats are a timeline (src/feedback/reveal/timeline.ts) played by
-// runTimeline; sounds and haptics come from src/feedback. This screen only
-// turns the visual events into its (still simple) animations.
+// The beats are a timeline (src/feedback/reveal/timeline.ts). playTimeline
+// plays its mixed soundtrack and runs the visual and haptic events on the
+// audio clock; this screen turns visual events into Reanimated motion
+// (useRevealMotion) and the numbers into state.
 import { Host } from '@expo/ui';
 import { Button, Label, Text as SwiftText } from '@expo/ui/swift-ui';
-import {
-  animation,
-  Animation,
-  buttonStyle,
-  contentTransition,
-  controlSize,
-  disabled,
-  font,
-  foregroundStyle,
-  frame,
-  lineLimit,
-  minimumScaleFactor,
-  monospacedDigit,
-  tint,
-} from '@expo/ui/swift-ui/modifiers';
+import { buttonStyle, controlSize, disabled, font, frame, tint } from '@expo/ui/swift-ui/modifiers';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, Animated, Easing, Pressable, Text, View } from 'react-native';
+import { AccessibilityInfo, Pressable, Text, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { GlassPanel } from '@/components/GlassPanel';
@@ -35,14 +23,16 @@ import { fireHaptic, setHapticProbe } from '@/feedback/haptics';
 import { createDiagnostics, describeMeasurements, type RevealMeasurements } from '@/feedback/reveal/diagnostics';
 import { playFeedback } from '@/feedback/reveal/feedback';
 import { FrameProbe } from '@/feedback/reveal/FrameProbe';
+import { multiplierLabel } from '@/feedback/reveal/motion';
 import { playTimeline, preloadTimeline, type Playback, type PlaybackStart } from '@/feedback/reveal/playback';
 import { buildBonusTimeline, buildRevealTimeline, type Event } from '@/feedback/reveal/timeline';
 import { VOLUME } from '@/feedback/reveal/tuning';
+import { MAX_PARTICLES, useParticleStyle, useRevealMotion } from '@/feedback/reveal/useRevealMotion';
 import { play, stopAll } from '@/feedback/sfx/engine';
 import { bonusSoundtrack, revealSoundtrack, warmUpSounds } from '@/feedback/sfx/soundtrack';
 import { answerBonus, markBonusShown } from '@/lib/api';
 import { formatWeeks } from '@/lib/format';
-import { formatMultiplier, MAX_STAGES, totalMultiplier, type BonusOption } from '@/lib/points';
+import { MAX_STAGES, type BonusOption } from '@/lib/points';
 import { takePendingReveal, type RevealData } from '@/lib/reveal';
 import { useSyncState } from '@/lib/useSyncState';
 import { colors, spacing, type } from '@/theme';
@@ -51,7 +41,8 @@ import { colors, spacing, type } from '@/theme';
 type Phase = 'loading' | 'playing' | 'total' | 'question' | 'answering' | 'answered' | 'done';
 
 const CHIP_BLUE = '#2E7CF6';
-const CHIP_RED = '#F2453D';
+const BONUS_GREEN = '#30D158';
+const PARTICLE_COLORS = ['#FFD60A', '#FF9F0A', '#FFFFFF'];
 
 function useReduceMotion(): boolean | null {
   const [reduce, setReduce] = useState<boolean | null>(null);
@@ -69,14 +60,29 @@ function bonusErrorMessage(error: { code?: string } | null): string {
   return 'Je antwoord kon niet bewaard worden.';
 }
 
+function Particle({ index, motion }: { index: number; motion: ReturnType<typeof useRevealMotion> }) {
+  const style = useParticleStyle(index, motion.burst, motion.burstCount);
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[
+        { position: 'absolute', width: 10, height: 10, marginLeft: -5, marginTop: -5, borderRadius: 5, backgroundColor: PARTICLE_COLORS[index % 3] },
+        style,
+      ]}
+    />
+  );
+}
+
 export default function RevealScreen() {
   const [data] = useState<RevealData | null>(() => takePendingReveal());
   const reduceMotion = useReduceMotion();
-  // Everything the timeline changes renders in the same JS task as its sound
+  const motion = useRevealMotion();
+  // Everything the timeline changes renders in the same JS task as its event
   // (see useSyncState); with plain useState the screen lagged behind the sounds.
   const [phase, setPhase] = useSyncState<Phase>('loading');
   const [value, setValue] = useSyncState(0);
-  const [stagesShown, setStagesShown] = useSyncState(0);
+  const [stage, setStage] = useSyncState(0);
+  const [maxShown, setMaxShown] = useSyncState(false);
   const [bonusShown, setBonusShown] = useSyncState(false);
   const [message, setMessage] = useState<string | null>(null);
   const noSound = data?.noSound ?? false;
@@ -91,10 +97,6 @@ export default function RevealScreen() {
   const answering = useRef(false);
   const mounted = useRef(true);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
-  const [scale] = useState(() => new Animated.Value(1));
-  const [flash] = useState(() => new Animated.Value(0));
-  const [sheet] = useState(() => new Animated.Value(0));
-  const [chipScales] = useState(() => Array.from({ length: MAX_STAGES + 2 }, () => new Animated.Value(0)));
 
   const points = data?.points ?? null;
   const question = data?.question ?? null;
@@ -148,76 +150,39 @@ export default function RevealScreen() {
     timers.current.push(setTimeout(fn, ms));
   }, []);
 
-  const punch = useCallback(
-    (peak: number) => {
-      if (reduceMotion) return;
-      scale.stopAnimation();
-      Animated.sequence([
-        Animated.timing(scale, { toValue: peak, duration: 90, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-        Animated.spring(scale, { toValue: 1, friction: 4, tension: 160, useNativeDriver: true }),
-      ]).start();
-      flash.setValue(0.22);
-      Animated.timing(flash, { toValue: 0, duration: 380, useNativeDriver: true }).start();
-    },
-    [reduceMotion, scale, flash],
-  );
-
-  const popChip = useCallback(
-    (index: number) => {
-      const chip = chipScales[index];
-      if (reduceMotion) chip.setValue(1);
-      else Animated.spring(chip, { toValue: 1, friction: 5, tension: 180, useNativeDriver: true }).start();
-    },
-    [reduceMotion, chipScales],
-  );
-
   const bonusTimeline = useCallback(
-    (bonus: number) =>
-      buildBonusTimeline({ awarded: bonus > 0, points: bonus, fromTotal: points?.total ?? 0, reduceMotion: !!reduceMotion }),
+    (bonus: number) => buildBonusTimeline({ awarded: bonus > 0, points: bonus, fromTotal: points?.total ?? 0, reduceMotion: !!reduceMotion }),
     [points, reduceMotion],
   );
 
   const showQuestion = useCallback(() => {
     if (!question) return;
     setPhase('question');
-    if (reduceMotion) sheet.setValue(1);
-    else Animated.spring(sheet, { toValue: 1, friction: 9, tension: 70, useNativeDriver: true }).start();
+    motion.showSheet();
     // The server measures the answer time from here.
     if (data?.checkinId && !data.preview) markBonusShown(data.checkinId).catch(() => {});
     // Mix and load the +5 now, so it plays at once after the answer.
     if (!noSound) preloadTimeline(bonusTimeline(question.points), bonusSoundtrack);
-  }, [question, reduceMotion, sheet, data, setPhase, noSound, bonusTimeline]);
+  }, [question, motion, data, setPhase, noSound, bonusTimeline]);
 
-  // Tap to skip: stop the timeline, fade out the soundtrack, land on the total
-  // with only its chord and the success haptic.
+  // Tap to skip: stop the timeline, fade out the soundtrack, stand still on the
+  // end state with only the chord and the success haptic.
   const finish = useCallback(() => {
     if (!points) return;
     playbacks.current.forEach((playback) => playback.cancel(30));
     playbacks.current = [];
     timers.current.forEach(clearTimeout);
     timers.current = [];
+    motion.settle(points.stages.length);
     setValue(points.total);
-    setStagesShown(points.stages.length);
-    chipScales.forEach((chip) => chip.setValue(1));
+    setStage(points.stages.length);
+    setMaxShown(points.streakWeeks > MAX_STAGES);
     setPhase(question ? 'total' : 'done');
     if (withSound.current) play('total_chord', VOLUME.total);
     fireHaptic('success');
-    punch(1.25);
     stopDiagnostics();
-    schedule(reduceMotion ? 0 : 700, showQuestion);
-  }, [
-    points,
-    question,
-    chipScales,
-    punch,
-    schedule,
-    reduceMotion,
-    showQuestion,
-    stopDiagnostics,
-    setPhase,
-    setStagesShown,
-    setValue,
-  ]);
+    schedule(reduceMotion ? 0 : 500, showQuestion);
+  }, [points, question, motion, schedule, reduceMotion, showQuestion, stopDiagnostics, setPhase, setStage, setMaxShown, setValue]);
 
   // Play the timeline once, as soon as the Reduce Motion setting is known (a
   // later change of the setting does not restart the reveal): with its mixed
@@ -242,25 +207,23 @@ export default function RevealScreen() {
       diagnostics?.late(lateMs);
       for (const event of batch) {
         if (playFeedback(event)) continue;
+        // Motion first (UI thread), then the numbers (one sync render per batch).
+        motion.apply(event);
         if (event.type === 'chipIn') {
           setPhase('playing');
-          popChip(0);
         } else if (event.type === 'count') {
           showNumber(event.value);
         } else if (event.type === 'mult') {
-          setStagesShown(event.stage);
-          popChip(event.stage);
+          setStage(event.stage);
+          if (event.max) setMaxShown(true);
           showNumber(event.total);
-          punch(event.peakScale);
         } else if (event.type === 'slam') {
           showNumber(event.to);
           setPhase(question ? 'total' : 'done');
-          punch(1.25);
           schedule(600, stopDiagnostics);
         } else if (event.type === 'showBonusQuestion') {
           showQuestion();
         }
-        // Shake, flash, hit-stop, heat and particles come with the new reveal screen.
       }
     };
     const playback = playTimeline(timeline, noSound ? null : revealSoundtrack, onEvents, {
@@ -278,14 +241,14 @@ export default function RevealScreen() {
     reduceMotion,
     noSound,
     diagnostics,
-    popChip,
-    punch,
+    motion,
     schedule,
     showQuestion,
     startDiagnostics,
     stopDiagnostics,
     setPhase,
-    setStagesShown,
+    setStage,
+    setMaxShown,
     setValue,
   ]);
 
@@ -299,8 +262,8 @@ export default function RevealScreen() {
     const onEvents = (batch: Event[]) => {
       for (const event of batch) {
         if (playFeedback(event)) continue;
+        motion.apply(event);
         if (event.type === 'count') setValue(event.value);
-        else if (event.type === 'punch') punch(event.scale);
         else if (event.type === 'badge') setBonusShown(true);
       }
     };
@@ -336,8 +299,8 @@ export default function RevealScreen() {
 
   const playing = phase === 'playing';
   const showDone = phase === 'done' || phase === 'answered';
-  const stageCount = points.stages.length;
-  const capped = points.streakWeeks > stageCount && stageCount === MAX_STAGES;
+  const chipValue = Math.min(value, points.base);
+  const { styles } = motion;
 
   return (
     <Pressable
@@ -346,10 +309,6 @@ export default function RevealScreen() {
       // Not one big VoiceOver element: the answers and buttons inside stay reachable.
       accessible={false}
       onAccessibilityEscape={() => router.back()}>
-      <Animated.View
-        pointerEvents="none"
-        style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'white', opacity: flash }}
-      />
       {diagnostics ? <FrameProbe active={probing} onSample={diagnostics.frame} /> : null}
       <SafeAreaView style={{ flex: 1, padding: spacing.xl }}>
         <View style={{ alignItems: 'center', gap: spacing.xs }}>
@@ -358,53 +317,82 @@ export default function RevealScreen() {
           </Text>
         </View>
 
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.lg }}>
-          <Animated.View style={{ transform: [{ scale }], alignItems: 'center' }}>
-            <Host matchContents>
-              <SwiftText
-                modifiers={[
-                  font({ size: 132, weight: 'black', design: 'rounded' }),
-                  monospacedDigit(),
-                  foregroundStyle('white'),
-                  lineLimit(1),
-                  minimumScaleFactor(0.4),
-                  frame({ maxWidth: 340 }),
-                  contentTransition('numericText'),
-                  animation(Animation.snappy({ duration: 0.18 }), value),
-                ]}>
-                {String(value)}
-              </SwiftText>
-            </Host>
-            <Text style={[type.title3, { color: 'rgba(255,255,255,0.75)' }]}>
-              {bonusShown ? 'punten met bonus' : 'punten'}
-            </Text>
-          </Animated.View>
-
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: spacing.sm, maxWidth: 340 }}>
-            <Animated.View style={{ transform: [{ scale: chipScales[0] }] }}>
-              <View style={{ backgroundColor: CHIP_BLUE, borderRadius: 10, borderCurve: 'continuous', paddingHorizontal: 10, paddingVertical: 4 }}>
-                <Text style={[type.headline, { color: 'white', fontVariant: ['tabular-nums'] }]}>{`${points.base} basis`}</Text>
-              </View>
+        <Animated.View style={[{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.xl }, styles.shakeStyle]}>
+          {/* POINTS × MULT */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+            <Animated.View
+              style={[
+                { backgroundColor: CHIP_BLUE, borderRadius: 18, borderCurve: 'continuous', paddingHorizontal: 18, paddingVertical: 10, alignItems: 'center', minWidth: 112 },
+                styles.chipStyle,
+              ]}>
+              <Text style={[type.footnote, { color: 'rgba(255,255,255,0.85)', fontWeight: '800', letterSpacing: 1 }]}>PUNTEN</Text>
+              <Text style={{ color: 'white', fontSize: 34, fontWeight: '900', fontFamily: 'ui-rounded', fontVariant: ['tabular-nums'] }}>
+                {chipValue}
+              </Text>
             </Animated.View>
-            {points.stages.map((_, i) => (
-              <Animated.View key={i} style={{ transform: [{ scale: chipScales[i + 1] }], opacity: i < stagesShown ? 1 : 0 }}>
-                <View style={{ backgroundColor: CHIP_RED, borderRadius: 10, borderCurve: 'continuous', paddingHorizontal: 8 + i, paddingVertical: 4 }}>
-                  <Text style={{ color: 'white', fontWeight: '800', fontSize: 15 + i * 1.5 }}>{formatMultiplier(points.multiplier)}</Text>
-                </View>
+            <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 28, fontWeight: '800' }}>×</Text>
+            <View>
+              <Animated.View
+                pointerEvents="none"
+                style={[
+                  { position: 'absolute', top: -10, right: -10, bottom: -10, left: -10, borderRadius: 28, backgroundColor: '#FF2D95', boxShadow: '0 0 24px #FF2D95' },
+                  styles.glowStyle,
+                ]}
+              />
+              <Animated.View
+                style={[{ borderRadius: 18, borderCurve: 'continuous', paddingHorizontal: 18, paddingVertical: 10, alignItems: 'center', minWidth: 112 }, styles.multStyle]}>
+                <Text style={[type.footnote, { color: 'rgba(255,255,255,0.9)', fontWeight: '800', letterSpacing: 1 }]}>
+                  {maxShown ? 'MULT · MAX' : 'MULT'}
+                </Text>
+                <Text style={{ color: 'white', fontSize: 34, fontWeight: '900', fontFamily: 'ui-rounded', fontVariant: ['tabular-nums'] }}>
+                  {multiplierLabel(stage, points.multiplier)}
+                </Text>
               </Animated.View>
-            ))}
+            </View>
           </View>
 
-          {stageCount > 0 ? (
-            <Text style={[type.subheadline, { color: 'rgba(255,255,255,0.8)', textAlign: 'center' }]}>
-              {`Reeks van ${formatWeeks(points.streakWeeks)}: ${totalMultiplier(stagesShown, points.multiplier)}${capped ? ' (maximum)' : ''}`}
-            </Text>
-          ) : (
-            <Text style={[type.subheadline, { color: 'rgba(255,255,255,0.8)', textAlign: 'center' }]}>
-              Check volgende week opnieuw in voor een reeks: ×1,1 per week.
-            </Text>
-          )}
-        </View>
+          {/* TOTAL, with the slam's particles, the bonus ring, the flying +5 and its badge */}
+          <View style={{ alignItems: 'center' }}>
+            <View style={{ alignItems: 'center', justifyContent: 'center' }}>
+              <Animated.View
+                pointerEvents="none"
+                style={[{ position: 'absolute', width: 180, height: 180, borderRadius: 90, borderWidth: 4, borderColor: BONUS_GREEN }, styles.ringStyle]}
+              />
+              <Animated.View style={styles.totalStyle}>
+                <Text
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  style={{ color: 'white', fontSize: 120, lineHeight: 132, fontWeight: '900', fontFamily: 'ui-rounded', fontVariant: ['tabular-nums'], maxWidth: 320, textAlign: 'center' }}>
+                  {value}
+                </Text>
+              </Animated.View>
+              <View pointerEvents="none" style={{ position: 'absolute', top: '50%', left: '50%' }}>
+                {Array.from({ length: MAX_PARTICLES }, (_, i) => (
+                  <Particle key={i} index={i} motion={motion} />
+                ))}
+              </View>
+              <View pointerEvents="none" style={{ position: 'absolute', top: '50%', left: '50%' }}>
+                <Animated.View style={[{ position: 'absolute', marginLeft: -26, marginTop: -16 }, styles.arcStyle]}>
+                  <View style={{ backgroundColor: BONUS_GREEN, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 5 }}>
+                    <Text style={{ color: 'white', fontSize: 20, fontWeight: '900', fontFamily: 'ui-rounded' }}>{`+${question?.points ?? 5}`}</Text>
+                  </View>
+                </Animated.View>
+                <Animated.View style={[{ position: 'absolute', left: 100 - 26, top: -62 - 16 }, styles.badgeStyle]}>
+                  <View style={{ backgroundColor: BONUS_GREEN, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 5 }}>
+                    <Text style={{ color: 'white', fontSize: 20, fontWeight: '900', fontFamily: 'ui-rounded' }}>{`+${question?.points ?? 5}`}</Text>
+                  </View>
+                </Animated.View>
+              </View>
+            </View>
+            <Text style={[type.title3, { color: 'rgba(255,255,255,0.75)' }]}>{bonusShown ? 'punten met bonus' : 'punten'}</Text>
+          </View>
+
+          <Text style={[type.subheadline, { color: 'rgba(255,255,255,0.8)', textAlign: 'center' }]}>
+            {points.stages.length > 0
+              ? `Reeks van ${formatWeeks(points.streakWeeks)}${maxShown ? ' · maximum' : ''}`
+              : 'Check volgende week opnieuw in voor een reeks: ×1,1 per week.'}
+          </Text>
+        </Animated.View>
 
         {playing ? (
           <Text
@@ -417,11 +405,7 @@ export default function RevealScreen() {
         ) : null}
 
         {question && (phase === 'question' || phase === 'answering') ? (
-          <Animated.View
-            style={{
-              opacity: sheet,
-              transform: [{ translateY: sheet.interpolate({ inputRange: [0, 1], outputRange: [80, 0] }) }],
-            }}>
+          <Animated.View style={styles.sheetStyle}>
             <GlassPanel dark style={{ padding: spacing.lg, gap: spacing.md }}>
               <Text style={[type.footnote, { color: colors.yellow, fontWeight: '700' }]}>{`BONUSVRAAG · +${question.points} PUNTEN`}</Text>
               <Text style={[type.title3, { color: 'white' }]}>{question.prompt}</Text>
@@ -455,9 +439,7 @@ export default function RevealScreen() {
               </Text>
             ) : null}
             <Text style={[type.footnote, { color: 'rgba(255,255,255,0.65)', textAlign: 'center' }]}>
-              {data.preview
-                ? 'Voorbeeld: er is niets bewaard.'
-                : 'Je krijgt de punten zodra een admin je foto goedkeurt.'}
+              {data.preview ? 'Voorbeeld: er is niets bewaard.' : 'Je krijgt de punten zodra een admin je foto goedkeurt.'}
             </Text>
             <Host matchContents={{ vertical: true }} style={{ alignSelf: 'stretch' }}>
               <Button onPress={() => router.back()} modifiers={[buttonStyle('glassProminent'), controlSize('extraLarge'), tint(colors.tint)]}>
@@ -467,6 +449,11 @@ export default function RevealScreen() {
           </View>
         ) : null}
       </SafeAreaView>
+      {/* The flash covers everything, on top. */}
+      <Animated.View
+        pointerEvents="none"
+        style={[{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'white' }, styles.flashStyle]}
+      />
     </Pressable>
   );
 }

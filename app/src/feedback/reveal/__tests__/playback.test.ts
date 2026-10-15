@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 
 import type { Soundtrack } from '../../sfx/soundtrack';
-import { playTimeline } from '../playback';
+import { firstSoundMs, playTimeline } from '../playback';
 import type { Event } from '../timeline';
 
 const mockWarmUp = jest.fn(() => Promise.resolve(true));
@@ -24,12 +24,10 @@ let audioNow = 0;
 function fakeSoundtrack(started = true) {
   const track = {
     load: jest.fn(() => Promise.resolve(40)),
-    start: jest.fn(() =>
-      Promise.resolve({
-        clock: { now: () => audioNow, check: jest.fn(() => 3), corrections: () => 0 },
-        start: { anchor: 0, started, latencyMs: 30 },
-      }),
-    ),
+    start: jest.fn((_holdAtMs: number) => ({
+      clock: { now: () => audioNow, check: jest.fn(() => 3), corrections: () => 0, anchorAt: jest.fn(), release: jest.fn() },
+      started: Promise.resolve({ anchor: 0, started, latencyMs: 30 }),
+    })),
     stop: jest.fn(),
   };
   return track as unknown as Soundtrack & typeof track;
@@ -50,6 +48,13 @@ afterEach(() => {
   jest.clearAllMocks();
 });
 
+describe('firstSoundMs', () => {
+  it('is the time of the first sound event', () => {
+    expect(firstSoundMs([{ atMs: 20, type: 'chipIn' }, { atMs: 250, type: 'sound', id: 'tick_0', volume: 1 }])).toBe(250);
+    expect(firstSoundMs([{ atMs: 20, type: 'chipIn' }])).toBe(0);
+  });
+});
+
 describe('playTimeline', () => {
   it('starts the soundtrack and runs the visuals on its clock', async () => {
     const track = fakeSoundtrack();
@@ -58,6 +63,7 @@ describe('playTimeline', () => {
     playTimeline(events, track, (batch) => batch.forEach((e) => e.type === 'count' && seen.push(e.value)), { onStarted });
     await flush();
     expect(track.load).toHaveBeenCalledWith('file:///mix.wav');
+    expect(track.start).toHaveBeenCalledWith(0); // the first sound is at 0 here
     expect(onStarted).toHaveBeenCalledWith({ sound: 'on', timings: { mixMs: 12, mixCached: false, loadMs: 40, startMs: 30 } });
     expect(seen).toEqual([]);
     audioNow = 25; // the audio, not performance.now(), decides

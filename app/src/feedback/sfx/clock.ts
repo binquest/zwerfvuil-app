@@ -6,6 +6,11 @@
 // from then on the clock is performance.now() minus the anchor. Every so often
 // check() compares it with the real position and moves the anchor when the two
 // are more than a threshold apart.
+//
+// AVPlayer takes 100-200 ms to really start. The silent start of a reveal does
+// not wait for that: until the anchor is known the clock runs from the play()
+// call and holds just before the first audible sound, so nothing that should
+// be heard is seen early.
 
 /** The clock is corrected when it is this far from the audio. */
 export const DRIFT_THRESHOLD_MS = 12;
@@ -15,24 +20,45 @@ export const DRIFT_CHECK_MS = 500;
 const START_POLL_MS = 4;
 
 export interface AudioClock {
-  /** Milliseconds since the soundtrack was at 0. */
+  /** Milliseconds since the soundtrack was at 0 (held at the first sound until anchored). */
   now(): number;
+  /** Anchors the clock: performance.now() at soundtrack position 0. Ends the hold. */
+  anchorAt(anchor: number): void;
+  /** Ends the hold without an anchor (playback never started): the clock keeps its provisional start. */
+  release(): void;
   /** Compares with the real position; corrects when needed. Returns clock minus audio, or null when unknown. */
   check(): number | null;
   /** How often check() moved the anchor. */
   corrections(): number;
 }
 
+/**
+ * A clock that starts at `anchor`. With `holdAtMs` it is provisional: it does
+ * not run past that time until anchorAt() or release() is called.
+ */
 export function createAudioClock(
   anchor: number,
   readPositionMs: () => number | null,
   now: () => number = () => performance.now(),
   thresholdMs = DRIFT_THRESHOLD_MS,
+  holdAtMs: number | null = null,
 ): AudioClock {
   let corrections = 0;
+  let hold = holdAtMs;
   return {
-    now: () => now() - anchor,
+    now() {
+      const t = now() - anchor;
+      return hold === null ? t : Math.min(t, hold);
+    },
+    anchorAt(next) {
+      anchor = next;
+      hold = null;
+    },
+    release() {
+      hold = null;
+    },
     check() {
+      if (hold !== null) return null;
       const position = readPositionMs();
       if (position === null) return null;
       const error = now() - anchor - position;

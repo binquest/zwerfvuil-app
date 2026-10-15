@@ -146,16 +146,26 @@ export class Soundtrack {
     }
   }
 
-  /** Plays from the start and resolves once it really plays, with the clock anchored on that moment. */
-  async start(): Promise<{ clock: AudioClock; start: StartResult }> {
+  /**
+   * Plays from the start. Returns at once with a provisional clock that holds
+   * at `holdAtMs` (the first audible sound); `started` anchors it once playback
+   * has really started.
+   */
+  start(holdAtMs: number): { clock: AudioClock; started: Promise<StartResult> } {
     const player = this.player;
     if (!player) throw new Error('no soundtrack loaded');
     this.stopFade();
     player.volume = 1;
     const playedAt = now();
     player.play();
-    const start = await waitForStart(() => this.positionMs(), playedAt, START_TIMEOUT_MS);
-    return { clock: createAudioClock(start.anchor, () => this.positionMs()), start };
+    const read = () => this.positionMs();
+    const clock = createAudioClock(playedAt, read, now, undefined, holdAtMs);
+    const started = waitForStart(read, playedAt, START_TIMEOUT_MS).then((result) => {
+      if (result.started) clock.anchorAt(result.anchor);
+      else clock.release();
+      return result;
+    });
+    return { clock, started };
   }
 
   /** Fades out and stops (a skip, or leaving the screen). */

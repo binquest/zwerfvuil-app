@@ -95,12 +95,14 @@ describe('Soundtrack', () => {
     expect(mockPlayers[0].seekTo).toHaveBeenCalledWith(0, 0, 0);
   });
 
-  it('anchors its clock once playback has really started', async () => {
+  it('starts with a provisional clock and anchors it once playback has really started', async () => {
     const track = new Soundtrack();
     await track.load('file:///a.wav');
-    mockPlayers[0].currentTime = 0.012; // already playing for 12 ms when first read
-    const { start, clock } = await track.start();
+    const { clock, started } = track.start(250);
     expect(mockPlayers[0].play).toHaveBeenCalled();
+    expect(clock.now()).toBeLessThanOrEqual(250);
+    mockPlayers[0].currentTime = 0.012; // playing for 12 ms when read
+    const start = await started;
     expect(start.started).toBe(true);
     expect(clock.now()).toBeGreaterThanOrEqual(12);
   });

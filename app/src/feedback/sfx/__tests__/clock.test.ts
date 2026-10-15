@@ -30,6 +30,29 @@ describe('createAudioClock', () => {
     expect(clock.corrections()).toBe(1);
   });
 
+  it('provisionally runs from play() and holds at the first sound until anchored', () => {
+    let t = 1000;
+    const clock = createAudioClock(1000, () => 0, () => t, 12, 250);
+    t = 1100;
+    expect(clock.now()).toBe(100); // the silent start already runs
+    t = 1400;
+    expect(clock.now()).toBe(250); // but stops short of the first sound
+    expect(clock.check()).toBeNull(); // nothing to correct while holding
+    clock.anchorAt(1160); // the audio really started 160 ms after play()
+    expect(clock.now()).toBe(240);
+    t = 1500;
+    expect(clock.now()).toBe(340);
+  });
+
+  it('runs on when playback never starts', () => {
+    let t = 1000;
+    const clock = createAudioClock(1000, () => 0, () => t, 12, 250);
+    t = 1600;
+    expect(clock.now()).toBe(250);
+    clock.release();
+    expect(clock.now()).toBe(600);
+  });
+
   it('cannot check without a position', () => {
     const clock = createAudioClock(0, () => null, () => 10);
     expect(clock.check()).toBeNull();

@@ -1,7 +1,9 @@
 // Plays a timeline with its mixed soundtrack: the sounds come from one file,
-// the visuals and haptics follow it on the audio clock. Without a soundtrack
-// (Dev mode "without sound", or the sounds were not ready in time) the same
-// timeline runs on performance.now() alone.
+// the visuals and haptics follow it on the audio clock. The silent start (the
+// chips coming in) does not wait for AVPlayer to really start: the clock holds
+// just before the first sound until it does. Without a soundtrack (Dev mode
+// "without sound", or the sounds were not ready in time) the same timeline runs
+// on performance.now() alone.
 import { DRIFT_CHECK_MS } from '../sfx/clock';
 import { READY_TIMEOUT_MS } from '../sfx/engine';
 import { prepareSoundtrack, warmUpSounds, type Soundtrack } from '../sfx/soundtrack';
@@ -18,7 +20,7 @@ export interface PlaybackStart {
 }
 
 export interface PlaybackHooks {
-  /** The timeline starts now. */
+  /** The soundtrack really started (or the timeline runs without sound). */
   onStarted?(start: PlaybackStart): void;
   /** Clock minus audio at a check, and the corrections so far. */
   onClockCheck?(errorMs: number | null, corrections: number): void;
@@ -31,6 +33,12 @@ export interface Playback {
 
 function within<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
   return Promise.race([promise, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))]);
+}
+
+/** When the first sound of `events` plays: the provisional clock holds there. */
+export function firstSoundMs(events: readonly Event[]): number {
+  const first = events.find((event) => event.type === 'sound');
+  return first ? first.atMs : 0;
 }
 
 /** Mixes and loads the soundtrack of `events` ahead of time (the +5 while the question shows). */
@@ -68,16 +76,15 @@ export function playTimeline(
       const prepared = await prepareSoundtrack(events);
       const loadMs = await soundtrack.load(prepared.uri);
       if (cancelled) return;
-      const { clock, start } = await soundtrack.start();
-      if (cancelled) {
-        soundtrack.stop(0);
-        return;
-      }
+      const { clock, started } = soundtrack.start(firstSoundMs(events));
+      // The visuals start now; the clock holds at the first sound until the audio runs.
+      run = runTimeline(events, onEvents, clock.now, 0);
+      const start = await started;
+      if (cancelled) return;
       hooks.onStarted?.({
         sound: start.started ? 'on' : 'did not start',
         timings: { mixMs: prepared.mixMs, mixCached: prepared.cached, loadMs, startMs: start.latencyMs },
       });
-      run = runTimeline(events, onEvents, clock.now, 0);
       checker = setInterval(() => {
         if (clock.now() > prepared.durationMs - LAST_CHECK_BEFORE_END_MS) {
           if (checker) clearInterval(checker);
@@ -86,7 +93,9 @@ export function playTimeline(
         }
         hooks.onClockCheck?.(clock.check(), clock.corrections());
       }, DRIFT_CHECK_MS);
-    })().catch(() => runSilently('not ready'));
+    })().catch(() => {
+      if (!run) runSilently('not ready');
+    });
   }
 
   return {
