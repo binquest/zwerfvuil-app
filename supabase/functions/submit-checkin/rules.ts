@@ -9,11 +9,10 @@
 export const MAX_ACCURACY_M = 30;
 export const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 
-// For the response only: the database computes the points
-// (checkin_point_stages, answer_bonus_question in
-// 20261014200000_points_streaks_bonus_leaderboard.sql).
+// For the label in the response only: the database computes the points from
+// game_config (checkin_point_stages). Goes away with the points object in
+// phase 2, when the response carries score.steps with each multiplier.
 export const STREAK_MULTIPLIER = 1.1;
-export const BONUS_POINTS = 5;
 
 export type RejectCode =
   | "method_not_allowed"

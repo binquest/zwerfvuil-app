@@ -33,6 +33,7 @@ const QUESTION = {
     key: "full",
     label: "Vol of overvol",
   }],
+  points: 7,
 };
 
 const OK_RESULT: RecordCheckinResult = {
@@ -111,7 +112,7 @@ Deno.test("accepts a valid check-in, uploads the stripped photo and records it",
     distance_m: 12.3,
     message: "Bedankt! Je inworp wacht op goedkeuring.",
     points: { base: 10, multiplier: 1.1, streak_weeks: 2, stages: [11, 12], total: 12 },
-    bonus_question: { ...QUESTION, points: 5 },
+    bonus_question: QUESTION,
     is_test: false,
   });
   assertEquals(calls.uploads.length, 1);

@@ -867,9 +867,10 @@ vergelijking van de punten en in fase 1b van de eventtellingen in Studio.
 
 ## Overdracht
 
-Stand op 15 oktober 2026: fase 1a is af, op de iPhone getest en gemerged in `main`.
+Stand op 15 oktober 2026: fase 1a is af en gemerged in `main`. Fase 1b is gebouwd en lokaal getest op
+`gamification/1b-config-events`; de staging-uitrol volgt.
 
-- Af: dit plan; fase 1a (puntenledger).
+- Af: dit plan; fase 1a (puntenledger); fase 1b (config en eventlog), lokaal.
   - Server (`20261015120000_points_ledger.sql`): `point_transactions` met de projectie vanuit
     `checkins` en de deltatrigger naar `profiles`; `private.check_points_invariant()`; de migratie
     van de punten als `private.migrate_points_to_ledger()` (snapshot, projectie, `adjustment`
@@ -901,5 +902,43 @@ Stand op 15 oktober 2026: fase 1a is af, op de iPhone getest en gemerged in `mai
   `check-auth` en `check-fake-location` geslaagd. EAS Update op `dev` (runtime 1): update-groep
   `fb4c523e-9c9a-4666-8b76-1ab4a5ab5963` (commit 218a673).
 - iPhone (15 oktober): historiek, afwijzen met reden en herroepen werken.
-- Nog te doen: fase 1b t/m 7.
-- Volgende stap: fase 1b in een nieuwe sessie, op `gamification/1b-config-events` vanaf `main`.
+
+**Fase 1b (config en eventlog)**
+- Server (`20261015140000_config_and_events.sql`): `game_config` met `private.game_config_rules`
+  (soort en bereik per sleutel) en een trigger die foute waarden, onbekende sleutels, hernoemen,
+  wissen van een gebruikte sleutel en `truncate` weigert; `private.cfg(key)`. Sleutels:
+  `checkin_base_chips` 10, `streak_multiplier` 1.1, `streak_max_steps` 8, `bonus_question_points` 5.
+  `checkin_point_stages` (nu `stable`, security definer), `record_checkin` en `answer_bonus_question`
+  lezen ze; zelfde punten als voorheen. `event_names` (whitelist, 17 events), `app_events`,
+  `log_events(events, client)`.
+- Functie: `submit-checkin` geeft `bonus_question.points` van de database door (`BONUS_POINTS` weg
+  uit `rules.ts`): na de migratie ook `stagingctl.py deploy`.
+- App: `src/analytics/` (`track`, sessies, wachtrij in `analytics.db`, `AnalyticsTracker` in de
+  root-layout); events in kaart, camera, `submitCheckin`, onthulling, bonusvraag, ranglijst en
+  melding. Docs: `docs/ANALYTICS.md`.
+- Tests: `09_game_config` (40), `10_app_events` (38); Deno `events.integration.ts` (in
+  `test:functions:integration`), `handler.test.ts` met `points: 7` (doorgeven i.p.v. constante);
+  Jest `analytics/__tests__` (wachtrij, sessies, props, namen = `ANALYTICS.md`). 01–08 ongewijzigd.
+- Kleine keuzes buiten het plan:
+  - de regels per sleutel in een tabel (`private.game_config_rules`) i.p.v. in de trigger: een nieuwe
+    sleutel = een regel en een rij; een sleutel afschaffen = eerst zijn regel wissen;
+  - `bonus_question.points` komt uit de config bij het aanbieden, het bedrag zelf bij het antwoord
+    (dan ontstaat de beloning); `STREAK_MULTIPLIER` blijft tot fase 2 een label in de functie en de
+    app;
+  - `log_events`: `is_test` per event (een batch kan previews en gewone events mengen); props plat met
+    snake_case-sleutels (zo is de locatiecontrole volledig); meer dan 100 events = fout (400), de app
+    wist zo'n batch; een al opgeslagen `id` telt als `accepted`; rare `client`-velden worden leeg of
+    ingekort, nooit een fout; `event_names.active` om een event af te schaffen, met een foreign key
+    vanuit `app_events`;
+  - de events van 1b: ook `report_flow_start`/`report_submitted` (de melding bestaat al); `discovered`
+    in `map_bin_tap` pas in fase 3; `checkin_submitted`/`checkin_result` in `submitCheckin`
+    (`api.ts`), waar grootte en duur bekend zijn;
+  - een sessie hoort bij één gebruiker: aanmelden start er een, afmelden sluit ze af;
+  - tijdens de onthulling wordt niets weggeschreven of verstuurd (`holdAnalytics`);
+  - opnieuw proberen strikt bij 0, 5xx en 401 (ook 429 wordt gewist);
+  - `game_config`, `event_names`, `app_events` en `private.game_config_rules` in `check-restore.sh`.
+- Nog te doen voor 1b: staging (backup, migratie, `deploy`, checks, `update:dev`) en de telling per
+  naam van de events van de iPhone.
+- Nog te doen: fase 2 t/m 7.
+- Volgende stap: staging-uitrol van 1b; daarna fase 2 in een nieuwe sessie, op
+  `gamification/2-onthulling` vanaf `main`.
