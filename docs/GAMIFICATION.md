@@ -868,7 +868,7 @@ vergelijking van de punten en in fase 1b van de eventtellingen in Studio.
 ## Overdracht
 
 Stand op 15 oktober 2026: fase 1a en 1b zijn af en gemerged in `main` (PR #2 en #3). Fase 2 is af en
-lokaal getest (`gamification/2-onthulling`); staging-uitrol, iPhone-test en akkoord volgen.
+op staging uitgerold (`gamification/2-onthulling`); de iPhone-test en het akkoord om te mergen volgen.
 
 - Af: dit plan; fase 1a (puntenledger); fase 1b (config en eventlog), lokaal.
   - Server (`20261015120000_points_ledger.sql`): `point_transactions` met de projectie vanuit
@@ -1010,6 +1010,13 @@ lokaal getest (`gamification/2-onthulling`); staging-uitrol, iPhone-test en akko
     de config en de Dev-reeks; klopt ze niet, dan mixt de onthulling gewoon zelf;
   - toasts: geen eigen viewport in de vuilbak-sheet (de toast verschijnt erboven op de tabs); de
     `UpdatePrompt` zit nog niet in de wachtrij van de presenter.
+- Staging (15 oktober): backup `postgres-20261015-182008.dump`; `20261015160000_checkin_score.sql`
+  toegepast. Telling voor en na identiek: 2 profielen, 0 echte en 48 testpunten, dezelfde hash over
+  (id, punten, testpunten), check-ins 3 goedgekeurd en 2 afgewezen, ledger 0/48, invariant leeg.
+  `checkin_point_stages` weg, `record_checkin` met `score` (alleen voor de service role),
+  `game_catalog()` voor aangemelde gebruikers, `checkin_score(3)` = 10, 11, 12, 13. `deploy`,
+  `check-supabase`, `check-auth` en `check-fake-location` geslaagd. EAS Update op `dev` (runtime 1):
+  update-groep `383b73e9-4f4c-45ea-ae26-18da7d25d94f` (commit a7aab85).
 - Nog te controleren op de iPhone (na `update:dev`): Dev-preview zonder en met reeks (0, 3, 8, 10
   weken), met Reduce Motion en zonder geluid: zelfde beeld, geluid en haptiek als voorheen; de
   metingen onderaan (UI-blokkade ≤ 17 ms, beeld↔geluid ≤ 16 ms); naar de achtergrond tijdens een
@@ -1017,6 +1024,5 @@ lokaal getest (`gamification/2-onthulling`); staging-uitrol, iPhone-test en akko
   meting toont "mix uit cache" als de verwachte onthulling klopte); Componenten (ring scherp op
   44/72/120 pt, rollend getal, knop, balk) en een testtoast, ook terwijl de camera open is.
 - Nog te doen: fase 3 t/m 7.
-- Volgende stap: staging-uitrol van fase 2 (backup, `migrate`, `migrate --apply`, `deploy`, checks,
-  `update:dev`) en de iPhone-test; na akkoord mergen; daarna fase 3 in een nieuwe sessie, op
-  `gamification/3-ontdekken` vanaf `main`.
+- Volgende stap: de iPhone-test van fase 2; na akkoord mergen; daarna fase 3 in een nieuwe sessie,
+  op `gamification/3-ontdekken` vanaf `main`.
