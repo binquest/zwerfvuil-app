@@ -23,7 +23,7 @@ import { fireHaptic, setHapticProbe } from '@/feedback/haptics';
 import { createDiagnostics, describeMeasurements, type RevealMeasurements } from '@/feedback/reveal/diagnostics';
 import { playFeedback } from '@/feedback/reveal/feedback';
 import { FrameProbe } from '@/feedback/reveal/FrameProbe';
-import { multiplierLabel } from '@/feedback/reveal/motion';
+import { BADGE_OFFSET, multiplierLabel } from '@/feedback/reveal/motion';
 import { playTimeline, preloadTimeline, type Playback, type PlaybackStart } from '@/feedback/reveal/playback';
 import { buildBonusTimeline, buildRevealTimeline, type Event } from '@/feedback/reveal/timeline';
 import { VOLUME } from '@/feedback/reveal/tuning';
@@ -58,6 +58,19 @@ function bonusErrorMessage(error: { code?: string } | null): string {
   if (error?.code === '55000') return 'Deze vraag is verlopen of al beantwoord.';
   if (error?.code === 'P0002') return 'Deze vraag hoort niet bij je inworp.';
   return 'Je antwoord kon niet bewaard worden.';
+}
+
+/** The big number shrinks with its digits (the Dev preview goes up to four), so it always fits next to its badge. */
+function totalFontSize(value: number): number {
+  return value >= 1000 ? 84 : value >= 100 ? 104 : 120;
+}
+
+function BonusPill({ points }: { points: number }) {
+  return (
+    <View style={{ backgroundColor: BONUS_GREEN, borderRadius: 14, borderCurve: 'continuous', paddingHorizontal: 12, paddingVertical: 5 }}>
+      <Text style={{ color: 'white', fontSize: 20, fontWeight: '900', fontFamily: 'ui-rounded' }}>{`+${points}`}</Text>
+    </View>
+  );
 }
 
 function Particle({ index, motion }: { index: number; motion: ReturnType<typeof useRevealMotion> }) {
@@ -353,7 +366,10 @@ export default function RevealScreen() {
 
           {/* TOTAL, with the slam's particles, the bonus ring, the flying +5 and its badge */}
           <View style={{ alignItems: 'center' }}>
-            <View style={{ alignItems: 'center', justifyContent: 'center' }}>
+            {/* The box hugs the number: the badge sits on its corner, the flying +5 aims at the measured size. */}
+            <View
+              onLayout={(e) => motion.setNumberSize(e.nativeEvent.layout.width, e.nativeEvent.layout.height)}
+              style={{ alignItems: 'center', justifyContent: 'center' }}>
               <Animated.View
                 pointerEvents="none"
                 style={[{ position: 'absolute', width: 180, height: 180, borderRadius: 90, borderWidth: 4, borderColor: BONUS_GREEN }, styles.ringStyle]}
@@ -361,8 +377,7 @@ export default function RevealScreen() {
               <Animated.View style={styles.totalStyle}>
                 <Text
                   numberOfLines={1}
-                  adjustsFontSizeToFit
-                  style={{ color: 'white', fontSize: 120, lineHeight: 132, fontWeight: '900', fontFamily: 'ui-rounded', fontVariant: ['tabular-nums'], maxWidth: 320, textAlign: 'center' }}>
+                  style={{ color: 'white', fontSize: totalFontSize(value), lineHeight: 132, fontWeight: '900', fontFamily: 'ui-rounded', fontVariant: ['tabular-nums'] }}>
                   {value}
                 </Text>
               </Animated.View>
@@ -370,19 +385,13 @@ export default function RevealScreen() {
                 {Array.from({ length: MAX_PARTICLES }, (_, i) => (
                   <Particle key={i} index={i} motion={motion} />
                 ))}
-              </View>
-              <View pointerEvents="none" style={{ position: 'absolute', top: '50%', left: '50%' }}>
                 <Animated.View style={[{ position: 'absolute', marginLeft: -26, marginTop: -16 }, styles.arcStyle]}>
-                  <View style={{ backgroundColor: BONUS_GREEN, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 5 }}>
-                    <Text style={{ color: 'white', fontSize: 20, fontWeight: '900', fontFamily: 'ui-rounded' }}>{`+${question?.points ?? 5}`}</Text>
-                  </View>
-                </Animated.View>
-                <Animated.View style={[{ position: 'absolute', left: 100 - 26, top: -62 - 16 }, styles.badgeStyle]}>
-                  <View style={{ backgroundColor: BONUS_GREEN, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 5 }}>
-                    <Text style={{ color: 'white', fontSize: 20, fontWeight: '900', fontFamily: 'ui-rounded' }}>{`+${question?.points ?? 5}`}</Text>
-                  </View>
+                  <BonusPill points={question?.points ?? 5} />
                 </Animated.View>
               </View>
+              <Animated.View pointerEvents="none" style={[{ position: 'absolute', ...BADGE_OFFSET }, styles.badgeStyle]}>
+                <BonusPill points={question?.points ?? 5} />
+              </Animated.View>
             </View>
             <Text style={[type.title3, { color: 'rgba(255,255,255,0.75)' }]}>{bonusShown ? 'punten met bonus' : 'punten'}</Text>
           </View>

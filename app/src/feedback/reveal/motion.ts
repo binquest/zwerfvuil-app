@@ -33,6 +33,20 @@ export function bonusArc(t: number, from: { x: number; y: number }, to: { x: num
   };
 }
 
+/** The +5 badge sits on the number's top-right corner, this far outside it (style offsets). */
+export const BADGE_OFFSET = { right: -10, top: -14 };
+/** The badge's own size, roughly: the flying chip aims at its centre. */
+const BADGE_SIZE = { width: 52, height: 32 };
+
+/** Where the badge's centre is, relative to the centre of a number box of `width` × `height`. */
+export function badgeCentre(width: number, height: number): { x: number; y: number } {
+  'worklet';
+  return {
+    x: width / 2 - BADGE_OFFSET.right - BADGE_SIZE.width / 2,
+    y: -height / 2 + BADGE_OFFSET.top + BADGE_SIZE.height / 2,
+  };
+}
+
 /** Particle `index` of `count` at burst progress `t`: flies out from the number and fades. */
 export function particle(index: number, count: number, t: number): { x: number; y: number; opacity: number; scale: number } {
   'worklet';

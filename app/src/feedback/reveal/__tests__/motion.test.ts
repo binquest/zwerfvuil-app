@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { bonusArc, multiplierLabel, particle, shakeOffset } from '../motion';
+import { BADGE_OFFSET, badgeCentre, bonusArc, multiplierLabel, particle, shakeOffset } from '../motion';
 
 describe('shakeOffset', () => {
   it('is still at the start and the end', () => {
@@ -36,6 +36,23 @@ describe('bonusArc', () => {
   it('rises above the badge on the way', () => {
     const highest = Math.min(...Array.from({ length: 101 }, (_, i) => bonusArc(i / 100, from, to, 120).y));
     expect(highest).toBeLessThan(to.y);
+  });
+});
+
+describe('badgeCentre', () => {
+  it('is on the top-right corner of the number, whatever its width', () => {
+    for (const width of [80, 170, 320]) {
+      const { x, y } = badgeCentre(width, 132);
+      // The badge (52 wide) ends BADGE_OFFSET.right outside the right edge of the number.
+      expect(x + 26).toBeCloseTo(width / 2 - BADGE_OFFSET.right, 5);
+      expect(y - 16).toBeCloseTo(-132 / 2 + BADGE_OFFSET.top, 5);
+    }
+  });
+
+  it('stays on a 375 pt wide screen even for the widest number', () => {
+    // The number is centred on the screen; its widest (four digits at 84 pt) is about 200 pt.
+    const { x } = badgeCentre(200, 132);
+    expect(375 / 2 + x + 26).toBeLessThan(375);
   });
 });
 

@@ -20,7 +20,7 @@ import {
 } from 'react-native-reanimated';
 
 import { MAX_STAGES } from '../../lib/points';
-import { bonusArc, particle, shakeOffset } from './motion';
+import { badgeCentre, bonusArc, particle, shakeOffset } from './motion';
 import type { Event } from './timeline';
 
 const REDUCE = ReduceMotion.System;
@@ -32,9 +32,8 @@ const jump = (toValue: number) => withTiming(toValue, { duration: 0, reduceMotio
 
 /** The MULT badge ramps orange → red → magenta over the stages. */
 export const MULT_COLORS = ['#FF9F0A', '#FF3B30', '#FF2D95'];
-/** Where the flying +5 starts (below the number, at the question) and lands (its badge), relative to the number's centre. */
+/** Where the flying +5 starts: below the number, at the question (relative to the number's centre). */
 export const BONUS_FROM = { x: 0, y: 320 };
-export const BONUS_TO = { x: 100, y: -62 };
 export const MAX_PARTICLES = 20;
 
 export function useRevealMotion() {
@@ -53,6 +52,9 @@ export function useRevealMotion() {
   const ring = useSharedValue(0);
   const badge = useSharedValue(0);
   const sheet = useSharedValue(0);
+  // The size of the number, measured by the screen: the flying +5 lands on its badge.
+  const numberWidth = useSharedValue(160);
+  const numberHeight = useSharedValue(132);
 
   // Shared values never change identity, so neither do these functions.
   /** Writes the shared values of one visual event. Returns false for events that are not about motion. */
@@ -129,6 +131,15 @@ export function useRevealMotion() {
     sheet.set(spring(1, 18, 160));
   }, [sheet]);
 
+  /** The number's measured size (onLayout). */
+  const setNumberSize = useCallback(
+    (width: number, height: number) => {
+      numberWidth.set(width);
+      numberHeight.set(height);
+    },
+    [numberWidth, numberHeight],
+  );
+
   const shakeStyle = useAnimatedStyle(() => {
     const { x, y, rotation } = shakeOffset(shakeT.get(), shakePx.get(), shakeDeg.get());
     return { transform: [{ translateX: x }, { translateY: y }, { rotateZ: `${rotation}deg` }] };
@@ -144,7 +155,7 @@ export function useRevealMotion() {
   const totalStyle = useAnimatedStyle(() => ({ transform: [{ scale: totalScale.get() }] }));
   const arcStyle = useAnimatedStyle(() => {
     const t = arc.get();
-    const { x, y } = bonusArc(t, BONUS_FROM, BONUS_TO, 140);
+    const { x, y } = bonusArc(t, BONUS_FROM, badgeCentre(numberWidth.get(), numberHeight.get()), 140);
     return { opacity: t >= 0 && t < 1 ? 1 : 0, transform: [{ translateX: x }, { translateY: y }, { scale: 0.8 + 0.4 * Math.sin(Math.max(0, t) * Math.PI) }] };
   });
   const ringStyle = useAnimatedStyle(() => {
@@ -159,11 +170,12 @@ export function useRevealMotion() {
       apply,
       settle,
       showSheet,
+      setNumberSize,
       burst,
       burstCount,
       styles: { shakeStyle, flashStyle, chipStyle, multStyle, glowStyle, totalStyle, arcStyle, ringStyle, badgeStyle, sheetStyle },
     }),
-    [apply, settle, showSheet, burst, burstCount, shakeStyle, flashStyle, chipStyle, multStyle, glowStyle, totalStyle, arcStyle, ringStyle, badgeStyle, sheetStyle],
+    [apply, settle, showSheet, setNumberSize, burst, burstCount, shakeStyle, flashStyle, chipStyle, multStyle, glowStyle, totalStyle, arcStyle, ringStyle, badgeStyle, sheetStyle],
   );
 }
 
