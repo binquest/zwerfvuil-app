@@ -1137,6 +1137,8 @@ staging en als EAS Update op `dev`; nog niet gemerged.
     Onbekende stappen bewaren in de parser ook `chips` en `mult`; de server moet die meesturen (fase 8).
   - Dev-modus: knop "Zware preview (ontdekking, 6 weken, premie, bonusvraag)"; de premie verdubbelt nu
     de multiplier zoals in fase 8.
+  - EAS Update op `dev` (runtime 1): update-groep `2328472f-9e93-496a-a38c-0ddb67f39165` (commit 3c6e524);
+    alleen de app veranderde (geen migratie, geen `deploy`).
 - Nog te controleren op de iPhone (na `update:dev`): Dev-preview met ontdekking, vlam, onbekende stap
   en mijlpaal, met en zonder Reduce Motion en geluid; "Vieringen bekijken"; een echte eerste inworp
   bij een nieuwe vuilbak (banner, +5 chips, pin wordt groen, teller +1); een tweede inworp daar (geen
