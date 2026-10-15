@@ -36,6 +36,20 @@ const QUESTION = {
   points: 7,
 };
 
+const SCORE = {
+  steps: [
+    { kind: "base", label: "BASIS", chips: 10, mult: 1, total: 10 },
+    {
+      kind: "streak",
+      label: "REEKS",
+      weeks: 2,
+      per_week: 1.1,
+      stages: [{ mult: 1.1, total: 11 }, { mult: 1.21, total: 12 }],
+    },
+  ],
+  total: 12,
+};
+
 const OK_RESULT: RecordCheckinResult = {
   ok: true,
   reason: null,
@@ -43,13 +57,12 @@ const OK_RESULT: RecordCheckinResult = {
   distance_m: 12.345,
   retry_after_s: null,
   streak_weeks: 2,
-  point_stages: [10, 11, 12],
-  points_total: 12,
+  score: SCORE,
   bonus_question: QUESTION,
   is_test: false,
 };
 
-const NO_POINTS = { streak_weeks: null, point_stages: null, points_total: null, bonus_question: null, is_test: null };
+const NO_SCORE = { streak_weeks: null, score: null, bonus_question: null, is_test: null };
 
 function fakeDeps(overrides: Partial<CheckinDeps> = {}) {
   const calls = {
@@ -111,7 +124,7 @@ Deno.test("accepts a valid check-in, uploads the stripped photo and records it",
     status: "pending",
     distance_m: 12.3,
     message: "Bedankt! Je inworp wacht op goedkeuring.",
-    points: { base: 10, multiplier: 1.1, streak_weeks: 2, stages: [11, 12], total: 12 },
+    score: SCORE,
     bonus_question: QUESTION,
     is_test: false,
   });
@@ -182,7 +195,7 @@ Deno.test("refuses oversized bodies from Content-Length", async () => {
 Deno.test("database rejections are reported with details and the photo is deleted", async () => {
   const cases: [RecordCheckinResult, number, string, Record<string, number>, string][] = [
     [
-      { ...OK_RESULT, ...NO_POINTS, ok: false, reason: "too_far", checkin_id: null, distance_m: 31.66 },
+      { ...OK_RESULT, ...NO_SCORE, ok: false, reason: "too_far", checkin_id: null, distance_m: 31.66 },
       422,
       "too_far",
       {
@@ -191,7 +204,7 @@ Deno.test("database rejections are reported with details and the photo is delete
       "32 m",
     ],
     [
-      { ...OK_RESULT, ...NO_POINTS, ok: false, reason: "cooldown", checkin_id: null, retry_after_s: 300 },
+      { ...OK_RESULT, ...NO_SCORE, ok: false, reason: "cooldown", checkin_id: null, retry_after_s: 300 },
       429,
       "cooldown",
       {
@@ -201,14 +214,14 @@ Deno.test("database rejections are reported with details and the photo is delete
       "5 min",
     ],
     [
-      { ...OK_RESULT, ...NO_POINTS, ok: false, reason: "bin_not_eligible", checkin_id: null, distance_m: null },
+      { ...OK_RESULT, ...NO_SCORE, ok: false, reason: "bin_not_eligible", checkin_id: null, distance_m: null },
       422,
       "bin_not_eligible",
       {},
       "geen punten",
     ],
     [
-      { ...OK_RESULT, ...NO_POINTS, ok: false, reason: "daily_limit", checkin_id: null, retry_after_s: 3600 },
+      { ...OK_RESULT, ...NO_SCORE, ok: false, reason: "daily_limit", checkin_id: null, retry_after_s: 3600 },
       429,
       "daily_limit",
       {
@@ -220,7 +233,7 @@ Deno.test("database rejections are reported with details and the photo is delete
     [
       {
         ...OK_RESULT,
-        ...NO_POINTS,
+        ...NO_SCORE,
         ok: false,
         reason: "fake_location_not_allowed",
         checkin_id: null,
@@ -244,29 +257,48 @@ Deno.test("database rejections are reported with details and the photo is delete
   }
 });
 
-Deno.test("without a streak the points are just the base, and the bonus question may be absent", async () => {
+Deno.test("the score is passed on as the database made it, unknown steps and fields included", async () => {
+  const score = {
+    steps: [
+      { kind: "base", label: "BASIS", chips: 10, mult: 1, total: 10 },
+      { kind: "streak", label: "REEKS", weeks: 0, per_week: 1.1, stages: [] },
+      { kind: "comet", label: "KOMEET", chips: 12, mult: 1, total: 12, sparkle: true },
+    ],
+    total: 12,
+  };
   const { handler } = fakeDeps({
-    recordCheckin: () =>
-      Promise.resolve({ ...OK_RESULT, streak_weeks: 0, point_stages: [10], points_total: 10, bonus_question: null }),
+    recordCheckin: () => Promise.resolve({ ...OK_RESULT, streak_weeks: 0, score, bonus_question: null }),
   });
   const data = await body(await handler(request()));
-  assertEquals(data.points, { base: 10, multiplier: 1.1, streak_weeks: 0, stages: [], total: 10 });
+  assertEquals(data.score, score);
   assertEquals(data.bonus_question, null);
+  assertFalse("points" in data, "the old points object is gone");
 });
 
-Deno.test("a recorded check-in without points is still a success, without the points", async () => {
-  const { handler, calls } = fakeDeps({ recordCheckin: () => Promise.resolve({ ...OK_RESULT, ...NO_POINTS }) });
-  const response = await handler(request());
-  assertEquals(response.status, 201);
-  const data = await body(response);
-  assertEquals([data.checkin_id, data.points, data.bonus_question], [CHECKIN, null, null]);
-  assertEquals(calls.errors, ["record_checkin returned no points"]);
-  assertEquals(calls.deletes, []);
+Deno.test("a recorded check-in without a playable score is still a success, without the score", async () => {
+  const unplayable = [
+    null,
+    { steps: [], total: 10 },
+    { steps: [{ kind: "base", label: "BASIS", total: 10 }] },
+    { steps: [{ kind: "base", total: 10 }], total: 10 },
+    { steps: "base", total: 10 },
+  ];
+  for (const score of unplayable) {
+    const { handler, calls } = fakeDeps({
+      recordCheckin: () => Promise.resolve({ ...OK_RESULT, ...NO_SCORE, score: score as RecordCheckinResult["score"] }),
+    });
+    const response = await handler(request());
+    assertEquals(response.status, 201);
+    const data = await body(response);
+    assertEquals([data.checkin_id, data.score, data.bonus_question], [CHECKIN, null, null], JSON.stringify(score));
+    assertEquals(calls.errors, ["record_checkin returned no score"]);
+    assertEquals(calls.deletes, []);
+  }
 });
 
 Deno.test("an unknown database reason is a server error", async () => {
   const { handler, calls } = fakeDeps({
-    recordCheckin: () => Promise.resolve({ ...OK_RESULT, ...NO_POINTS, ok: false, reason: "something_new" }),
+    recordCheckin: () => Promise.resolve({ ...OK_RESULT, ...NO_SCORE, ok: false, reason: "something_new" }),
   });
   assertEquals((await handler(request())).status, 500);
   assertEquals(calls.deletes.length, 1);

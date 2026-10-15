@@ -245,10 +245,10 @@ een onbekend antwoord gewoon een bevestiging zonder onthulling.
     "steps": [
       { "kind": "base",      "label": "BASIS",     "chips": 10, "mult": 1,    "total": 10 },
       { "kind": "discovery", "label": "NIEUW",     "chips": 15, "mult": 1,    "total": 15, "add": 5 },
-      { "kind": "streak",    "label": "REEKS",     "weeks": 4,
+      { "kind": "streak",    "label": "REEKS",     "weeks": 4, "per_week": 1.1,
         "stages": [{ "mult": 1.1, "total": 17 }, { "mult": 1.21, "total": 18 },
-                   { "mult": 1.33, "total": 20 }, { "mult": 1.46, "total": 22 }] },
-      { "kind": "bounty",    "label": "PREMIE ×2", "chips": 15, "mult": 2.93, "total": 44, "factor": 2 }
+                   { "mult": 1.331, "total": 20 }, { "mult": 1.4641, "total": 22 }] },
+      { "kind": "bounty",    "label": "PREMIE ×2", "chips": 15, "mult": 2.9282, "total": 44, "factor": 2 }
     ],
     "total": 44, "streak_extended": true
   },
@@ -867,8 +867,8 @@ vergelijking van de punten en in fase 1b van de eventtellingen in Studio.
 
 ## Overdracht
 
-Stand op 15 oktober 2026: fase 1a is af en gemerged in `main`. Fase 1b is af, op staging uitgerold en
-op de iPhone getest (`gamification/1b-config-events`); wacht op akkoord om te mergen.
+Stand op 15 oktober 2026: fase 1a, 1b en 2 zijn af en gemerged in `main` (PR #2, #3 en #4); fase 2 staat
+op staging en als EAS Update op `dev`.
 
 - Af: dit plan; fase 1a (puntenledger); fase 1b (config en eventlog), lokaal.
   - Server (`20261015120000_points_ledger.sql`): `point_transactions` met de projectie vanuit
@@ -954,6 +954,75 @@ op de iPhone getest (`gamification/1b-config-events`); wacht op akkoord om te me
   start kwam 70 ms een `screen_view` "tabs" vóór "map" (de tab-layout zonder tab); `screenName` geeft
   daar nu `root` en dat wordt niet gelogd. Die correctie staat op `dev` als update-groep
   `43a20bc9-7e3b-4199-ae00-7c4094942176` (commit b8eb582).
-- Nog te doen: fase 2 t/m 7.
-- Volgende stap: staging-uitrol van 1b; daarna fase 2 in een nieuwe sessie, op
-  `gamification/2-onthulling` vanaf `main`.
+**Fase 2 (onthulling op serverstappen)**
+- Server (`20261015160000_checkin_score.sql`): `private.checkin_score(streak)` maakt `{steps, total}`
+  uit `game_config`: `base` (`chips`, `mult` 1, `total`) en `streak` (`weeks`, `per_week`, `stages`
+  met per week `mult` en het afgeronde tussentotaal); zelfde punten als voorheen. `record_checkin`
+  geeft `score` terug i.p.v. `point_stages`/`points_total` (opnieuw aangemaakt, rechten terug) en
+  bewaart `score.total` als `points_earned`; `checkin_point_stages` is weg. Nieuw: `game_catalog()`
+  (aangemeld) met `{config}`.
+- Functie: `submit-checkin` stuurt `score` zoals de database hem maakt (een onbruikbare score →
+  `null` en een fout in de log); het `points`-object en `STREAK_MULTIPLIER` zijn weg. Na de migratie
+  dus ook `stagingctl.py deploy`.
+- App: `src/lib/score.ts` (parser; een onbekende stap blijft bewaard met label en totaal);
+  `buildRevealTimeline({score})` speelt de stappen van de server en de slam landt op `score.total`;
+  `src/feedback/reveal/state.ts` met `applyRevealEvent`/`endState`: overslaan, naar de achtergrond
+  gaan en VoiceOver eindigen allemaal op de eindstand van de tijdlijn (achtergrond stil; VoiceOver
+  zonder animatie, met een succes-haptiek en één samenvatting in de wachtrij). Getal, chips en MULT
+  zijn gememoiseerde componenten op een eigen store: een tik hertekent alleen het getal.
+  Geluid: alleen de samples van een tijdlijn worden gedecodeerd (elk één keer, een mislukte opnieuw);
+  "klaar" = die samples, binnen 800 ms; de bestandsnaam van een mix bevat een hash van de
+  geluidsbestanden; een mislukte `initSfx` begint de volgende keer opnieuw; de camera mixt en laadt
+  de verwachte onthulling tijdens het uploaden; `celebrationSoundtrack` als derde speler.
+  `src/theme/` (`index.ts` + `game.ts` met speltokens; de vaste kleuren van de onthulling staan daar
+  nu), `useReduceMotion`/`useScreenReader`, `src/components/game/` (`GameNumber`, `ChunkyButton`,
+  `ProgressBar`, `PendingTag`, `ProgressRing`-prototype), `ToastProvider` + `ToastViewport` (tabs,
+  camera, onthulling houdt vast), skelet van de `MomentsPresenter` (`src/game/moments.ts`, nog geen
+  bronnen). Profiel en Dev-modus lezen hun getallen uit `game_catalog()`; `BASE_POINTS`,
+  `STREAK_MULTIPLIER`, `MAX_STAGES` en `pointStages` zijn weg uit `points.ts`.
+- Dev-modus: de preview bouwt zijn score met `previewScore` uit de config; nieuw "Componenten
+  bekijken" en "Testtoast tonen".
+- Tests: `11_scoring` (32: stappen en tussentotalen, config, `record_checkin`, testinworp alleen
+  basis + reeks, afwijzing draait terug, `game_catalog`, invariant); de 6 asserties op
+  `checkin_point_stages` uit 06 verhuisden naar 11 (06: 54 → 48); 06, 07 en 09 lezen `point_stages`
+  en `points_total` via een hulpfunctie uit `score`; samen 414. Deno: score doorgegeven (ook
+  onbekende stappen), onbruikbare score, integratie met de score-JSON en `game_catalog`. Jest 204:
+  `golden.test.ts` bewijst voor 176 gevallen (4 basissen × 0–10 weken × Reduce Motion × bonusvraag)
+  dat de tijdlijn uit `score.steps` exact dezelfde events en dezelfde mixsleutel geeft als vóór fase
+  2 (vingerafdrukken in `__fixtures__/reveal-v1.json`, gemaakt op 6609a29), ook vanuit de
+  server-JSON zelf; `state.test.ts` bewijst dat overslaan op elk moment = uitspelen.
+- Kleine keuzes buiten het plan:
+  - `mult` per stap is de exacte multiplier (1.331, niet 1.33): zo zijn de events identiek aan
+    vroeger; de app rondt af voor het label. De vingerafdrukken vergelijken getallen tot op 9
+    decimalen (1,1³ is in JavaScript 1.3310000000000004);
+  - de reeksstap staat er altijd, ook bij 0 weken (lege `stages`), met de hele reeks in `weeks` en
+    `per_week` (voor "×1,1 per week"); `streak_extended` en `checkins.score` (bevroren stappen) komen
+    pas met de vlam (fase 3) en de ledgersplitsing;
+  - `game_catalog()` v1 (alleen `config`), zodat de labels in profiel en Dev-modus van de server
+    komen; later komen levels, badges enz. erbij;
+  - een stap van een onbekend soort speelt nog niet af (fase 3: generieke stap), maar de slam landt
+    wel op het totaal;
+  - `TOP_STAGE = 8` in `tuning.ts`: er zijn 8 `mult_N`-geluiden en de MULT-kleur loopt tot stap 8; een
+    langer maximum in `game_config` blijft daar op de top;
+  - achtergrond = `AppState` `background` (Control Center niet); `reveal_skipped` alleen bij een tik;
+  - een bonusvraag zonder `points` wordt niet getoond (de terugval op 5 is weg);
+  - de verwachte onthulling tijdens het uploaden komt uit `my_streak` (bij het openen van de camera),
+    de config en de Dev-reeks; klopt ze niet, dan mixt de onthulling gewoon zelf;
+  - toasts: geen eigen viewport in de vuilbak-sheet (de toast verschijnt erboven op de tabs); de
+    `UpdatePrompt` zit nog niet in de wachtrij van de presenter.
+- Staging (15 oktober): backup `postgres-20261015-182008.dump`; `20261015160000_checkin_score.sql`
+  toegepast. Telling voor en na identiek: 2 profielen, 0 echte en 48 testpunten, dezelfde hash over
+  (id, punten, testpunten), check-ins 3 goedgekeurd en 2 afgewezen, ledger 0/48, invariant leeg.
+  `checkin_point_stages` weg, `record_checkin` met `score` (alleen voor de service role),
+  `game_catalog()` voor aangemelde gebruikers, `checkin_score(3)` = 10, 11, 12, 13. `deploy`,
+  `check-supabase`, `check-auth` en `check-fake-location` geslaagd. EAS Update op `dev` (runtime 1):
+  update-groep `383b73e9-4f4c-45ea-ae26-18da7d25d94f` (commit a7aab85).
+- Nog te controleren op de iPhone (na `update:dev`): Dev-preview zonder en met reeks (0, 3, 8, 10
+  weken), met Reduce Motion en zonder geluid: zelfde beeld, geluid en haptiek als voorheen; de
+  metingen onderaan (UI-blokkade ≤ 17 ms, beeld↔geluid ≤ 16 ms); naar de achtergrond tijdens een
+  onthulling (stil op de eindstand); VoiceOver (eindstand + samenvatting); een echte inworp (de
+  meting toont "mix uit cache" als de verwachte onthulling klopte); Componenten (ring scherp op
+  44/72/120 pt, rollend getal, knop, balk) en een testtoast, ook terwijl de camera open is.
+- Nog te doen: fase 3 t/m 7.
+- Volgende stap: fase 3 in een nieuwe sessie, op `gamification/3-ontdekken` vanaf `main` (de
+  iPhone-punten hierboven horen bij de test van fase 2).

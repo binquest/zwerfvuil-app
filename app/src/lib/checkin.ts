@@ -1,6 +1,7 @@
 // Interpreting submit-checkin responses and failures (pure, unit tested).
 
-import { type BonusQuestion, type CheckinPoints, parseBonusQuestion, parsePoints } from './points';
+import { type BonusQuestion, parseBonusQuestion } from './points';
+import { parseScore, type Score } from './score';
 
 /**
  * - rejected: the server refused the check-in (too far, cooldown, …)
@@ -19,8 +20,8 @@ export type CheckinOutcome =
       checkinId: string;
       distanceM: number | null;
       message: string;
-      /** Null when the server sent none (the app then skips the reveal). */
-      points: CheckinPoints | null;
+      /** The steps of the reveal; null when the server sent none (the app then skips the reveal). */
+      score: Score | null;
       question: BonusQuestion | null;
       /** Dev mode: a test check-in. */
       isTest: boolean;
@@ -73,7 +74,7 @@ export function parseCheckinResponse(status: number, bodyText: string | null, de
       checkinId: data.checkin_id,
       distanceM: typeof data.distance_m === 'number' ? data.distance_m : null,
       message: typeof data.message === 'string' ? data.message : 'Bedankt! Je inworp wacht op goedkeuring.',
-      points: parsePoints(data.points),
+      score: parseScore(data.score),
       question: parseBonusQuestion(data.bonus_question),
       isTest: data.is_test === true,
     };

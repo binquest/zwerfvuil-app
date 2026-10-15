@@ -7,6 +7,10 @@
 // The visuals and haptics follow the soundtrack through an audio clock
 // (clock.ts): anchored once when playback has really started, corrected now
 // and then.
+//
+// Only the sounds a timeline plays are decoded (once each; a failed one is
+// tried again). A mixed file is named after its sound events and the hashes of
+// the sound files it used, so an update with new sounds never plays an old mix.
 import { Asset } from 'expo-asset';
 import { createAudioPlayer, type AudioPlayer } from 'expo-audio';
 import { File, Paths } from 'expo-file-system';
@@ -15,7 +19,7 @@ import type { Event } from '../reveal/timeline';
 import { createAudioClock, waitForStart, type AudioClock, type StartResult } from './clock';
 import { ensureAudioMode, initSfx } from './engine';
 import { mixKey, mixTimeline } from './mix';
-import { SFX_IDS, SFX_SOURCES, type SfxId } from './sources';
+import { SFX_SOURCES, type SfxId } from './sources';
 import { decodeWav, encodeWav, SAMPLE_RATE } from './wav';
 
 /** How long a mixed file may take to load in its player. */
@@ -31,38 +35,62 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 
 type Samples = Partial<Record<SfxId, Float32Array>>;
 
-let samplesPromise: Promise<Samples> | null = null;
-let samplesLoadMs: number | null = null;
+const samples = new Map<SfxId, Promise<Float32Array>>();
 
-/** Reads and decodes every source sound, once. */
-export function loadSamples(): Promise<Samples> {
-  samplesPromise ??= (async () => {
-    const started = now();
-    const entries = await Promise.all(
-      SFX_IDS.map(async (id) => {
-        const asset = Asset.fromModule(SFX_SOURCES[id]);
-        if (!asset.localUri) await asset.downloadAsync();
-        const bytes = await new File(asset.localUri ?? asset.uri).bytes();
-        return [id, decodeWav(bytes)] as const;
-      }),
-    );
-    samplesLoadMs = now() - started;
-    return Object.fromEntries(entries) as Samples;
-  })().catch((error) => {
-    samplesPromise = null;
-    throw error;
-  });
-  return samplesPromise;
+/** Every sound that `events` play, once each. */
+export function soundIds(events: readonly Event[]): SfxId[] {
+  return [...new Set(events.flatMap((event) => (event.type === 'sound' ? [event.id] : [])))];
 }
 
-/** How long loading the source sounds took (the first time); null until done. */
-export function sampleLoadMs(): number | null {
-  return samplesLoadMs;
+function loadSample(id: SfxId): Promise<Float32Array> {
+  let promise = samples.get(id);
+  if (!promise) {
+    const loading = (async () => {
+      const asset = Asset.fromModule(SFX_SOURCES[id]);
+      if (!asset.localUri) await asset.downloadAsync();
+      return decodeWav(await new File(asset.localUri ?? asset.uri).bytes());
+    })();
+    samples.set(id, loading);
+    // A failed sound is read again next time.
+    loading.catch(() => {
+      if (samples.get(id) === loading) samples.delete(id);
+    });
+    promise = loading;
+  }
+  return promise;
 }
 
-/** Everything a reveal needs, started early (camera, Dev mode screen). True when ready. */
-export function warmUpSounds(): Promise<boolean> {
-  return Promise.all([initSfx(), loadSamples().then(() => true, () => false)]).then(([voices, samples]) => voices && samples);
+/** Reads and decodes the sounds `ids`, each only once. Rejects when one of them cannot be read. */
+export async function loadSamples(ids: readonly SfxId[]): Promise<Samples> {
+  const entries = await Promise.all(ids.map(async (id) => [id, await loadSample(id)] as const));
+  return Object.fromEntries(entries) as Samples;
+}
+
+/** True when the sounds of `events` are ready to mix (never rejects). */
+export function samplesReady(events: readonly Event[]): Promise<boolean> {
+  return loadSamples(soundIds(events)).then(
+    () => true,
+    () => false,
+  );
+}
+
+/**
+ * Starts what a reveal needs, early (camera, Dev mode screen): the voices of a
+ * skip, and the sounds of `events` when given. True when both are ready.
+ */
+export function warmUpSounds(events: readonly Event[] = []): Promise<boolean> {
+  return Promise.all([initSfx(), samplesReady(events)]).then(([voices, ready]) => voices && ready);
+}
+
+/** A short fingerprint of the files of `ids` (their asset hashes): part of a mixed file's name. */
+export function soundFilesKey(ids: readonly SfxId[]): string {
+  let hash = 5381;
+  for (const id of [...ids].sort()) {
+    const asset = Asset.fromModule(SFX_SOURCES[id]);
+    const text = `${id}:${asset.hash ?? asset.uri};`;
+    for (let i = 0; i < text.length; i++) hash = ((hash * 33) ^ text.charCodeAt(i)) >>> 0;
+  }
+  return hash.toString(36);
 }
 
 export interface PreparedSoundtrack {
@@ -86,16 +114,21 @@ function pruneCache(): void {
   }
 }
 
+/** The cache file of the mix of `events`: its sound events and the files of its sounds. */
+export function soundtrackFileName(events: readonly Event[]): string {
+  return `${FILE_PREFIX}${mixKey(events)}-${soundFilesKey(soundIds(events))}.wav`;
+}
+
 /** Mixes the sound events of `events` into a file (or reuses the file of an identical timeline). */
 export async function prepareSoundtrack(events: readonly Event[]): Promise<PreparedSoundtrack> {
-  const file = new File(Paths.cache, `${FILE_PREFIX}${mixKey(events)}.wav`);
+  const file = new File(Paths.cache, soundtrackFileName(events));
   if (file.exists) {
     const bytes = file.size ?? 44;
     return { uri: file.uri, durationMs: ((bytes - 44) / 2 / SAMPLE_RATE) * 1000, mixMs: 0, cached: true };
   }
-  const samples = await loadSamples();
+  const sources = await loadSamples(soundIds(events));
   const started = now();
-  const mixed = mixTimeline(events, samples);
+  const mixed = mixTimeline(events, sources);
   file.create({ overwrite: true });
   file.write(encodeWav(mixed));
   const mixMs = now() - started;
@@ -208,6 +241,11 @@ export class Soundtrack {
   }
 }
 
-/** The reveal and the +5 each have their own player: the +5 is loaded while the reveal's chord still rings. */
+/**
+ * The reveal, the +5 and the celebrations after it each have their own player:
+ * the next one is loaded while the previous one still rings (the +5 and a
+ * celebration during the bonus question).
+ */
 export const revealSoundtrack = new Soundtrack();
 export const bonusSoundtrack = new Soundtrack();
+export const celebrationSoundtrack = new Soundtrack();

@@ -10,30 +10,40 @@ import { Alert } from 'react-native';
 
 import { EmptyState } from '@/components/EmptyState';
 import { describeStressResult, runSoundStressTest } from '@/feedback/reveal/stress';
+import { buildRevealTimeline } from '@/feedback/reveal/timeline';
 import { warmUpSounds } from '@/feedback/sfx/soundtrack';
+import { previewScore, streakMultiplierLabel } from '@/game/catalog';
+import { useGameCatalog } from '@/game/useGameCatalog';
 import { adminErrorMessage } from '@/lib/errors';
 import { formatPoints, formatWeeks } from '@/lib/format';
-import { BASE_POINTS, MAX_STAGES, pointStages, totalMultiplier, type BonusQuestion } from '@/lib/points';
+import type { BonusQuestion } from '@/lib/points';
 import { setPendingReveal } from '@/lib/reveal';
 import { useDevMode } from '@/providers/DevModeProvider';
 import { useLocation } from '@/providers/LocationProvider';
+import { useToast } from '@/providers/ToastProvider';
 
-/** Shown in the preview; the real questions come from the server. */
-const PREVIEW_QUESTION: BonusQuestion = {
-  key: 'preview',
-  prompt: 'Hoe vol zat de vuilbak?',
-  options: [
-    { key: 'empty', label: 'Bijna leeg' },
-    { key: 'half', label: 'Half vol' },
-    { key: 'full', label: 'Vol of overvol' },
-  ],
-  points: 5,
-};
+/** Shown in the preview, with the points from the config; the real questions come from the server. */
+function previewQuestion(points: number): BonusQuestion {
+  return {
+    key: 'preview',
+    prompt: 'Hoe vol zat de vuilbak?',
+    options: [
+      { key: 'empty', label: 'Bijna leeg' },
+      { key: 'half', label: 'Half vol' },
+      { key: 'full', label: 'Vol of overvol' },
+    ],
+    points,
+  };
+}
 
 export default function DevModeScreen() {
   const dev = useDevMode();
   const { fakeMode, setFakeMode } = useLocation();
-  const [previewBase, setPreviewBase] = useState(BASE_POINTS);
+  const toast = useToast();
+  // The numbers of the game (game_config); the preview builds its score from them.
+  const config = useGameCatalog()?.config ?? null;
+  const [chosenBase, setPreviewBase] = useState<number | null>(null);
+  const previewBase = chosenBase ?? config?.checkinBaseChips ?? 0;
   const [previewWeeks, setPreviewWeeks] = useState(3);
   const [previewBonus, setPreviewBonus] = useState(true);
   const [previewAwarded, setPreviewAwarded] = useState(true);
@@ -44,11 +54,12 @@ export default function DevModeScreen() {
   const [override, setOverride] = useState(dev.status?.streakOverride ?? 4);
   const [busy, setBusy] = useState(false);
 
-  // Load the reveal sounds while you set up the preview: the first load after
+  // Load the sounds of the preview while you set it up: the first load after
   // starting the app can take longer than the reveal waits for them.
   useEffect(() => {
-    if (dev.available) warmUpSounds();
-  }, [dev.available]);
+    if (!dev.available) return;
+    warmUpSounds(config ? buildRevealTimeline({ score: previewScore(config, previewWeeks, previewBase), reduceMotion: false }) : []);
+  }, [dev.available, config, previewWeeks, previewBase]);
 
   // A stress test still running when the screen goes stops.
   useEffect(() => () => stopStress.current?.(), []);
@@ -75,11 +86,13 @@ export default function DevModeScreen() {
   };
 
   const playPreview = () => {
+    if (!config) return;
+    const score = previewScore(config, previewWeeks, previewBase);
     // The reveal waits for the sounds; start loading them now.
-    if (!previewNoSound) warmUpSounds();
+    if (!previewNoSound) warmUpSounds(buildRevealTimeline({ score, reduceMotion: previewReduceMotion }));
     setPendingReveal({
-      points: pointStages(previewBase, previewWeeks),
-      question: previewBonus ? PREVIEW_QUESTION : null,
+      score,
+      question: previewBonus ? previewQuestion(config.bonusQuestionPoints) : null,
       checkinId: null,
       isTest: true,
       preview: true,
@@ -155,7 +168,9 @@ export default function DevModeScreen() {
           />
           <LabeledContent label="Reeks">
             <Text modifiers={[monospacedDigit()]}>
-              {`${formatWeeks(previewWeeks)} (${totalMultiplier(Math.min(previewWeeks, MAX_STAGES))}${previewWeeks > MAX_STAGES ? ', maximum' : ''})`}
+              {config
+                ? `${formatWeeks(previewWeeks)} (${streakMultiplierLabel(config, previewWeeks)}${previewWeeks > config.streakMaxSteps ? ', maximum' : ''})`
+                : formatWeeks(previewWeeks)}
             </Text>
           </LabeledContent>
           <Slider value={previewWeeks} min={0} max={10} step={1} onValueChange={(weeks) => setPreviewWeeks(Math.round(weeks))} />
@@ -168,7 +183,23 @@ export default function DevModeScreen() {
           />
           <Toggle label="Reduce Motion forceren" isOn={previewReduceMotion} onIsOnChange={setPreviewReduceMotion} />
           <Toggle label="Zonder geluid (diagnose)" isOn={previewNoSound} onIsOnChange={setPreviewNoSound} />
-          <Button label="Speel af" systemImage="play.fill" onPress={playPreview} />
+          <Button label={config ? 'Speel af' : 'Config laden…'} systemImage="play.fill" onPress={playPreview} modifiers={[disabled(!config)]} />
+        </Section>
+
+        <Section
+          title="Spelonderdelen"
+          footer={
+            <Text>
+              De gedeelde spelcomponenten (getal, knop, balk, ring, wacht-label) en een testtoast. Een toast verschijnt
+              boven het bovenste scherm; tijdens een onthulling wacht hij tot ze dicht is.
+            </Text>
+          }>
+          <Button label="Componenten bekijken" systemImage="square.grid.2x2" onPress={() => router.push('/dev-components')} />
+          <Button
+            label="Testtoast tonen"
+            systemImage="bell"
+            onPress={() => toast.show({ title: 'Testtoast', message: 'Zo ziet een melding in de app eruit.', systemImage: 'bell.fill' })}
+          />
         </Section>
 
         <Section

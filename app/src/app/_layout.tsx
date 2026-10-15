@@ -12,6 +12,8 @@ import { AuthProvider, useAuth } from '@/providers/AuthProvider';
 import { BinsProvider } from '@/providers/BinsProvider';
 import { DevModeProvider } from '@/providers/DevModeProvider';
 import { LocationProvider } from '@/providers/LocationProvider';
+import { MomentsPresenter } from '@/providers/MomentsPresenter';
+import { ToastProvider } from '@/providers/ToastProvider';
 import { colors } from '@/theme';
 
 export default function RootLayout() {
@@ -46,37 +48,41 @@ function RootStack() {
         <BinsProvider enabled={signedIn}>
           <AnalyticsTracker userId={session?.user.id ?? null} />
           <UpdatePrompt />
-          <Stack screenOptions={{ headerShown: false }}>
-            <Stack.Protected guard={!signedIn}>
-              <Stack.Screen name="login" />
-            </Stack.Protected>
-            <Stack.Protected guard={signedIn}>
-              <Stack.Screen name="(tabs)" />
-              <Stack.Screen
-                name="bin/[id]"
-                // One bin sheet: tapping another pin while it is open shows that bin.
-                dangerouslySingular={() => 'bin'}
-                options={{
-                  presentation: 'formSheet',
-                  sheetAllowedDetents: [0.4, 0.75],
-                  sheetGrabberVisible: true,
-                  // The map stays usable behind the smallest detent.
-                  sheetLargestUndimmedDetentIndex: 0,
-                  // Transparent: Liquid Glass sheet on iOS 26.
-                  contentStyle: { backgroundColor: 'transparent' },
-                  headerShown: true,
-                  headerTransparent: true,
-                  headerShadowVisible: false,
-                  title: '',
-                }}
-              />
-              <Stack.Screen name="camera" options={{ presentation: 'fullScreenModal' }} />
-              <Stack.Screen
-                name="reveal"
-                options={{ presentation: 'fullScreenModal', animation: 'fade', gestureEnabled: false }}
-              />
-            </Stack.Protected>
-          </Stack>
+          <ToastProvider>
+            <MomentsPresenter enabled={signedIn}>
+              <Stack screenOptions={{ headerShown: false }}>
+                <Stack.Protected guard={!signedIn}>
+                  <Stack.Screen name="login" />
+                </Stack.Protected>
+                <Stack.Protected guard={signedIn}>
+                  <Stack.Screen name="(tabs)" />
+                  <Stack.Screen
+                    name="bin/[id]"
+                    // One bin sheet: tapping another pin while it is open shows that bin.
+                    dangerouslySingular={() => 'bin'}
+                    options={{
+                      presentation: 'formSheet',
+                      sheetAllowedDetents: [0.4, 0.75],
+                      sheetGrabberVisible: true,
+                      // The map stays usable behind the smallest detent.
+                      sheetLargestUndimmedDetentIndex: 0,
+                      // Transparent: Liquid Glass sheet on iOS 26.
+                      contentStyle: { backgroundColor: 'transparent' },
+                      headerShown: true,
+                      headerTransparent: true,
+                      headerShadowVisible: false,
+                      title: '',
+                    }}
+                  />
+                  <Stack.Screen name="camera" options={{ presentation: 'fullScreenModal' }} />
+                  <Stack.Screen
+                    name="reveal"
+                    options={{ presentation: 'fullScreenModal', animation: 'fade', gestureEnabled: false }}
+                  />
+                </Stack.Protected>
+              </Stack>
+            </MomentsPresenter>
+          </ToastProvider>
         </BinsProvider>
       </DevModeProvider>
     </LocationProvider>

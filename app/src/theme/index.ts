@@ -1,6 +1,7 @@
 // System colors and type styles. On iOS every color is a semantic UIKit color
 // (or a dynamic pair), so light mode, dark mode and Increase Contrast follow
-// the system. The hex values are only used on other platforms.
+// the system. The hex values are only used on other platforms. The game
+// tokens (game.ts) are exported from here as well.
 import { Color } from 'expo-router';
 import { DynamicColorIOS, Platform, type ColorValue, type TextStyle } from 'react-native';
 
@@ -55,3 +56,6 @@ export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 };
 
 /** Corner radius of cards and glass panels (continuous curve). */
 export const radius = { card: 22, control: 14 };
+
+// The game tokens: play surfaces, rarity, numbers, chunky shapes, motion.
+export * from './game';

@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { BADGE_OFFSET, badgeCentre, bonusArc, multiplierLabel, particle, shakeOffset } from '../motion';
+import { BADGE_OFFSET, badgeCentre, bonusArc, particle, shakeOffset } from '../motion';
 
 describe('shakeOffset', () => {
   it('is still at the start and the end', () => {
@@ -75,13 +75,5 @@ describe('particle', () => {
     const near = particle(2, 12, 0.1);
     const far = particle(2, 12, 0.8);
     expect(Math.hypot(far.x, far.y)).toBeGreaterThan(Math.hypot(near.x, near.y));
-  });
-});
-
-describe('multiplierLabel', () => {
-  it('goes from ×1,00 to ×2,14 over eight stages', () => {
-    expect(multiplierLabel(0)).toBe('×1,00');
-    expect(multiplierLabel(1)).toBe('×1,10');
-    expect(multiplierLabel(8)).toBe('×2,14');
   });
 });

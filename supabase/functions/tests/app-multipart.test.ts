@@ -75,8 +75,13 @@ Deno.test("submit-checkin accepts the app's request", async () => {
         distance_m: 8,
         retry_after_s: null,
         streak_weeks: 1,
-        point_stages: [10, 11],
-        points_total: 11,
+        score: {
+          steps: [
+            { kind: "base", label: "BASIS", chips: 10, mult: 1, total: 10 },
+            { kind: "streak", label: "REEKS", weeks: 1, per_week: 1.1, stages: [{ mult: 1.1, total: 11 }] },
+          ],
+          total: 11,
+        },
         bonus_question: null,
         is_test: false,
       });

@@ -31,7 +31,9 @@ import {
   type HistoryItem,
   type HistoryState,
 } from '@/lib/history';
-import { MAX_STAGES, totalMultiplier } from '@/lib/points';
+import { streakMultiplierLabel } from '@/game/catalog';
+import { useGameCatalog } from '@/game/useGameCatalog';
+import { formatMultiplier } from '@/lib/points';
 import { useAuth } from '@/providers/AuthProvider';
 import { useDevMode } from '@/providers/DevModeProvider';
 import { colors } from '@/theme';
@@ -72,6 +74,7 @@ function HistoryRow({ item }: { item: HistoryItem }) {
 
 export default function ProfileScreen() {
   const { session, profile, refreshProfile, signOut } = useAuth();
+  const catalog = useGameCatalog();
   const dev = useDevMode();
   const refreshDev = dev.refresh;
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -102,6 +105,9 @@ export default function ProfileScreen() {
   const points = profile?.points ?? 0;
   const weeks = streak?.weeks ?? 0;
   const nextWeeks = streak?.thisWeek ? weeks : weeks + 1;
+  // The multipliers come from game_config; offline the texts leave them out.
+  const config = catalog?.config ?? null;
+  const multiplier = (w: number) => (config ? streakMultiplierLabel(config, w) : null);
 
   const editName = () => {
     if (!userId) return;
@@ -174,7 +180,9 @@ export default function ProfileScreen() {
           title="Reeks"
           footer={
             <Text>
-              {`Elke week met minstens één inworp telt. Elke week in je reeks geeft ×1,1 extra, tot ${totalMultiplier(MAX_STAGES)}.`}
+              {config
+                ? `Elke week met minstens één inworp telt. Elke week in je reeks geeft ${formatMultiplier(config.streakMultiplier)} extra, tot ${multiplier(config.streakMaxSteps)}.`
+                : 'Elke week met minstens één inworp telt en verhoogt je multiplier.'}
             </Text>
           }>
           <HStack spacing={12}>
@@ -183,9 +191,9 @@ export default function ProfileScreen() {
               <Text modifiers={[font({ textStyle: 'headline' })]}>{weeks > 0 ? formatWeeks(weeks) : 'Nog geen reeks'}</Text>
               <Text modifiers={[font({ textStyle: 'footnote' }), secondary]}>
                 {streak?.thisWeek
-                  ? `Deze week telt al. Je inworpen krijgen ${totalMultiplier(Math.min(weeks, MAX_STAGES))}.`
+                  ? `Deze week telt al.${config ? ` Je inworpen krijgen ${multiplier(weeks)}.` : ''}`
                   : weeks > 0
-                    ? `Check deze week in om je reeks te houden: ${totalMultiplier(Math.min(nextWeeks, MAX_STAGES))}.`
+                    ? `Check deze week in om je reeks te houden${config ? `: ${multiplier(nextWeeks)}` : ''}.`
                     : 'Je eerste inworp start een reeks.'}
               </Text>
             </VStack>

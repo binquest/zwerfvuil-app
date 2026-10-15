@@ -27,12 +27,23 @@ insert into bins (osm_type, osm_id, geom, status, eligible) values
   ('node', 900000000000703, st_project('SRID=4326;POINT(0 0)'::geography, 400, radians(90)), 'active', true),
   ('node', 900000000000704, st_project('SRID=4326;POINT(0 0)'::geography, 600, radians(90)), 'active', true);
 
+-- The running totals of a score: the base, then every streak stage (what
+-- record_checkin returned as point_stages before phase 2).
+create function pg_temp.score_stages(s jsonb) returns integer[] language sql as $$
+  select array[(s #>> '{steps,0,total}')::integer] || array(
+    select (x.stage->>'total')::integer
+    from jsonb_array_elements(s->'steps') st(step),
+      lateral jsonb_array_elements(st.step->'stages') with ordinality x(stage, i)
+    where st.step->>'kind' = 'streak' order by x.i);
+$$;
+
 -- record_checkin for `who`, 5 m north of the bin, real or fake location.
 create function pg_temp.checkin(who uuid, osm bigint, fake boolean)
 returns table (ok boolean, reason text, checkin_id uuid, streak_weeks integer, point_stages integer[],
                points_total integer, is_test boolean)
 language sql as $$
-  select r.ok, r.reason, r.checkin_id, r.streak_weeks, r.point_stages, r.points_total, r.is_test
+  select r.ok, r.reason, r.checkin_id, r.streak_weeks, pg_temp.score_stages(r.score),
+         (r.score->>'total')::integer, r.is_test
   from public.bins b,
     lateral public.record_checkin(gen_random_uuid(), who, b.id,
       st_y(st_project(b.geom, 5, 0)::geometry), st_x(st_project(b.geom, 5, 0)::geometry),

@@ -4,9 +4,10 @@
 // plays the list, the screen turns the events into sound, haptics and motion.
 //
 // Sound and haptic events sit exactly on the beat; visual events follow
-// AUDIO_LEAD_MS later. The numbers come from tuning.ts.
-import { MAX_STAGES, STREAK_MULTIPLIER } from '../../lib/points';
+// AUDIO_LEAD_MS later. The timing comes from tuning.ts, every number shown
+// from the score the server sent (score.steps): the timeline lands on its total.
 import { countSteps } from '../../lib/reveal';
+import { baseStep, streakStep, type Score } from '../../lib/score';
 import type { HapticKind } from '../haptics';
 import type { SfxId } from '../sfx/sources';
 import * as T from './tuning';
@@ -27,9 +28,9 @@ export type Event =
   | { atMs: number; type: 'flash'; opacity: number }
   | { atMs: number; type: 'hitStop'; ms: number }
   // The total slams in; `particles` is 0 with Reduce Motion. The number counts
-  // from `from` to `to` over `countMs` (ease-out cubic). It already climbed with
-  // every stage, so today both are the total; a design that keeps the total
-  // hidden until the slam only needs a different `from`.
+  // from `from` (the last running total shown) to `to` (always the score's
+  // total) over `countMs` (ease-out cubic). With base and streak it already
+  // climbed with every stage, so both are the total.
   | {
       atMs: number;
       type: 'slam';
@@ -65,14 +66,11 @@ function collector() {
 }
 
 export interface RevealTimelineInput {
-  basePoints?: number;
-  /** The streak in weeks, 0..10 and more. Seen as at most MAX_STAGES stages; beyond that "MAX". */
-  streakWeeks: number;
+  /** The steps and running totals from the server. */
+  score: Score;
   reduceMotion: boolean;
   /** A bonus question follows the reveal. */
   bonus?: boolean;
-  /** The total after each stage, as the server computed it. Calculated here when missing. */
-  stages?: number[];
 }
 
 export interface BonusTimelineInput {
@@ -111,11 +109,19 @@ function jitter(index: number): number {
   return (x - Math.floor(x)) * 2 - 1;
 }
 
+/**
+ * The reveal of `score`: the base counted up, one hit per streak stage, the
+ * total. Steps of an unknown kind do not play yet; the slam lands on the total
+ * either way.
+ */
 export function buildRevealTimeline(input: RevealTimelineInput): Event[] {
-  const base = Math.max(0, Math.round(input.basePoints ?? 10));
-  const weeks = Math.max(0, Math.floor(input.streakWeeks));
+  const { score } = input;
+  const base = Math.max(0, Math.round(baseStep(score)?.total ?? 0));
+  const streak = streakStep(score);
+  const weeks = streak?.weeks ?? 0;
+  const stages = streak?.stages ?? [];
   const reduce = input.reduceMotion;
-  const stageCount = Math.min(input.stages?.length ?? weeks, weeks, MAX_STAGES);
+  const stageCount = stages.length;
   const { add, visual, done } = collector();
 
   visual(0, { type: 'chipIn' });
@@ -141,30 +147,32 @@ export function buildRevealTimeline(input: RevealTimelineInput): Event[] {
   at = riserAt + T.ANTICIPATION_MS;
   let shown = base;
   for (let stage = 1; stage <= stageCount; stage++) {
-    const total = input.stages?.[stage - 1] ?? Math.round(base * STREAK_MULTIPLIER ** stage);
-    add(at, { type: 'sound', id: `mult_${stage}` as SfxId, volume: T.VOLUME.mult });
+    const { mult, total } = stages[stage - 1];
+    // Sound, haptics and motion grow up to the top stage and stay there.
+    const level = Math.min(stage, T.TOP_STAGE);
+    add(at, { type: 'sound', id: `mult_${level}` as SfxId, volume: T.VOLUME.mult });
     add(at, { type: 'sound', id: 'transient', volume: T.VOLUME.transient });
-    for (const { kind, delayMs } of stageHaptics(stage)) add(at + delayMs, { type: 'haptic', kind });
+    for (const { kind, delayMs } of stageHaptics(level)) add(at + delayMs, { type: 'haptic', kind });
     // The low crackle is audio: it stays with Reduce Motion, the glow does not.
-    if (heatOf(stage) > 0) add(at, { type: 'sound', id: 'heat_loop', volume: T.HEAT_LOOP_VOLUME * heatOf(stage), loop: true });
+    if (heatOf(level) > 0) add(at, { type: 'sound', id: 'heat_loop', volume: T.HEAT_LOOP_VOLUME * heatOf(level), loop: true });
     visual(at, {
       type: 'mult',
       stage,
-      multiplier: STREAK_MULTIPLIER ** stage,
+      multiplier: mult,
       total,
-      max: weeks > MAX_STAGES && stage === stageCount,
-      peakScale: Math.min(reduce ? T.REDUCED_MOTION_MAX_SCALE : Infinity, T.STAGE_PEAK_SCALE.base + T.STAGE_PEAK_SCALE.step * stage),
-      heat: reduce ? 0 : heatOf(stage),
+      max: weeks > stageCount && stage === stageCount,
+      peakScale: Math.min(reduce ? T.REDUCED_MOTION_MAX_SCALE : Infinity, T.STAGE_PEAK_SCALE.base + T.STAGE_PEAK_SCALE.step * level),
+      heat: reduce ? 0 : heatOf(level),
     });
     if (!reduce) {
       const sign = stage % 2 === 1 ? 1 : -1;
       visual(at, {
         type: 'shake',
-        px: T.STAGE_SHAKE_PX.base + T.STAGE_SHAKE_PX.step * stage,
-        ms: stage === MAX_STAGES ? T.LAST_STAGE_SHAKE_MS : T.STAGE_SHAKE_MS.base + T.STAGE_SHAKE_MS.step * stage,
-        rotationDeg: sign * (T.STAGE_ROTATION_DEG.base + T.STAGE_ROTATION_DEG.step * stage),
+        px: T.STAGE_SHAKE_PX.base + T.STAGE_SHAKE_PX.step * level,
+        ms: level === T.TOP_STAGE ? T.LAST_STAGE_SHAKE_MS : T.STAGE_SHAKE_MS.base + T.STAGE_SHAKE_MS.step * level,
+        rotationDeg: sign * (T.STAGE_ROTATION_DEG.base + T.STAGE_ROTATION_DEG.step * level),
       });
-      visual(at, { type: 'flash', opacity: T.STAGE_FLASH.base + T.STAGE_FLASH.step * stage });
+      visual(at, { type: 'flash', opacity: T.STAGE_FLASH.base + T.STAGE_FLASH.step * level });
     }
     shown = total;
     at += stageIntervalMs(stage, reduce);
@@ -175,14 +183,14 @@ export function buildRevealTimeline(input: RevealTimelineInput): Event[] {
     visual(at, { type: 'hitStop', ms: T.HIT_STOP_MS });
     at += T.HIT_STOP_MS;
   }
-  if (heatOf(stageCount) > 0) add(at, { type: 'soundStop', id: 'heat_loop' });
+  if (heatOf(Math.min(stageCount, T.TOP_STAGE)) > 0) add(at, { type: 'soundStop', id: 'heat_loop' });
   add(at, { type: 'sound', id: 'total_chord', volume: T.VOLUME.total });
   add(at, { type: 'haptic', kind: 'heavy' });
   add(at + T.SLAM_SUCCESS_DELAY_MS, { type: 'haptic', kind: 'success' });
   visual(at, {
     type: 'slam',
     from: shown,
-    to: shown,
+    to: score.total,
     countMs: T.SLAM_COUNT_MS,
     scaleFrom: reduce ? 1 : T.SLAM_SCALE_FROM,
     scalePeak: reduce ? T.REDUCED_MOTION_MAX_SCALE : T.SLAM_SCALE_PEAK,

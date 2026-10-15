@@ -1,8 +1,8 @@
 // submit-checkin: validates a check-in server-side, stores the photo without
 // metadata in the private checkin-photos bucket and records a pending
-// check-in. The response carries the points the check-in earns (base and
-// streak stages) and a bonus question; points are only awarded later by an
-// admin (review_checkin).
+// check-in. The response carries the score of the check-in (the steps of the
+// reveal, from private.checkin_score) and a bonus question; points are only
+// awarded later by an admin (review_checkin).
 //
 // Env: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are provided by Supabase.
 // APP_ENV names the deployment (unset locally, "staging" on the staging VM,

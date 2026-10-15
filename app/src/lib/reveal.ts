@@ -2,11 +2,14 @@
 // preview) before it opens the screen. The reveal itself is a timeline:
 // src/feedback/reveal/timeline.ts.
 
-import type { BonusQuestion, CheckinPoints } from './points';
+import { formatPoints, formatWeeks } from './format';
+import type { BonusQuestion } from './points';
+import { streakWeeks, type Score } from './score';
 
 /** What the reveal screen shows; set by the camera (or the Dev mode preview) before opening it. */
 export interface RevealData {
-  points: CheckinPoints;
+  /** The steps and the total, from the server (the preview builds its own). */
+  score: Score;
   question: BonusQuestion | null;
   /** The check-in the bonus question belongs to; null in the preview. */
   checkinId: string | null;
@@ -33,6 +36,14 @@ export function takePendingReveal(): RevealData | null {
   const data = pending;
   pending = null;
   return data;
+}
+
+/** What VoiceOver says instead of the animation: "13 punten, wacht op goedkeuring. Reeks van 3 weken." */
+export function revealSummary(score: Score, preview = false): string {
+  const weeks = streakWeeks(score);
+  const parts = [`${formatPoints(score.total)}, ${preview ? 'voorbeeld' : 'wacht op goedkeuring'}.`];
+  if (weeks > 0) parts.push(`Reeks van ${formatWeeks(weeks)}.`);
+  return parts.join(' ');
 }
 
 const MAX_COUNT_STEPS = 18;

@@ -2,11 +2,11 @@
 // the visuals and haptics follow it on the audio clock. The silent start (the
 // chips coming in) does not wait for AVPlayer to really start: the clock holds
 // just before the first sound until it does. Without a soundtrack (Dev mode
-// "without sound", or the sounds were not ready in time) the same timeline runs
-// on performance.now() alone.
+// "without sound", or the timeline's sounds were not decoded in time) the same
+// timeline runs on performance.now() alone.
 import { DRIFT_CHECK_MS } from '../sfx/clock';
 import { READY_TIMEOUT_MS } from '../sfx/engine';
-import { prepareSoundtrack, warmUpSounds, type Soundtrack } from '../sfx/soundtrack';
+import { prepareSoundtrack, samplesReady, type Soundtrack } from '../sfx/soundtrack';
 import type { SoundState } from './diagnostics';
 import { runTimeline, type TimelineRun } from './run';
 import type { Event } from './timeline';
@@ -41,10 +41,13 @@ export function firstSoundMs(events: readonly Event[]): number {
   return first ? first.atMs : 0;
 }
 
-/** Mixes and loads the soundtrack of `events` ahead of time (the +5 while the question shows). */
+/**
+ * Mixes and loads the soundtrack of `events` ahead of time: the +5 while the
+ * question shows, the expected reveal while a check-in uploads.
+ */
 export function preloadTimeline(events: readonly Event[], soundtrack: Soundtrack): void {
   (async () => {
-    if (!(await warmUpSounds())) return;
+    if (!(await samplesReady(events))) return;
     const prepared = await prepareSoundtrack(events);
     await soundtrack.load(prepared.uri);
   })().catch(() => {
@@ -72,7 +75,8 @@ export function playTimeline(
     runSilently('off');
   } else {
     (async () => {
-      if (!(await within(warmUpSounds(), READY_TIMEOUT_MS, false))) throw new Error('sounds not ready');
+      // Ready = this timeline's sounds are decoded; the voices of a skip do not matter here.
+      if (!(await within(samplesReady(events), READY_TIMEOUT_MS, false))) throw new Error('sounds not ready');
       const prepared = await prepareSoundtrack(events);
       const loadMs = await soundtrack.load(prepared.uri);
       if (cancelled) return;
