@@ -17,11 +17,13 @@ export const roundTo100 = (ms: number) => Math.max(0, Math.round(ms / 100) * 100
 /**
  * The screen of an Expo Router route, without parameters: the route segments
  * without groups ('(tabs)/(profile)/leaderboard' -> 'leaderboard'), or the
- * last group when there are only groups ('(tabs)/(map)' -> 'map').
+ * last group when there are only groups ('(tabs)/(map)' -> 'map'). 'root'
+ * when there is no screen yet: no segments, or a lone layout group such as
+ * '(tabs)' for a moment at a cold start, before a tab is chosen.
  */
 export function screenName(segments: readonly string[]): string {
   const named = segments.filter((s) => !(s.startsWith('(') && s.endsWith(')')));
   if (named.length > 0) return named.join('/');
-  const group = segments.at(-1);
-  return group ? group.slice(1, -1) : 'root';
+  if (segments.length < 2) return 'root';
+  return segments[segments.length - 1].slice(1, -1);
 }

@@ -867,8 +867,8 @@ vergelijking van de punten en in fase 1b van de eventtellingen in Studio.
 
 ## Overdracht
 
-Stand op 15 oktober 2026: fase 1a is af en gemerged in `main`. Fase 1b is gebouwd, lokaal getest en
-op staging uitgerold (`gamification/1b-config-events`); de telling van de iPhone-events volgt.
+Stand op 15 oktober 2026: fase 1a is af en gemerged in `main`. Fase 1b is af, op staging uitgerold en
+op de iPhone getest (`gamification/1b-config-events`); wacht op akkoord om te mergen.
 
 - Af: dit plan; fase 1a (puntenledger); fase 1b (config en eventlog), lokaal.
   - Server (`20261015120000_points_ledger.sql`): `point_transactions` met de projectie vanuit
@@ -945,7 +945,14 @@ op staging uitgerold (`gamification/1b-config-events`); de telling van de iPhone
   (functie met `bonus_question.points` uit de database), `check-supabase`, `check-auth` en
   `check-fake-location` geslaagd. EAS Update op `dev` (runtime 1): update-groep
   `779e0248-bf06-4116-9a09-5bb252cb1230` (commit 29e486e).
-- Nog te doen voor 1b: de telling per naam van de events van de iPhone.
+- iPhone (15 oktober): inworp, bonusvraag, ranglijst, Dev-preview en achtergrond. In `app_events`
+  67 events van 1 gebruiker in 2 sessies, 14 namen: `screen_view` 37, `leaderboard_viewed` 5,
+  `map_bin_tap` 5, `app_open` 4, `app_background` 4, `session_start` 2, `reveal_shown` 2 (1 test),
+  `bonus_question_answered` 2 (1 test), `session_end` 1 (322 s, bij de volgende koude start),
+  `checkin_flow_start`, `camera_opened`, `photo_taken`, `checkin_submitted` (547 KB), `checkin_result`
+  (ok, 383 ms) elk 1. Tijdens de onthulling werd niets verstuurd. Gevonden en opgelost: bij een koude
+  start kwam 70 ms een `screen_view` "tabs" vóór "map" (de tab-layout zonder tab); `screenName` geeft
+  daar nu `root` en dat wordt niet gelogd.
 - Nog te doen: fase 2 t/m 7.
 - Volgende stap: staging-uitrol van 1b; daarna fase 2 in een nieuwe sessie, op
   `gamification/2-onthulling` vanaf `main`.

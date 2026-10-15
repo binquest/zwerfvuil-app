@@ -37,6 +37,11 @@ describe('screenName', () => {
 
   it('names an index route after its group', () => {
     expect(screenName(['(tabs)', '(map)'])).toBe('map');
+  });
+
+  it('is root while there is no screen yet', () => {
     expect(screenName([])).toBe('root');
+    // Seen on the iPhone: the tabs layout for 70 ms at a cold start, before the map.
+    expect(screenName(['(tabs)'])).toBe('root');
   });
 });

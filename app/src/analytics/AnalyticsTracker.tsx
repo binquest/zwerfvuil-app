@@ -29,7 +29,7 @@ export function AnalyticsTracker({ userId }: { userId: string | null }) {
     }
   }, [userId]);
 
-  // 'root': no route yet (the navigator is still starting).
+  // 'root': no screen yet (the navigator is still starting).
   useEffect(() => {
     if (screen !== 'root') track('screen_view', { screen });
   }, [screen]);
