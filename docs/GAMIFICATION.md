@@ -894,10 +894,13 @@ Stand op 15 oktober 2026: fase 1a is gebouwd op `gamification/1a-ledger` en wach
   - redenen: drie vaste redenen, een eigen tekst of (bij afwijzen) geen; de tekst staat in
     `checkins.review_reason`, de ledger bewaart `checkin_rejected` of `checkin_revoked`;
   - `granted_at` blijft staan op een herroepen rij (wanneer ze toegekend was).
-- Staging (15 oktober): backup gemaakt; vóór de migratie 2 profielen, 0 echte punten, 48 testpunten
-  (3 goedgekeurde en 1 afgewezen testinworp). Dry-run: alleen `20261015120000_points_ledger.sql`.
-  Nog te doen: `stagingctl.py migrate --apply`, dezelfde telling erna, de drie checks en
-  `update:dev` (de functie is niet veranderd: geen `deploy`).
+- Staging (15 oktober): backup gemaakt, `20261015120000_points_ledger.sql` toegepast (de functie is
+  niet veranderd: geen `deploy`). Telling voor en na identiek: 2 profielen, 0 echte punten,
+  48 testpunten, dezelfde hash over (id, punten, testpunten); in de ledger 33 + 15 = 48 toegekende
+  testpunten, 0 correcties "migratie", invariant leeg, `points_awarded` weg. `check-supabase`,
+  `check-auth` en `check-fake-location` geslaagd. EAS Update op `dev` (runtime 1): update-groep
+  `fb4c523e-9c9a-4666-8b76-1ab4a5ab5963` (commit 218a673).
+- Nog open: de controle op de iPhone (historiek, afwijsreden, Goedgekeurd/Herroepen).
 - Nog te doen: fase 1b t/m 7.
 - Volgende stap: na akkoord en merge, fase 1b in een nieuwe sessie, op
   `gamification/1b-config-events` vanaf `main`.
