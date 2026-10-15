@@ -894,6 +894,10 @@ Stand op 15 oktober 2026: fase 1a is gebouwd op `gamification/1a-ledger` en wach
   - redenen: drie vaste redenen, een eigen tekst of (bij afwijzen) geen; de tekst staat in
     `checkins.review_reason`, de ledger bewaart `checkin_rejected` of `checkin_revoked`;
   - `granted_at` blijft staan op een herroepen rij (wanneer ze toegekend was).
+- Staging (15 oktober): backup gemaakt; vóór de migratie 2 profielen, 0 echte punten, 48 testpunten
+  (3 goedgekeurde en 1 afgewezen testinworp). Dry-run: alleen `20261015120000_points_ledger.sql`.
+  Nog te doen: `stagingctl.py migrate --apply`, dezelfde telling erna, de drie checks en
+  `update:dev` (de functie is niet veranderd: geen `deploy`).
 - Nog te doen: fase 1b t/m 7.
 - Volgende stap: na akkoord en merge, fase 1b in een nieuwe sessie, op
   `gamification/1b-config-events` vanaf `main`.
