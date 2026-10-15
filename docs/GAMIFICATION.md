@@ -952,7 +952,8 @@ op de iPhone getest (`gamification/1b-config-events`); wacht op akkoord om te me
   `checkin_flow_start`, `camera_opened`, `photo_taken`, `checkin_submitted` (547 KB), `checkin_result`
   (ok, 383 ms) elk 1. Tijdens de onthulling werd niets verstuurd. Gevonden en opgelost: bij een koude
   start kwam 70 ms een `screen_view` "tabs" vóór "map" (de tab-layout zonder tab); `screenName` geeft
-  daar nu `root` en dat wordt niet gelogd.
+  daar nu `root` en dat wordt niet gelogd. Die correctie staat op `dev` als update-groep
+  `43a20bc9-7e3b-4199-ae00-7c4094942176` (commit b8eb582).
 - Nog te doen: fase 2 t/m 7.
 - Volgende stap: staging-uitrol van 1b; daarna fase 2 in een nieuwe sessie, op
   `gamification/2-onthulling` vanaf `main`.
