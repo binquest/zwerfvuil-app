@@ -19,10 +19,18 @@ import { Alert } from 'react-native';
 import type { SFSymbol } from 'sf-symbols-typescript';
 
 import { checkForUpdateNow, currentVersionLabel } from '@/components/UpdatePrompt';
-import { fetchMyCheckins, fetchMyStreak, updateDisplayName, type MyCheckin, type Streak } from '@/lib/api';
+import { fetchMyHistory, fetchMyStreak, updateDisplayName, type Streak } from '@/lib/api';
 import { genericErrorMessage } from '@/lib/errors';
-import { formatDateTime, formatPoints, formatWeeks, STATUS_LABEL, type ReviewStatus } from '@/lib/format';
+import { formatDateTime, formatPoints, formatWeeks } from '@/lib/format';
 import { formatDistance } from '@/lib/geo';
+import {
+  buildHistory,
+  formatHistoryPoints,
+  HISTORY_LABEL,
+  pendingPoints,
+  type HistoryItem,
+  type HistoryState,
+} from '@/lib/history';
 import { MAX_STAGES, totalMultiplier } from '@/lib/points';
 import { useAuth } from '@/providers/AuthProvider';
 import { useDevMode } from '@/providers/DevModeProvider';
@@ -30,35 +38,33 @@ import { colors } from '@/theme';
 
 const secondary = foregroundStyle({ type: 'hierarchical', style: 'secondary' });
 
-const STATUS_STYLE: Record<ReviewStatus, { symbol: SFSymbol; color: typeof colors.tint }> = {
+const STATUS_STYLE: Record<HistoryState, { symbol: SFSymbol; color: typeof colors.tint }> = {
   pending: { symbol: 'clock.fill', color: colors.orange },
-  approved: { symbol: 'checkmark.circle.fill', color: colors.green },
+  granted: { symbol: 'checkmark.circle.fill', color: colors.green },
   rejected: { symbol: 'xmark.circle.fill', color: colors.red },
+  revoked: { symbol: 'arrow.uturn.backward.circle.fill', color: colors.red },
 };
 
-function checkinPoints(item: MyCheckin): string {
-  if (item.status === 'approved') return `+${item.points_awarded}`;
-  if (item.status === 'rejected') return '0';
-  return `${item.points_earned + item.bonus_points} verwacht`;
-}
-
-function HistoryRow({ item }: { item: MyCheckin }) {
-  const status = STATUS_STYLE[item.status];
+function HistoryRow({ item }: { item: HistoryItem }) {
+  const status = STATUS_STYLE[item.state];
   return (
     <HStack spacing={12}>
       <VStack alignment="leading" spacing={2}>
-        <Text modifiers={[font({ textStyle: 'body' })]}>{`Vuilbak #${item.bin_id}${item.is_test ? ' · test' : ''}`}</Text>
+        <Text modifiers={[font({ textStyle: 'body' })]}>{`${item.title}${item.isTest ? ' · test' : ''}`}</Text>
         <Text modifiers={[font({ textStyle: 'footnote' }), secondary]}>
-          {`${formatDateTime(item.created_at)} · ${formatDistance(item.distance_m)}`}
+          {item.distanceM === null ? formatDateTime(item.date) : `${formatDateTime(item.date)} · ${formatDistance(item.distanceM)}`}
         </Text>
+        {item.reason ? <Text modifiers={[font({ textStyle: 'footnote' }), secondary]}>{item.reason}</Text> : null}
       </VStack>
       <Spacer />
       <VStack alignment="trailing" spacing={2}>
         <HStack spacing={4}>
           <Image systemName={status.symbol} size={13} color={status.color} />
-          <Text modifiers={[font({ textStyle: 'footnote' }), secondary]}>{STATUS_LABEL[item.status]}</Text>
+          <Text modifiers={[font({ textStyle: 'footnote' }), secondary]}>{HISTORY_LABEL[item.state]}</Text>
         </HStack>
-        <Text modifiers={[font({ textStyle: 'footnote', weight: 'semibold' }), monospacedDigit()]}>{checkinPoints(item)}</Text>
+        <Text modifiers={[font({ textStyle: 'footnote', weight: 'semibold' }), monospacedDigit()]}>
+          {formatHistoryPoints(item)}
+        </Text>
       </VStack>
     </HStack>
   );
@@ -68,21 +74,23 @@ export default function ProfileScreen() {
   const { session, profile, refreshProfile, signOut } = useAuth();
   const dev = useDevMode();
   const refreshDev = dev.refresh;
-  const [checkins, setCheckins] = useState<MyCheckin[]>([]);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
   const [streak, setStreak] = useState<Streak | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const userId = session?.user.id;
   const load = useCallback(async () => {
+    if (!userId) return;
     try {
-      const [list, nextStreak] = await Promise.all([fetchMyCheckins(), fetchMyStreak(), refreshProfile()]);
-      setCheckins(list);
+      const [mine, nextStreak] = await Promise.all([fetchMyHistory(userId), fetchMyStreak(), refreshProfile()]);
+      setHistory(buildHistory(mine.checkins, mine.entries));
       setStreak(nextStreak);
       setError(null);
     } catch (e) {
       setError(genericErrorMessage(e as Error));
     }
     refreshDev();
-  }, [refreshProfile, refreshDev]);
+  }, [userId, refreshProfile, refreshDev]);
 
   useFocusEffect(
     useCallback(() => {
@@ -90,13 +98,12 @@ export default function ProfileScreen() {
     }, [load]),
   );
 
-  const pending = checkins.filter((c) => c.status === 'pending');
+  const pending = pendingPoints(history);
   const points = profile?.points ?? 0;
   const weeks = streak?.weeks ?? 0;
   const nextWeeks = streak?.thisWeek ? weeks : weeks + 1;
 
   const editName = () => {
-    const userId = session?.user.id;
     if (!userId) return;
     Alert.prompt(
       'Weergavenaam',
@@ -149,9 +156,9 @@ export default function ProfileScreen() {
               ]}>
               {String(points)}
             </Text>
-            {pending.length > 0 ? (
-              <Text modifiers={[font({ textStyle: 'footnote' }), secondary]}>
-                {`${pending.length} ${pending.length === 1 ? 'inworp wacht' : 'inworpen wachten'} op goedkeuring`}
+            {pending > 0 ? (
+              <Text modifiers={[font({ textStyle: 'footnote' }), secondary, monospacedDigit()]}>
+                {`+${pending} wacht op goedkeuring`}
               </Text>
             ) : null}
           </VStack>
@@ -215,10 +222,10 @@ export default function ProfileScreen() {
         ) : null}
 
         <Section title="Historiek">
-          {checkins.length === 0 ? (
+          {history.length === 0 ? (
             <Text modifiers={[secondary]}>Nog geen inworpen. Raap zwerfvuil op en gooi het in een vuilbak op de kaart.</Text>
           ) : (
-            checkins.map((item) => <HistoryRow key={item.id} item={item} />)
+            history.map((item) => <HistoryRow key={item.key} item={item} />)
           )}
         </Section>
 

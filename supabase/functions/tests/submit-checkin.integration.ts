@@ -6,7 +6,8 @@
 // for admins (the local database is marked 'local').
 //
 // Requests are built with the app's own multipart builder, so this tests the
-// exact bytes the app sends. Set CHECKIN_API_URL (e.g. http://<TAILSCALE_IP>:54321)
+// exact bytes the app sends. A second throwaway user is the admin who approves
+// and revokes; points are read from the ledger (point_transactions). Set CHECKIN_API_URL (e.g. http://<TAILSCALE_IP>:54321)
 // to send the check-ins through another address than 127.0.0.1.
 
 import { assert, assertAlmostEquals, assertEquals, assertFalse } from "@std/assert";
@@ -83,6 +84,7 @@ Deno.test("submit-checkin end to end", async (t) => {
   });
   if (createError) throw createError;
   const userId = created.user.id;
+  let adminId = "";
   const binIds: number[] = [];
 
   try {
@@ -137,6 +139,23 @@ Deno.test("submit-checkin end to end", async (t) => {
       return { status: response.status, body: json, uploadBytes: body.byteLength, ms: performance.now() - started };
     };
 
+    /** The ledger rows of a check-in as "source:amount:status", sorted. */
+    const ledgerOf = async (id: string): Promise<string[]> => {
+      const { data, error } = await admin.from("point_transactions").select("source, amount, status")
+        .eq("checkin_id", id);
+      if (error) throw error;
+      return data.map((r) => `${r.source}:${r.amount}:${r.status}`).sort();
+    };
+
+    /** The user's profile points and the sum of their granted, real ledger rows. */
+    const pointsAndLedger = async (): Promise<[number, number]> => {
+      const { data: profile } = await admin.from("profiles").select("points").eq("id", userId).single();
+      const { data: rows, error } = await admin.from("point_transactions").select("amount")
+        .eq("user_id", userId).eq("status", "granted").eq("is_test", false);
+      if (error) throw error;
+      return [profile?.points, rows.reduce((sum, r) => sum + r.amount, 0)];
+    };
+
     const photosInStorage = async (): Promise<string[]> => {
       const { data, error } = await admin.storage.from("checkin-photos").list(userId);
       if (error) throw error;
@@ -165,8 +184,8 @@ Deno.test("submit-checkin end to end", async (t) => {
       const { data: row } = await admin.from("checkins").select("*").eq("id", checkinId).single();
       assertEquals(row.user_id, userId);
       assertEquals(row.status, "pending");
-      assertEquals(row.points_awarded, 0);
       assertEquals([row.streak_weeks, row.points_earned, row.bonus_points], [1, 11, 0]);
+      assertEquals(await ledgerOf(checkinId), ["checkin:11:pending"]);
       assertEquals(row.is_fake_location, false);
       assertEquals(row.photo_path, `${userId}/${checkinId}.jpg`);
     });
@@ -194,9 +213,9 @@ Deno.test("submit-checkin end to end", async (t) => {
       const { data: answer } = await admin.from("bonus_answers").select("*").eq("checkin_id", checkinId).single();
       assertEquals([answer.answer_key, answer.is_suspicious], ["half", false]);
       assert(answer.response_ms >= 1300, `response_ms ${answer.response_ms}`);
-      const { data: row } = await admin.from("checkins").select("bonus_points, points_awarded").eq("id", checkinId)
-        .single();
-      assertEquals([row?.bonus_points, row?.points_awarded], [5, 0]);
+      const { data: row } = await admin.from("checkins").select("bonus_points").eq("id", checkinId).single();
+      assertEquals(row?.bonus_points, 5);
+      assertEquals(await ledgerOf(checkinId), ["bonus:5:pending", "checkin:11:pending"]);
     });
 
     await t.step("a second check-in at the same bin is refused by the cooldown", async () => {
@@ -306,12 +325,82 @@ Deno.test("submit-checkin end to end", async (t) => {
       });
       assertEquals(error?.code, "42501");
     });
+
+    // The admin: a second throwaway user.
+    const adminEmail = `checkin-it-admin-${crypto.randomUUID()}@example.test`;
+    const { data: adminCreated, error: adminError } = await admin.auth.admin.createUser({
+      email: adminEmail,
+      password,
+      email_confirm: true,
+    });
+    if (adminError) throw adminError;
+    adminId = adminCreated.user.id;
+    await admin.from("profiles").update({ is_admin: true }).eq("id", adminId);
+    const adminClient = createClient(apiUrl, anonKey, { auth: { persistSession: false } });
+    const { error: adminSignInError } = await adminClient.auth.signInWithPassword({ email: adminEmail, password });
+    if (adminSignInError) throw adminSignInError;
+
+    await t.step("approval grants the points, revoking takes them back (with a reason)", async () => {
+      const approved = await adminClient.rpc("review_checkin", { id: checkinId, approve: true });
+      assertEquals([approved.error, approved.data?.status], [null, "approved"]);
+      assertEquals(await ledgerOf(checkinId), ["bonus:5:granted", "checkin:11:granted"]);
+      assertEquals(await pointsAndLedger(), [16, 16]);
+
+      const noReason = await adminClient.rpc("revoke_checkin", { id: checkinId, reason: " " });
+      assertEquals(noReason.error?.code, "22023");
+      const byUser = await authed.rpc("revoke_checkin", { id: checkinId, reason: "Dubbel" });
+      assertEquals(byUser.error?.code, "42501");
+
+      const revoked = await adminClient.rpc("revoke_checkin", { id: checkinId, reason: "Dubbel of misbruik" });
+      assertEquals(revoked.error, null);
+      assertEquals([revoked.data.status, revoked.data.review_reason], ["rejected", "Dubbel of misbruik"]);
+      assert(revoked.data.revoked_at && revoked.data.reviewed_at, "revoked_at and reviewed_at are set");
+      assertEquals(await ledgerOf(checkinId), ["bonus:5:revoked", "checkin:11:revoked"]);
+      assertEquals(await pointsAndLedger(), [0, 0]);
+
+      // The user sees the outcome and the reason of their own check-in.
+      const { data: own } = await authed.from("checkins").select("status, review_reason, revoked_at")
+        .eq("id", checkinId).single();
+      assertEquals([own?.status, own?.review_reason], ["rejected", "Dubbel of misbruik"]);
+      assert(own?.revoked_at, "the user sees that it was revoked");
+    });
+
+    await t.step("a review and a check-in of the same user at the same time do not deadlock", async () => {
+      // Each round reviews the previous pending check-in while a new one comes
+      // in, with the review starting at a different moment of the upload.
+      const { data: more, error } = await admin.from("bins").insert(
+        [1, 2, 3, 4, 5].map((k) => ({
+          source: "user",
+          geom: `SRID=4326;POINT(${BIN_LON + 0.002 * (4 + k)} ${BIN_LAT})`,
+          eligible: true,
+        })),
+      ).select("id");
+      if (error) throw error;
+      binIds.push(...more.map((b) => b.id));
+
+      let pending = largeCheckinId;
+      let granted = 0;
+      for (const [round, delayMs] of [0, 25, 50, 100, 200].entries()) {
+        const review = (async () => {
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          return await adminClient.rpc("review_checkin", { id: pending, approve: round % 2 === 0 });
+        })();
+        const [reviewed, submitted] = await Promise.all([review, submit(more[round].id, 4)]);
+        assertEquals(reviewed.error, null, `round ${round}: ${JSON.stringify(reviewed.error)}`);
+        assertEquals(submitted.status, 201, `round ${round}: ${JSON.stringify(submitted.body)}`);
+        if (round % 2 === 0) granted += reviewed.data.points_earned + reviewed.data.bonus_points;
+        pending = submitted.body.checkin_id;
+      }
+      const [points, ledger] = await pointsAndLedger();
+      assertEquals([points, ledger], [granted, granted]);
+    });
   } finally {
     const photos = await admin.storage.from("checkin-photos").list(userId);
     if (photos.data?.length) {
       await admin.storage.from("checkin-photos").remove(photos.data.map((o) => `${userId}/${o.name}`));
     }
-    await admin.auth.admin.deleteUser(userId); // cascades to profile and check-ins
+    await admin.auth.admin.deleteUser(userId); // cascades to profile, check-ins and ledger
+    if (adminId) await admin.auth.admin.deleteUser(adminId);
     if (binIds.length) await admin.from("bins").delete().in("id", binIds);
   }
 });

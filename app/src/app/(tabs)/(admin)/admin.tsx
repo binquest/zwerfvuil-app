@@ -1,4 +1,5 @@
-// Moderation: approve or reject check-ins and reports of missing bins.
+// Moderation: approve or reject check-ins (with an optional reason), revoke
+// approved check-ins (with a required reason), and review reports of missing bins.
 import { Host } from '@expo/ui';
 import { Button, HStack, Picker, Text as SwiftText } from '@expo/ui/swift-ui';
 import { buttonStyle, controlSize, disabled, frame, pickerStyle, tag, tint } from '@expo/ui/swift-ui/modifiers';
@@ -11,10 +12,13 @@ import type { SFSymbol } from 'sf-symbols-typescript';
 import { EmptyState } from '@/components/EmptyState';
 import { PrivatePhoto } from '@/components/PrivatePhoto';
 import {
+  fetchApprovedCheckins,
   fetchPendingCheckins,
   fetchPendingReports,
   reviewCheckin,
   reviewReport,
+  revokeCheckin,
+  type ApprovedCheckin,
   type PendingCheckin,
   type PendingReport,
 } from '@/lib/api';
@@ -24,8 +28,45 @@ import { formatDistance } from '@/lib/geo';
 import { useDevMode } from '@/providers/DevModeProvider';
 import { colors, radius, spacing, type } from '@/theme';
 
-type Tab = 'checkins' | 'reports';
+type Tab = 'checkins' | 'approved' | 'reports';
 const DUPLICATE_WARNING_M = 15;
+const REASONS = ['Foto onduidelijk', 'Geen vuilbak te zien', 'Dubbel of misbruik'];
+
+/**
+ * Asks for a reason: a preset, an own text, or (when optional) none (null).
+ * Resolves undefined when the admin cancels.
+ */
+function askReason(title: string, message: string, optional: boolean): Promise<string | null | undefined> {
+  return new Promise((resolve) => {
+    const own = () =>
+      Alert.prompt(
+        'Andere reden',
+        'Een korte reden (hoogstens 200 tekens).',
+        [
+          { text: 'Annuleren', style: 'cancel', onPress: () => resolve(undefined) },
+          {
+            text: 'OK',
+            onPress: (value?: string) => {
+              const reason = (value ?? '').trim().slice(0, 200);
+              resolve(reason || undefined);
+            },
+          },
+        ],
+        'plain-text',
+      );
+    Alert.alert(
+      title,
+      message,
+      [
+        ...REASONS.map((reason) => ({ text: reason, onPress: () => resolve(reason) })),
+        { text: 'Andere reden…', onPress: own },
+        ...(optional ? [{ text: 'Zonder reden', onPress: () => resolve(null) }] : []),
+        { text: 'Annuleren', style: 'cancel' as const, onPress: () => resolve(undefined) },
+      ],
+      { cancelable: true, onDismiss: () => resolve(undefined) },
+    );
+  });
+}
 
 function Flag({ symbol, color, children }: { symbol: SFSymbol; color: typeof colors.tint; children: ReactNode }) {
   return (
@@ -72,6 +113,25 @@ function Decision({ busy, onReject, onApprove }: { busy: boolean; onReject: () =
   );
 }
 
+/** Revoke an approved check-in (bordered, red, full width). */
+function RevokeButton({ busy, onPress }: { busy: boolean; onPress: () => void }) {
+  return (
+    <Host matchContents={{ vertical: true }} style={{ alignSelf: 'stretch', marginTop: spacing.sm }}>
+      <Button role="destructive" onPress={onPress} modifiers={[buttonStyle('bordered'), controlSize('large'), disabled(busy)]}>
+        <SwiftText modifiers={[frame({ maxWidth: 10000 })]}>{busy ? 'Even geduld…' : 'Herroepen'}</SwiftText>
+      </Button>
+    </Host>
+  );
+}
+
+function TestBadge() {
+  return (
+    <Text style={[type.caption, { color: 'white', backgroundColor: colors.purple, paddingHorizontal: 6, borderRadius: 6, overflow: 'hidden', fontWeight: '700' }]}>
+      TEST
+    </Text>
+  );
+}
+
 function Meta({ children }: { children: ReactNode }) {
   return <Text style={[type.subheadline, { color: colors.secondaryLabel }]}>{children}</Text>;
 }
@@ -79,6 +139,7 @@ function Meta({ children }: { children: ReactNode }) {
 export default function AdminScreen() {
   const [tab, setTab] = useState<Tab>('checkins');
   const [checkins, setCheckins] = useState<PendingCheckin[]>([]);
+  const [approved, setApproved] = useState<ApprovedCheckin[]>([]);
   const [reports, setReports] = useState<PendingReport[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -87,8 +148,9 @@ export default function AdminScreen() {
 
   const load = useCallback(async () => {
     try {
-      const [c, r] = await Promise.all([fetchPendingCheckins(), fetchPendingReports()]);
+      const [c, a, r] = await Promise.all([fetchPendingCheckins(), fetchApprovedCheckins(), fetchPendingReports()]);
       setCheckins(c);
+      setApproved(a);
       setReports(r);
       setError(null);
     } catch (e) {
@@ -109,10 +171,36 @@ export default function AdminScreen() {
   };
 
   const decideCheckin = async (item: PendingCheckin, approve: boolean) => {
+    let reason: string | null | undefined = null;
+    if (!approve) {
+      reason = await askReason('Inworp afwijzen?', 'Kies een reden. De gebruiker ziet die in de historiek.', true);
+      if (reason === undefined) return;
+    }
     setBusyId(item.id);
     try {
-      await reviewCheckin(item.id, approve);
+      await reviewCheckin(item.id, approve, reason ?? undefined);
       setCheckins((list) => list.filter((c) => c.id !== item.id));
+      if (approve) fetchApprovedCheckins().then(setApproved, () => undefined);
+    } catch (e) {
+      Alert.alert('Niet gelukt', adminErrorMessage(e as Error));
+      load();
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const revoke = async (item: ApprovedCheckin) => {
+    const who = item.display_name ?? 'deze gebruiker';
+    const reason = await askReason(
+      'Inworp herroepen?',
+      `De inworp wordt alsnog afgewezen en de ${item.points} punten van ${who} worden afgetrokken. Kies een reden.`,
+      false,
+    );
+    if (!reason) return;
+    setBusyId(item.id);
+    try {
+      await revokeCheckin(item.id, reason);
+      setApproved((list) => list.filter((c) => c.id !== item.id));
     } catch (e) {
       Alert.alert('Niet gelukt', adminErrorMessage(e as Error));
       load();
@@ -170,6 +258,7 @@ export default function AdminScreen() {
       <Host matchContents={{ vertical: true }} style={{ alignSelf: 'stretch' }}>
         <Picker selection={tab} onSelectionChange={(value) => setTab(value as Tab)} modifiers={[pickerStyle('segmented')]}>
           <SwiftText modifiers={[tag('checkins')]}>{`Inworpen (${checkins.length})`}</SwiftText>
+          <SwiftText modifiers={[tag('approved')]}>Goedgekeurd</SwiftText>
           <SwiftText modifiers={[tag('reports')]}>{`Meldingen (${reports.length})`}</SwiftText>
         </Picker>
       </Host>
@@ -199,11 +288,7 @@ export default function AdminScreen() {
             <PrivatePhoto bucket="checkin-photos" path={item.photo_path} />
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.xs }}>
               <Text style={[type.headline, { color: colors.label, flexShrink: 1 }]}>{item.display_name ?? 'Onbekende gebruiker'}</Text>
-              {item.is_test ? (
-                <Text style={[type.caption, { color: 'white', backgroundColor: colors.purple, paddingHorizontal: 6, borderRadius: 6, overflow: 'hidden', fontWeight: '700' }]}>
-                  TEST
-                </Text>
-              ) : null}
+              {item.is_test ? <TestBadge /> : null}
             </View>
             <Meta>{`${formatDateTime(item.created_at)} · vuilbak #${item.bin_id}`}</Meta>
             <Meta>{`${formatDistance(item.distance_m)} van de vuilbak · gps ±${Math.round(item.accuracy_m)} m`}</Meta>
@@ -224,6 +309,36 @@ export default function AdminScreen() {
               onReject={() => decideCheckin(item, false)}
               onApprove={() => decideCheckin(item, true)}
             />
+          </Card>
+        )}
+      />
+    );
+  }
+
+  if (tab === 'approved') {
+    return (
+      <FlatList
+        {...listProps}
+        data={approved}
+        keyExtractor={(item) => item.id}
+        ListEmptyComponent={
+          <EmptyState title="Nog niets goedgekeurd" systemImage="checkmark.circle" description="Goedgekeurde inworpen verschijnen hier; je kunt ze herroepen." style={{ height: 320 }} />
+        }
+        renderItem={({ item }) => (
+          <Card>
+            <PrivatePhoto bucket="checkin-photos" path={item.photo_path} />
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.xs }}>
+              <Text style={[type.headline, { color: colors.label, flexShrink: 1 }]}>{item.display_name ?? 'Onbekende gebruiker'}</Text>
+              {item.is_test ? <TestBadge /> : null}
+            </View>
+            <Meta>{`${formatDateTime(item.created_at)} · vuilbak #${item.bin_id}`}</Meta>
+            <Meta>{`Goedgekeurd ${formatDateTime(item.reviewed_at)} · +${item.points} punten · reeks ${formatWeeks(item.streak_weeks)}`}</Meta>
+            <Meta>{`${formatDistance(item.distance_m)} van de vuilbak · gps ±${Math.round(item.accuracy_m)} m`}</Meta>
+            {item.is_fake_location ? (
+              <Flag symbol="mappin.and.ellipse" color={colors.purple}>Testlocatie (Dev-modus)</Flag>
+            ) : null}
+            {item.is_mocked ? <Flag symbol="location.slash.fill" color={colors.orange}>Gesimuleerde locatie gemeld</Flag> : null}
+            <RevokeButton busy={busyId !== null} onPress={() => revoke(item)} />
           </Card>
         )}
       />

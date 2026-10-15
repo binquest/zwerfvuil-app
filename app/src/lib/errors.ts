@@ -42,6 +42,8 @@ export function adminErrorMessage(error: ErrorLike): string {
       return 'Alleen admins kunnen dit doen.';
     case 'P0002':
       return 'Dit item bestaat niet meer.';
+    case '22023':
+      return 'Geef een reden van 1 tot 200 tekens.';
   }
   return 'Dat lukte niet. Probeer het opnieuw.';
 }

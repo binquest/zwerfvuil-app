@@ -73,6 +73,13 @@ nieuwe JavaScript zonder nieuwe IPA. Metro, Expo Go en een development build
 | http toegelaten | nee, alleen https | nee, alleen https |
 | Dev-modus | ja, voor admins (server beslist) | ja, voor admins (server beslist) |
 
+**Een staging-IPA van vóór de puntenledger (gamification fase 1a, oktober 2026)
+wordt niet meer ondersteund.** De JavaScript daarin verwacht nog
+`checkins.points_awarded` en de oude `review_checkin`; historiek en Beheer werken er
+niet meer mee. Een nieuwe staging-IPA uit `main` werkt wel. Getest wordt in Zwerfvuil
+Dev, ook door de cofounder; server en app rollen per fase samen uit (eerst de
+migratie, meteen daarna `update:dev`).
+
 Beide IPA's zijn **ongesigneerd**: er is geen Apple Developer Program. Elke tester
 signeert de IPA zelf in een sideload-app, met een eigen (reseller)certificaat. Er
 staat geen Apple-certificaat, profiel of wachtwoord op GitHub.
