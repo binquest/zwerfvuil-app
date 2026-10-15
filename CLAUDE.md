@@ -64,3 +64,9 @@ Zie ook `README.md` (project en lokale setup), `docs/STAGING.md` (staging-VM),
   committen, kort verslag, en wachten op akkoord.
 - Elke keuze die voor de MVP volstaat maar niet voor echte gebruikers, komt in
   `docs/PRE-BETA.md`.
+- Context zuinig: verken code met Explore-subagents en lees zelf alleen de
+  bestanden die je wijzigt. Test- en build-output nooit volledig in de chat:
+  alleen samenvatting en fouten (tail/grep op het logbestand).
+- Eén fase per sessie. Boven ±60 % context: commit wat af is, zet een korte
+  overdracht in `docs/GAMIFICATION.md` (wat af is, wat nog moet, volgende stap)
+  en stop.
