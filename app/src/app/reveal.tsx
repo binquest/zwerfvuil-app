@@ -33,7 +33,7 @@ import { bonusSoundtrack, revealSoundtrack, warmUpSounds } from '@/feedback/sfx/
 import { answerBonus, markBonusShown } from '@/lib/api';
 import { formatWeeks } from '@/lib/format';
 import { MAX_STAGES, type BonusOption } from '@/lib/points';
-import { takePendingReveal, type RevealData } from '@/lib/reveal';
+import { setPendingReveal, takePendingReveal, type RevealData } from '@/lib/reveal';
 import { useSyncState } from '@/lib/useSyncState';
 import { colors, spacing, type } from '@/theme';
 
@@ -88,8 +88,11 @@ function Particle({ index, motion }: { index: number; motion: ReturnType<typeof 
 
 export default function RevealScreen() {
   const [data] = useState<RevealData | null>(() => takePendingReveal());
-  const reduceMotion = useReduceMotion();
-  const motion = useRevealMotion();
+  const systemReduceMotion = useReduceMotion();
+  // The Dev mode preview can force Reduce Motion, whatever the system setting.
+  const forceReduceMotion = data?.forceReduceMotion ?? false;
+  const reduceMotion = forceReduceMotion || systemReduceMotion;
+  const motion = useRevealMotion(forceReduceMotion);
   // Everything the timeline changes renders in the same JS task as its event
   // (see useSyncState); with plain useState the screen lagged behind the sounds.
   const [phase, setPhase] = useSyncState<Phase>('loading');
@@ -287,7 +290,8 @@ export default function RevealScreen() {
     if (!points || !question || answering.current) return;
     answering.current = true;
     setPhase('answering');
-    let bonus = question.points;
+    // The preview awards the points unless Dev mode says not to.
+    let bonus = data?.preview && data.previewAwarded === false ? 0 : question.points;
     if (data?.checkinId && !data.preview) {
       try {
         bonus = await answerBonus(data.checkinId, option.key);
@@ -306,6 +310,13 @@ export default function RevealScreen() {
   const skipQuestion = () => {
     setPhase('done');
     playBonus(0);
+  };
+
+  /** Dev mode preview: the same reveal once more, on a fresh screen. */
+  const replay = () => {
+    if (!data) return;
+    setPendingReveal(data);
+    router.replace('/reveal');
   };
 
   if (!data || !points) return <View style={{ flex: 1, backgroundColor: 'black' }} />;
@@ -450,6 +461,13 @@ export default function RevealScreen() {
             <Text style={[type.footnote, { color: 'rgba(255,255,255,0.65)', textAlign: 'center' }]}>
               {data.preview ? 'Voorbeeld: er is niets bewaard.' : 'Je krijgt de punten zodra een admin je foto goedkeurt.'}
             </Text>
+            {data.preview ? (
+              <Host matchContents={{ vertical: true }} style={{ alignSelf: 'stretch' }}>
+                <Button onPress={replay} modifiers={[buttonStyle('glass'), controlSize('large'), tint('white')]}>
+                  <Label title="Opnieuw afspelen" systemImage="arrow.counterclockwise" modifiers={[frame({ maxWidth: 10000 }), font({ textStyle: 'headline' })]} />
+                </Button>
+              </Host>
+            ) : null}
             <Host matchContents={{ vertical: true }} style={{ alignSelf: 'stretch' }}>
               <Button onPress={() => router.back()} modifiers={[buttonStyle('glassProminent'), controlSize('extraLarge'), tint(colors.tint)]}>
                 <Label title="Klaar" systemImage="checkmark" modifiers={[frame({ maxWidth: 10000 }), font({ textStyle: 'headline' })]} />

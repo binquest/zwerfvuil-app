@@ -2,13 +2,14 @@
 // admins on a local or staging server; the server checks that for every
 // action, flags everything as test data and logs it.
 import { Host } from '@expo/ui';
-import { Button, Form, LabeledContent, Section, Stepper, Text, Toggle } from '@expo/ui/swift-ui';
+import { Button, Form, LabeledContent, Section, Slider, Stepper, Text, Toggle } from '@expo/ui/swift-ui';
 import { disabled, monospacedDigit } from '@expo/ui/swift-ui/modifiers';
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 
 import { EmptyState } from '@/components/EmptyState';
+import { describeStressResult, runSoundStressTest } from '@/feedback/reveal/stress';
 import { warmUpSounds } from '@/feedback/sfx/soundtrack';
 import { adminErrorMessage } from '@/lib/errors';
 import { formatPoints, formatWeeks } from '@/lib/format';
@@ -35,7 +36,11 @@ export default function DevModeScreen() {
   const [previewBase, setPreviewBase] = useState(BASE_POINTS);
   const [previewWeeks, setPreviewWeeks] = useState(3);
   const [previewBonus, setPreviewBonus] = useState(true);
+  const [previewAwarded, setPreviewAwarded] = useState(true);
+  const [previewReduceMotion, setPreviewReduceMotion] = useState(false);
   const [previewNoSound, setPreviewNoSound] = useState(false);
+  const [stress, setStress] = useState<string | null>(null);
+  const stopStress = useRef<(() => void) | null>(null);
   const [override, setOverride] = useState(dev.status?.streakOverride ?? 4);
   const [busy, setBusy] = useState(false);
 
@@ -44,6 +49,9 @@ export default function DevModeScreen() {
   useEffect(() => {
     if (dev.available) warmUpSounds();
   }, [dev.available]);
+
+  // A stress test still running when the screen goes stops.
+  useEffect(() => () => stopStress.current?.(), []);
 
   if (!dev.available) {
     return (
@@ -76,8 +84,19 @@ export default function DevModeScreen() {
       isTest: true,
       preview: true,
       noSound: previewNoSound,
+      previewAwarded,
+      forceReduceMotion: previewReduceMotion,
     });
     router.push('/reveal');
+  };
+
+  const startStressTest = () => {
+    stopStress.current?.();
+    setStress('Bezig… luister of er een tick of akkoord wegvalt of afgekapt klinkt.');
+    stopStress.current = runSoundStressTest((result) => {
+      stopStress.current = null;
+      setStress(describeStressResult(result));
+    });
   };
 
   const confirmReset = () =>
@@ -121,8 +140,9 @@ export default function DevModeScreen() {
           footer={
             <Text>
               Speelt de puntenonthulling af met geluid en haptiek. Schrijft niets weg. Na afloop staan onderaan de
-              metingen (vertraging van timers, beeld en haptiek). &quot;Zonder geluid&quot; laadt de geluidsengine niet, om
-              te zien of het geluid de vertraging veroorzaakt.
+              metingen (vertraging van timers, beeld en haptiek). &quot;Toegekend&quot; uit: het antwoord levert geen
+              punten op, zoals overslaan. &quot;Zonder geluid&quot; laadt de geluidsengine niet, om te zien of het geluid de
+              vertraging veroorzaakt.
             </Text>
           }>
           <Stepper
@@ -133,16 +153,33 @@ export default function DevModeScreen() {
             step={previewBase < 20 ? 1 : 10}
             onValueChange={setPreviewBase}
           />
-          <Stepper
-            label={`Reeks: ${formatWeeks(previewWeeks)} (${totalMultiplier(Math.min(previewWeeks, MAX_STAGES))})`}
-            value={previewWeeks}
-            min={0}
-            max={10}
-            onValueChange={setPreviewWeeks}
-          />
+          <LabeledContent label="Reeks">
+            <Text modifiers={[monospacedDigit()]}>
+              {`${formatWeeks(previewWeeks)} (${totalMultiplier(Math.min(previewWeeks, MAX_STAGES))}${previewWeeks > MAX_STAGES ? ', maximum' : ''})`}
+            </Text>
+          </LabeledContent>
+          <Slider value={previewWeeks} min={0} max={10} step={1} onValueChange={(weeks) => setPreviewWeeks(Math.round(weeks))} />
           <Toggle label="Met bonusvraag" isOn={previewBonus} onIsOnChange={setPreviewBonus} />
+          <Toggle
+            label="Bonus toegekend"
+            isOn={previewAwarded}
+            onIsOnChange={setPreviewAwarded}
+            modifiers={[disabled(!previewBonus)]}
+          />
+          <Toggle label="Reduce Motion forceren" isOn={previewReduceMotion} onIsOnChange={setPreviewReduceMotion} />
           <Toggle label="Zonder geluid (diagnose)" isOn={previewNoSound} onIsOnChange={setPreviewNoSound} />
           <Button label="Speel af" systemImage="play.fill" onPress={playPreview} />
+        </Section>
+
+        <Section
+          title="Geluid testen"
+          footer={
+            <Text>
+              {stress ??
+                `Speelt 20 ticks om de 40 ms (gemixt, zoals elke onthulling) en daarna 6 akkoorden om de 120 ms via de losse spelers (zoals overslaan). Niets mag wegvallen of afgekapt klinken.`}
+            </Text>
+          }>
+          <Button label="Stresstest" systemImage="waveform" onPress={startStressTest} />
         </Section>
 
         <Section

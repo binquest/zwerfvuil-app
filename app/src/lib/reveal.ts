@@ -16,6 +16,10 @@ export interface RevealData {
   preview: boolean;
   /** Dev mode diagnostics: play the preview without loading the sound engine at all. */
   noSound?: boolean;
+  /** Dev mode preview: answering the bonus question awards its points (default) or not. */
+  previewAwarded?: boolean;
+  /** Dev mode preview: play as if Reduce Motion were on, whatever the system setting. */
+  forceReduceMotion?: boolean;
 }
 
 let pending: RevealData | null = null;

@@ -457,7 +457,8 @@ verschijnt alleen als de server zegt dat het mag (`dev_mode_status()`).
 
 | Functie | Wat er gebeurt | Schrijft |
 |---|---|---|
-| Onthulling bekijken | Kies basispunten, een reeks (0–10 weken) en of er een bonusvraag volgt; de app speelt de puntenonthulling af met geluid en haptiek | niets (alleen in de app) |
+| Onthulling bekijken | Kies basispunten, een reeks (0–10 weken, slider), of er een bonusvraag volgt en of die punten oplevert, en eventueel Reduce Motion of zonder geluid; de app speelt de puntenonthulling af met geluid en haptiek, met onderaan metingen (mix, UI-thread, beeld↔geluid) en een knop om opnieuw af te spelen | niets (alleen in de app) |
+| Geluid testen | Stresstest: 20 ticks om de 40 ms (gemixt) en 6 akkoorden om de 120 ms via de losse spelers; luister of iets wegvalt of afgekapt klinkt | niets (alleen in de app) |
 | Reeks forceren | `set_dev_streak_override(weken)`: je volgende inworpen gebruiken die reeks (×1,1 per week, max. 8 stappen) | `dev_settings`, auditlog |
 | Testlocatie | Kies je locatie op de kaart en doe een gewone inworp bij een vuilbak, met foto en bonusvraag (de afstandsregels gelden) | een testinworp, auditlog |
 | Reset | `reset_dev_test_data()`: verwijdert jouw testinworpen (met bonusantwoord), testpunten en de geforceerde reeks; de app wist daarna de foto's van die inworpen | auditlog |

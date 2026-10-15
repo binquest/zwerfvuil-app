@@ -3,8 +3,9 @@
 // UI thread. Nothing here starts a sound: the soundtrack owns all audio.
 //
 // Every animation uses ReduceMotion.System, so Reanimated also jumps to the end
-// when the system setting is on; the timeline already leaves out shake, flash,
-// particles and the flying chip then (timeline.ts).
+// when the system setting is on (ReduceMotion.Always when the Dev mode preview
+// forces it); the timeline already leaves out shake, flash, particles and the
+// flying chip then (timeline.ts).
 import { useCallback, useMemo } from 'react';
 import {
   cancelAnimation,
@@ -23,12 +24,15 @@ import { MAX_STAGES } from '../../lib/points';
 import { badgeCentre, bonusArc, particle, shakeOffset } from './motion';
 import type { Event } from './timeline';
 
-const REDUCE = ReduceMotion.System;
-const timing = (toValue: number, duration: number, easing = Easing.out(Easing.quad)) =>
-  withTiming(toValue, { duration, easing, reduceMotion: REDUCE });
-const spring = (toValue: number, damping: number, stiffness: number) => withSpring(toValue, { damping, stiffness, reduceMotion: REDUCE });
-/** Jump to a value, then animate on (Reanimated has no "set and go" in one call). */
-const jump = (toValue: number) => withTiming(toValue, { duration: 0, reduceMotion: REDUCE });
+/** The animation helpers, all with the same Reduce Motion behaviour. */
+function animations(reduceMotion: ReduceMotion) {
+  return {
+    timing: (toValue: number, duration: number, easing = Easing.out(Easing.quad)) => withTiming(toValue, { duration, easing, reduceMotion }),
+    spring: (toValue: number, damping: number, stiffness: number) => withSpring(toValue, { damping, stiffness, reduceMotion }),
+    /** Jump to a value, then animate on (Reanimated has no "set and go" in one call). */
+    jump: (toValue: number) => withTiming(toValue, { duration: 0, reduceMotion }),
+  };
+}
 
 /** The MULT badge ramps orange → red → magenta over the stages. */
 export const MULT_COLORS = ['#FF9F0A', '#FF3B30', '#FF2D95'];
@@ -36,7 +40,8 @@ export const MULT_COLORS = ['#FF9F0A', '#FF3B30', '#FF2D95'];
 export const BONUS_FROM = { x: 0, y: 320 };
 export const MAX_PARTICLES = 20;
 
-export function useRevealMotion() {
+export function useRevealMotion(forceReduceMotion = false) {
+  const { timing, spring, jump } = useMemo(() => animations(forceReduceMotion ? ReduceMotion.Always : ReduceMotion.System), [forceReduceMotion]);
   const shakeT = useSharedValue(1);
   const shakePx = useSharedValue(0);
   const shakeDeg = useSharedValue(0);
@@ -107,7 +112,7 @@ export function useRevealMotion() {
       default:
         return false;
     }
-  }, [arc, badge, burst, burstCount, chips, flash, heat, multPop, multRamp, ring, shakeDeg, shakePx, shakeT, sheet, totalScale]);
+  }, [arc, badge, burst, burstCount, chips, flash, heat, multPop, multRamp, ring, shakeDeg, shakePx, shakeT, sheet, totalScale, timing, spring, jump]);
 
   /** A skip: stop everything and stand still on the end state. */
   const settle = useCallback(
@@ -129,7 +134,7 @@ export function useRevealMotion() {
 
   const showSheet = useCallback(() => {
     sheet.set(spring(1, 18, 160));
-  }, [sheet]);
+  }, [sheet, spring]);
 
   /** The number's measured size (onLayout). */
   const setNumberSize = useCallback(
