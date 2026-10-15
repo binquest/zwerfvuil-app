@@ -867,7 +867,7 @@ vergelijking van de punten en in fase 1b van de eventtellingen in Studio.
 
 ## Overdracht
 
-Stand op 15 oktober 2026: fase 1a is gebouwd op `gamification/1a-ledger` en wacht op akkoord.
+Stand op 15 oktober 2026: fase 1a is af, op de iPhone getest en gemerged in `main`.
 
 - Af: dit plan; fase 1a (puntenledger).
   - Server (`20261015120000_points_ledger.sql`): `point_transactions` met de projectie vanuit
@@ -900,7 +900,6 @@ Stand op 15 oktober 2026: fase 1a is gebouwd op `gamification/1a-ledger` en wach
   testpunten, 0 correcties "migratie", invariant leeg, `points_awarded` weg. `check-supabase`,
   `check-auth` en `check-fake-location` geslaagd. EAS Update op `dev` (runtime 1): update-groep
   `fb4c523e-9c9a-4666-8b76-1ab4a5ab5963` (commit 218a673).
-- Nog open: de controle op de iPhone (historiek, afwijsreden, Goedgekeurd/Herroepen).
+- iPhone (15 oktober): historiek, afwijzen met reden en herroepen werken.
 - Nog te doen: fase 1b t/m 7.
-- Volgende stap: na akkoord en merge, fase 1b in een nieuwe sessie, op
-  `gamification/1b-config-events` vanaf `main`.
+- Volgende stap: fase 1b in een nieuwe sessie, op `gamification/1b-config-events` vanaf `main`.
