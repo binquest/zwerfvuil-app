@@ -13,6 +13,7 @@ import {
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 
+import { track } from '@/analytics';
 import { fetchLeaderboard, type LeaderboardPeriod, type LeaderboardRow } from '@/lib/api';
 import { genericErrorMessage } from '@/lib/errors';
 import { useDevMode } from '@/providers/DevModeProvider';
@@ -56,6 +57,13 @@ export default function LeaderboardScreen() {
       setError(genericErrorMessage(e as Error));
     }
   }, [period, includeTest]);
+
+  // Opened, or another period.
+  useFocusEffect(
+    useCallback(() => {
+      track('leaderboard_viewed', { period });
+    }, [period]),
+  );
 
   // On focus and on every period switch; an older answer that arrives late
   // (fast switches) is ignored.

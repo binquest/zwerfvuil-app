@@ -18,6 +18,8 @@ import { AccessibilityInfo, Pressable, Text, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { holdAnalytics, track } from '@/analytics';
+import { roundTo100 } from '@/analytics/props';
 import { GlassPanel } from '@/components/GlassPanel';
 import { fireHaptic, setHapticProbe } from '@/feedback/haptics';
 import { createDiagnostics, describeMeasurements, type RevealMeasurements } from '@/feedback/reveal/diagnostics';
@@ -86,6 +88,11 @@ function Particle({ index, motion }: { index: number; motion: ReturnType<typeof 
   );
 }
 
+function trackBonusAnswer(questionKey: string, answered: boolean, shownAt: number | null, isTest: boolean) {
+  const responseMs = shownAt === null ? null : roundTo100(Date.now() - shownAt);
+  track('bonus_question_answered', { question_key: questionKey, answered, response_ms: responseMs }, { isTest });
+}
+
 export default function RevealScreen() {
   const [data] = useState<RevealData | null>(() => takePendingReveal());
   const systemReduceMotion = useReduceMotion();
@@ -116,6 +123,11 @@ export default function RevealScreen() {
 
   const points = data?.points ?? null;
   const question = data?.question ?? null;
+  // Analytics: when the question appeared (previews are test events).
+  const questionShownAt = useRef<number | null>(null);
+
+  // No analytics I/O while the reveal plays (see src/analytics/queue.ts).
+  useEffect(() => holdAnalytics(), []);
 
   // Nothing to show (e.g. after a reload): back to the map.
   useEffect(() => {
@@ -175,6 +187,7 @@ export default function RevealScreen() {
     if (!question) return;
     setPhase('question');
     motion.showSheet();
+    questionShownAt.current = Date.now();
     // The server measures the answer time from here.
     if (data?.checkinId && !data.preview) markBonusShown(data.checkinId).catch(() => {});
     // Mix and load the +5 now, so it plays at once after the answer.
@@ -185,6 +198,7 @@ export default function RevealScreen() {
   // end state with only the chord and the success haptic.
   const finish = useCallback(() => {
     if (!points) return;
+    track('reveal_skipped', { step: stage > 0 ? `streak_${stage}` : 'base' }, { isTest: data?.preview ?? false });
     playbacks.current.forEach((playback) => playback.cancel(30));
     playbacks.current = [];
     timers.current.forEach(clearTimeout);
@@ -198,7 +212,7 @@ export default function RevealScreen() {
     fireHaptic('success');
     stopDiagnostics();
     schedule(reduceMotion ? 0 : 500, showQuestion);
-  }, [points, question, motion, schedule, reduceMotion, showQuestion, stopDiagnostics, setPhase, setStage, setMaxShown, setValue]);
+  }, [points, question, motion, schedule, reduceMotion, showQuestion, stopDiagnostics, setPhase, setStage, setMaxShown, setValue, data, stage]);
 
   // Play the timeline once, as soon as the Reduce Motion setting is known (a
   // later change of the setting does not restart the reveal): with its mixed
@@ -208,6 +222,11 @@ export default function RevealScreen() {
   useEffect(() => {
     if (!points || reduceMotion === null || started.current) return;
     started.current = true;
+    track(
+      'reveal_shown',
+      { total: points.total, discovery: false, streak_weeks: points.streakWeeks, preview: data?.preview ?? false },
+      { isTest: data?.preview ?? false },
+    );
     const timeline = buildRevealTimeline({
       basePoints: points.base,
       streakWeeks: points.streakWeeks,
@@ -266,6 +285,7 @@ export default function RevealScreen() {
     setStage,
     setMaxShown,
     setValue,
+    data,
   ]);
 
   /** The +5 with its own soundtrack, or one quiet tock when there are no points. */
@@ -286,9 +306,14 @@ export default function RevealScreen() {
     playbacks.current.push(playTimeline(bonusTimeline(bonus), noSound ? null : bonusSoundtrack, onEvents));
   };
 
+  const trackAnswer = (answered: boolean) => {
+    if (question) trackBonusAnswer(question.key, answered, questionShownAt.current, data?.preview ?? false);
+  };
+
   const answer = async (option: BonusOption) => {
     if (!points || !question || answering.current) return;
     answering.current = true;
+    trackAnswer(true);
     setPhase('answering');
     // The preview awards the points unless Dev mode says not to.
     let bonus = data?.preview && data.previewAwarded === false ? 0 : question.points;
@@ -308,6 +333,7 @@ export default function RevealScreen() {
   };
 
   const skipQuestion = () => {
+    trackAnswer(false);
     setPhase('done');
     playBonus(0);
   };

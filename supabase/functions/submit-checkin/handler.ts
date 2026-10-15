@@ -9,7 +9,6 @@
 import { InvalidJpegError, stripJpegMetadata } from "../_shared/jpeg.ts";
 import { messageFor, SUCCESS_MESSAGE } from "./messages.ts";
 import {
-  BONUS_POINTS,
   type Details,
   HTTP_STATUS,
   MAX_PHOTO_BYTES,
@@ -47,6 +46,8 @@ export interface BonusQuestion {
   key: string;
   prompt: string;
   options: { key: string; label: string }[];
+  /** From game_config (bonus_question_points). */
+  points: number;
 }
 
 export interface RecordCheckinResult {
@@ -213,7 +214,7 @@ async function handle(deps: CheckinDeps, req: Request): Promise<Response> {
         total: result.points_total,
       }
       : null,
-    bonus_question: result.bonus_question ? { ...result.bonus_question, points: BONUS_POINTS } : null,
+    bonus_question: result.bonus_question,
     is_test: result.is_test === true,
   });
 }

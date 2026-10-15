@@ -79,6 +79,15 @@ voor echte gebruikers. Wordt aangevuld telkens zo'n keuze gemaakt wordt.
   een naam bij de eerste aanmelding, of begin met een neutrale naam.
 - [ ] De sessie staat in `expo-sqlite`-localStorage (niet versleuteld). Overweeg
   versleutelde opslag voor het refresh token.
+- [ ] **Gebruiksdata zonder toestemming.** Sinds gamification fase 1b logt de app
+  events (`docs/ANALYTICS.md`): schermen, sessies, inworpen, onthulling, bonusvraag,
+  ranglijst, meldingen. Geen locaties, wel `bin_id` en tijdstippen. Vóór de
+  spelerstest: in de privacyverklaring, en een keuze in Instellingen om het uit te
+  zetten (de app stuurt dan niets en wist de wachtrij). De bewaartermijn (13 maanden
+  ruw) komt pas in fase 10; tot dan blijven events staan tot het account verdwijnt.
+- [ ] **De wachtrij met events staat onversleuteld op de telefoon**
+  (`analytics.db`, max. 5.000 events of 30 dagen), ook van een vorige gebruiker
+  na afmelden. Wis hem bij het afmelden als accounts gedeeld worden.
 
 ## Infrastructuur en configuratie
 
@@ -184,8 +193,15 @@ echte gebruikersdata vraagt meer.
   admin ziet het). Beslis of dat zo blijft. `bin_need_answers` bevat verdachte
   antwoorden, met de vlag; filter ze in de analyse.
 - [ ] **Puntenschaal.** Basis 10 en ×1,1 per week geven kleine sprongen (10 → max.
-  21). Een grotere basis (bv. 100) maakt de onthulling sterker; het is één constante
-  in `checkin_point_stages` (migratie) en `app/src/lib/points.ts`.
+  21). Een grotere basis (bv. 100) maakt de onthulling sterker. Sinds fase 1b staan
+  de getallen in `game_config` (aan te passen in Studio, binnen de grenzen van
+  `private.game_config_rules`); de app rekent tot fase 2 nog met de constanten in
+  `app/src/lib/points.ts` voor de labels van de onthulling (×1,1).
+- [ ] **Wijzigingen aan `game_config` laten geen spoor na** (alleen `updated_at`).
+  Voor echte gebruikers: een auditlog (wie, wanneer, oud → nieuw) of alleen nog
+  wijzigen via migraties. Een wijziging van `bonus_question_points` geldt voor elk
+  antwoord dat daarna binnenkomt, ook op een vraag die eerder met het oude bedrag
+  getoond werd (max. 1 uur).
 - [ ] **Vouchers bestaan nog niet.** Als ze komen: `is_test` en `test_points`
   negeren, met een test zoals `07_dev_mode.test.sql`.
 - [ ] **EAS Update.** Updates zijn niet ondertekend (geen code signing in

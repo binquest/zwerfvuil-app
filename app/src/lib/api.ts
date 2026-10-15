@@ -2,6 +2,8 @@
 import { randomUUID } from 'expo-crypto';
 import { File } from 'expo-file-system';
 
+import { track } from '@/analytics';
+
 import { CHECKIN_TIMEOUT_MS, localFailure, parseCheckinResponse, type CheckinOutcome } from './checkin';
 import { describeError, devLog } from './devlog';
 import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from './env';
@@ -219,6 +221,7 @@ export async function submitCheckin(input: CheckinInput): Promise<CheckinOutcome
     bytes: photo,
   });
 
+  track('checkin_submitted', { bin_id: input.binId, upload_kb: Math.round(body.byteLength / 1024) });
   const started = Date.now();
   let timedOut = false;
   const controller = new AbortController();
@@ -247,11 +250,13 @@ export async function submitCheckin(input: CheckinInput): Promise<CheckinOutcome
       outcome: outcome.ok ? 'ok' : `${outcome.kind}/${outcome.code}`,
       body: text.slice(0, 500),
     });
+    track('checkin_result', { ok: outcome.ok, reason: outcome.ok ? null : outcome.code, duration_ms: durationMs });
     return outcome;
   } catch (error) {
     const durationMs = Date.now() - started;
     const kind = timedOut ? 'timeout' : 'network';
     devLog('submit-checkin', false, { stage: 'fetch', kind, durationMs, uploadBytes: body.byteLength, error: describeError(error) });
+    track('checkin_result', { ok: false, reason: kind, duration_ms: durationMs });
     return localFailure(kind, __DEV__ ? `${describeError(error)}, ${durationMs} ms, ${body.byteLength} bytes` : undefined);
   } finally {
     clearTimeout(timer);

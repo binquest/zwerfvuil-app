@@ -12,6 +12,7 @@ import { ActivityIndicator, KeyboardAvoidingView, Linking, Pressable, Text, Text
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { SFSymbol } from 'sf-symbols-typescript';
 
+import { track } from '@/analytics';
 import { EmptyState } from '@/components/EmptyState';
 import { GlassPanel } from '@/components/GlassPanel';
 import { submitCheckin, submitReport } from '@/lib/api';
@@ -68,6 +69,11 @@ export default function CameraScreen() {
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
+  const photosTaken = useRef(0);
+
+  useEffect(() => {
+    track('camera_opened', { mode });
+  }, [mode]);
 
   // Load and prime the reveal sounds while the photo is taken, well before the
   // reveal; they stay loaded for the next check-in.
@@ -82,6 +88,8 @@ export default function CameraScreen() {
     setCapturing(true);
     try {
       const picture = await camera.current.takePictureAsync({ quality: 0.8, exif: false });
+      track('photo_taken', { mode, retake: photosTaken.current > 0 });
+      photosTaken.current += 1;
       setPhotoUri(picture.uri);
     } catch {
       setResult({ ok: false, title: 'Foto mislukt', message: 'De camera kon geen foto nemen. Probeer het opnieuw.' });
@@ -135,6 +143,7 @@ export default function CameraScreen() {
           note,
           photoUri: compressed,
         });
+        track('report_submitted', { ok: true });
         haptic.success();
         setResult({
           ok: true,
@@ -144,6 +153,7 @@ export default function CameraScreen() {
       }
     } catch (error) {
       devLog(mode === 'report' ? 'submit-report' : 'submit-checkin', false, { error: describeError(error) });
+      if (mode === 'report') track('report_submitted', { ok: false });
       haptic.warning();
       const message = mode === 'report' ? reportErrorMessage(error as Error) : genericErrorMessage(error as Error);
       setResult({ ok: false, title: 'Niet gelukt', message });

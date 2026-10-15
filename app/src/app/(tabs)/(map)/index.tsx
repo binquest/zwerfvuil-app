@@ -18,6 +18,8 @@ import MapView, { Marker, Polygon, type LongPressEvent, type MapPressEvent } fro
 import { SafeAreaView } from 'react-native-screens/experimental';
 import type { SFSymbol } from 'sf-symbols-typescript';
 
+import { track } from '@/analytics';
+import { distanceBucket } from '@/analytics/props';
 import { GlassPanel } from '@/components/GlassPanel';
 import { MapPin } from '@/components/MapPin';
 import { OsmAttribution } from '@/components/OsmAttribution';
@@ -64,6 +66,7 @@ export default function MapScreen() {
   const availability = checkinAvailability(position, nearest);
 
   const openBin = (bin: Bin) => {
+    track('map_bin_tap', { bin_id: bin.id });
     setSelectedId(bin.id);
     router.push({ pathname: '/bin/[id]', params: { id: String(bin.id) } });
   };
@@ -86,11 +89,13 @@ export default function MapScreen() {
         { text: 'Annuleren', style: 'cancel' },
         {
           text: 'Foto nemen',
-          onPress: () =>
+          onPress: () => {
+            track('report_flow_start', {});
             router.push({
               pathname: '/camera',
               params: { mode: 'report', lat: String(point.latitude), lon: String(point.longitude) },
-            }),
+            });
+          },
         },
       ],
     );
@@ -114,6 +119,7 @@ export default function MapScreen() {
 
   const startCheckin = () => {
     if (!nearest) return;
+    track('checkin_flow_start', { bin_id: nearest.bin.id, distance_bucket: distanceBucket(nearest.distanceM) });
     router.push({ pathname: '/camera', params: { mode: 'checkin', binId: String(nearest.bin.id) } });
   };
 

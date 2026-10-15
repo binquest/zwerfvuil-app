@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useColorScheme, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { AnalyticsTracker } from '@/analytics/AnalyticsTracker';
 import { EmptyState } from '@/components/EmptyState';
 import { UpdatePrompt } from '@/components/UpdatePrompt';
 import { CONFIG_ERROR } from '@/lib/env';
@@ -43,6 +44,7 @@ function RootStack() {
     <LocationProvider enabled={signedIn}>
       <DevModeProvider isAdmin={signedIn && !!profile?.isAdmin}>
         <BinsProvider enabled={signedIn}>
+          <AnalyticsTracker userId={session?.user.id ?? null} />
           <UpdatePrompt />
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Protected guard={!signedIn}>
