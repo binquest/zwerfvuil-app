@@ -867,8 +867,8 @@ vergelijking van de punten en in fase 1b van de eventtellingen in Studio.
 
 ## Overdracht
 
-Stand op 15 oktober 2026: fase 1a is af en gemerged in `main`. Fase 1b is gebouwd en lokaal getest op
-`gamification/1b-config-events`; de staging-uitrol volgt.
+Stand op 15 oktober 2026: fase 1a is af en gemerged in `main`. Fase 1b is gebouwd, lokaal getest en
+op staging uitgerold (`gamification/1b-config-events`); de telling van de iPhone-events volgt.
 
 - Af: dit plan; fase 1a (puntenledger); fase 1b (config en eventlog), lokaal.
   - Server (`20261015120000_points_ledger.sql`): `point_transactions` met de projectie vanuit
@@ -937,8 +937,15 @@ Stand op 15 oktober 2026: fase 1a is af en gemerged in `main`. Fase 1b is gebouw
   - tijdens de onthulling wordt niets weggeschreven of verstuurd (`holdAnalytics`);
   - opnieuw proberen strikt bij 0, 5xx en 401 (ook 429 wordt gewist);
   - `game_config`, `event_names`, `app_events` en `private.game_config_rules` in `check-restore.sh`.
-- Nog te doen voor 1b: staging (backup, migratie, `deploy`, checks, `update:dev`) en de telling per
-  naam van de events van de iPhone.
+- Staging (15 oktober): backup `postgres-20261015-171955.dump`; `20261015140000_config_and_events.sql`
+  toegepast. Telling voor en na identiek: 2 profielen, 0 echte en 32 testpunten, dezelfde hash over
+  (id, punten, testpunten), check-ins 2 goedgekeurd en 2 afgewezen, ledger 0/32, invariant leeg,
+  `checkin_point_stages(8)` = {10, …, 21}. `game_config` heeft de oude waarden; een foute waarde (`11`
+  voor `streak_multiplier`) wordt geweigerd. 17 actieve events, 0 rijen in `app_events`. `deploy`
+  (functie met `bonus_question.points` uit de database), `check-supabase`, `check-auth` en
+  `check-fake-location` geslaagd. EAS Update op `dev` (runtime 1): update-groep
+  `779e0248-bf06-4116-9a09-5bb252cb1230` (commit 29e486e).
+- Nog te doen voor 1b: de telling per naam van de events van de iPhone.
 - Nog te doen: fase 2 t/m 7.
 - Volgende stap: staging-uitrol van 1b; daarna fase 2 in een nieuwe sessie, op
   `gamification/2-onthulling` vanaf `main`.
