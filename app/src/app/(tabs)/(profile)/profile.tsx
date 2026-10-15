@@ -201,6 +201,14 @@ export default function ProfileScreen() {
         </Section>
 
         <Section>
+          <Button onPress={() => router.push('/collection')}>
+            <HStack>
+              <Image systemName="square.grid.2x2.fill" size={18} color={colors.tint} />
+              <Text modifiers={[foregroundStyle({ type: 'hierarchical', style: 'primary' })]}>Collectie</Text>
+              <Spacer />
+              <Image systemName="chevron.right" size={13} color={colors.tertiaryLabel} />
+            </HStack>
+          </Button>
           <Button onPress={() => router.push('/leaderboard')}>
             <HStack>
               <Image systemName="trophy.fill" size={18} color={colors.yellow} />

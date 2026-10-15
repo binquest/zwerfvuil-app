@@ -1,13 +1,31 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { DEFAULT_CONFIG, SERVER_SCORES } from '../../feedback/reveal/__fixtures__/scores';
+import { DEFAULT_CONFIG, SERVER_DISCOVERY_SCORE, SERVER_SCORES } from '../../feedback/reveal/__fixtures__/scores';
 import { parseScore } from '../../lib/score';
-import { expectedStreakWeeks, parseCatalog, previewScore, streakMultiplierLabel } from '../catalog';
+import { expectedStreakWeeks, nextMilestone, parseCatalog, previewScore, streakMultiplierLabel } from '../catalog';
+
+const CONFIG_JSON = { checkin_base_chips: 10, streak_multiplier: 1.1, streak_max_steps: 8, bonus_question_points: 5, discovery_chips: 5 };
 
 describe('parseCatalog', () => {
   it('reads the numbers of game_catalog()', () => {
-    const answer = { config: { checkin_base_chips: 10, streak_multiplier: 1.1, streak_max_steps: 8, bonus_question_points: 5, later_key: 3 } };
-    expect(parseCatalog(answer)).toEqual({ config: DEFAULT_CONFIG });
+    const answer = { config: { ...CONFIG_JSON, later_key: 3 } };
+    expect(parseCatalog(answer)).toEqual({ config: DEFAULT_CONFIG, milestones: [] });
+  });
+
+  it('reads the milestones, sorted, and skips malformed ones', () => {
+    const answer = {
+      config: CONFIG_JSON,
+      milestones: [{ threshold: 20, points: 50 }, { threshold: 10, points: 50 }, { threshold: '30', points: 50 }, null],
+    };
+    expect(parseCatalog(answer)?.milestones).toEqual([
+      { threshold: 10, points: 50 },
+      { threshold: 20, points: 50 },
+    ]);
+  });
+
+  it('treats missing discovery chips as none', () => {
+    const { discovery_chips: _, ...older } = CONFIG_JSON;
+    expect(parseCatalog({ config: older })?.config.discoveryChips).toBe(0);
   });
 
   it('refuses an answer without a number the app needs', () => {
@@ -20,6 +38,18 @@ describe('parseCatalog', () => {
 describe('previewScore (the Dev mode preview and the expected reveal)', () => {
   it('is the server score for the same streak', () => {
     for (const weeks of [0, 1, 3, 10]) expect(previewScore(DEFAULT_CONFIG, weeks)).toEqual(parseScore(SERVER_SCORES[weeks]));
+  });
+
+  it('is the server score for a discovery on the first check-in of the week', () => {
+    expect(previewScore(DEFAULT_CONFIG, 4, undefined, { discovery: true, streakExtended: true })).toEqual(
+      parseScore(SERVER_DISCOVERY_SCORE),
+    );
+  });
+
+  it('has no discovery step when the discovery chips are 0', () => {
+    expect(previewScore({ ...DEFAULT_CONFIG, discoveryChips: 0 }, 3, undefined, { discovery: true })).toEqual(
+      previewScore(DEFAULT_CONFIG, 3),
+    );
   });
 
   it('works for any base and config', () => {
@@ -40,7 +70,23 @@ describe('previewScore (the Dev mode preview and the expected reveal)', () => {
         },
       ],
       total: 17,
+      streakExtended: false,
     });
+  });
+});
+
+describe('nextMilestone', () => {
+  const milestones = [10, 20, 30].map((threshold) => ({ threshold, points: threshold === 30 ? 150 : 50 }));
+
+  it('gives the next threshold and the one before it', () => {
+    expect(nextMilestone(milestones, 0)).toEqual({ threshold: 10, points: 50, previous: 0 });
+    expect(nextMilestone(milestones, 10)).toEqual({ threshold: 20, points: 50, previous: 10 });
+    expect(nextMilestone(milestones, 25)).toEqual({ threshold: 30, points: 150, previous: 20 });
+  });
+
+  it('is null when every milestone is reached', () => {
+    expect(nextMilestone(milestones, 30)).toBeNull();
+    expect(nextMilestone([], 0)).toBeNull();
   });
 });
 

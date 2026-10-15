@@ -1,7 +1,8 @@
 import { describe, expect, it } from '@jest/globals';
 
 import { parseScore, type Score } from '../../../lib/score';
-import { reveal, scoreFor } from '../__fixtures__/scores';
+import { previewScore } from '../../../game/catalog';
+import { DEFAULT_CONFIG, reveal, scoreFor, SERVER_DISCOVERY_SCORE } from '../__fixtures__/scores';
 import {
   buildBonusTimeline,
   buildRevealTimeline,
@@ -68,6 +69,7 @@ describe('buildRevealTimeline', () => {
         { kind: 'streak', label: 'REEKS', weeks: 5, perWeek: 1.2, stages: [{ mult: 1.2, total: 14 }, { mult: 1.44, total: 17 }] },
       ],
       total: 17,
+      streakExtended: false,
     };
     const events = buildRevealTimeline({ score, reduceMotion: false });
     expect(only(events, 'count').at(-1)?.value).toBe(12);
@@ -78,21 +80,37 @@ describe('buildRevealTimeline', () => {
     expect(only(events, 'slam')[0]).toMatchObject({ from: 17, to: 17 });
   });
 
-  it('lands on the total even with a step it does not know yet', () => {
-    const known = scoreFor(3);
+  it('plays a step it does not know with its label and the chip sound, then lands on its total', () => {
+    const known = buildRevealTimeline({ score: scoreFor(3), reduceMotion: false });
     const score = parseScore({
       steps: [...(SERVER_STEPS_3 as object[]), { kind: 'comet', label: 'KOMEET', chips: 20, mult: 1.331, total: 27 }],
       total: 27,
     })!;
     expect(score.steps.at(-1)).toEqual({ kind: 'other', name: 'comet', label: 'KOMEET', total: 27 });
     const events = buildRevealTimeline({ score, reduceMotion: false });
-    expect(only(events, 'slam')[0]).toMatchObject({ from: 13, to: 27 });
-    const withoutSlam = (list: Event[]) => list.filter((e) => e.type !== 'slam');
-    expect(withoutSlam(events)).toEqual(withoutSlam(buildRevealTimeline({ score: known, reduceMotion: false })));
+    const [step] = only(events, 'step');
+    expect(step).toMatchObject({ label: 'KOMEET', total: 27 });
+    // After the last streak stage, with an existing sound and a haptic on its beat.
+    const lastMult = only(events, 'mult').at(-1)!;
+    expect(step.atMs).toBeGreaterThan(lastMult.atMs);
+    const beat = step.atMs - T.AUDIO_LEAD_MS;
+    const audible = events.filter((e) => e.atMs === beat && (e.type === 'sound' || e.type === 'haptic'));
+    expect(audible.map((e) => (e.type === 'sound' ? e.id : e.type === 'haptic' ? e.kind : null))).toEqual(['chip_add', 'medium']);
+    expect(only(events, 'slam')[0]).toMatchObject({ from: 27, to: 27 });
+    // Up to the last streak stage it is the known reveal.
+    const upTo = (list: Event[]) => list.filter((e) => e.atMs <= lastMult.atMs);
+    expect(upTo(events)).toEqual(upTo(known));
+  });
+
+  it('plays an unknown step without a total and lands on the score total', () => {
+    const score = parseScore({ steps: [...(SERVER_STEPS_3 as object[]), { kind: 'comet', label: 'KOMEET' }], total: 13 })!;
+    const events = buildRevealTimeline({ score, reduceMotion: true });
+    expect(only(events, 'step')[0]).toMatchObject({ label: 'KOMEET', total: null });
+    expect(only(events, 'slam')[0]).toMatchObject({ from: 13, to: 13 });
   });
 
   it('stays at the top stage when the maximum is longer than eight weeks', () => {
-    const events = reveal(12, { config: { checkinBaseChips: 10, streakMultiplier: 1.1, streakMaxSteps: 12, bonusQuestionPoints: 5 } });
+    const events = reveal(12, { config: { ...DEFAULT_CONFIG, streakMaxSteps: 12 } });
     const mults = only(events, 'mult');
     expect(mults.map((e) => e.stage)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
     expect(sounds(events).filter((id) => id.startsWith('mult_')).slice(7)).toEqual(Array(5).fill('mult_8'));
@@ -245,6 +263,108 @@ describe('buildRevealTimeline', () => {
     expect(mults.slice(1).map((e, i) => e.atMs - mults[i].atMs)).toEqual(Array(7).fill(250));
     expect(mults.every((e) => e.peakScale <= 1.05 && e.heat === 0)).toBe(true);
     expect(only(reduced, 'slam')[0]).toMatchObject({ scaleFrom: 1, scalePeak: 1.05, particles: 0 });
+  });
+});
+
+describe('the discovery step', () => {
+  // The server's discovery: 10 + 5 chips, four streak weeks, the first check-in of the week.
+  const discovery = () => parseScore(SERVER_DISCOVERY_SCORE)!;
+  const play = (reduceMotion = false, bonus = false) => buildRevealTimeline({ score: discovery(), reduceMotion, bonus });
+
+  it('counts the base, drops the banner with its fanfare, adds the chips, then the streak on 15 chips', () => {
+    const events = play();
+    const [banner] = only(events, 'discovery');
+    expect(banner).toMatchObject({ add: 5, sparkles: T.DISCOVERY_SPARKLES });
+    const counts = only(events, 'count').map((e) => e.value);
+    expect(counts.at(-2)).toBe(10);
+    expect(counts.at(-1)).toBe(15);
+    expect(only(events, 'mult').map((e) => e.total)).toEqual([17, 18, 20, 22]);
+    expect(only(events, 'slam')[0]).toMatchObject({ from: 22, to: 22 });
+    // Banner after the last tick, the +5 after the banner, the riser after the +5.
+    const lastTick = only(events, 'count').at(-2)!.atMs;
+    const add = only(events, 'count').at(-1)!.atMs;
+    const riser = events.find((e) => e.type === 'sound' && e.id === 'riser')!.atMs;
+    expect(banner.atMs).toBeGreaterThan(lastTick);
+    expect(add - banner.atMs).toBe(T.DISCOVERY_ADD_MS);
+    expect(riser).toBe(add - T.AUDIO_LEAD_MS + T.DISCOVERY_HOLD_MS);
+  });
+
+  it('plays the fanfare with a medium haptic and the chip sound with a selection tap and a pop', () => {
+    const events = play();
+    const banner = only(events, 'discovery')[0].atMs - T.AUDIO_LEAD_MS;
+    const add = banner + T.DISCOVERY_ADD_MS;
+    const at = (ms: number) => events.filter((e) => e.atMs === ms).map((e) => (e.type === 'sound' ? e.id : e.type === 'haptic' ? e.kind : null));
+    expect(at(banner)).toEqual(['discover_fanfare', 'medium']);
+    expect(at(add)).toEqual(['chip_add', 'selection']);
+    expect(only(events, 'chipPop')[0]).toMatchObject({ atMs: add + T.AUDIO_LEAD_MS, scale: T.CHIP_POP_SCALE });
+    expect(sounds(events).filter((id) => !id.startsWith('tick_'))).toEqual([
+      'discover_fanfare',
+      'chip_add',
+      'riser',
+      'mult_1',
+      'transient',
+      'mult_2',
+      'transient',
+      'mult_3',
+      'transient',
+      'mult_4',
+      'transient',
+      'total_chord',
+      'flame_whoosh',
+    ]);
+  });
+
+  it('with Reduce Motion: the same sounds and haptics, no sparkles, no shake or flash, a pop of at most 1.05', () => {
+    const moving = play(false);
+    const still = play(true);
+    const audible = (events: Event[]) => events.filter((e) => e.type === 'sound' || e.type === 'haptic').map((e) => ({ ...e, atMs: 0 }));
+    expect(audible(still)).toEqual(audible(moving));
+    expect(only(still, 'discovery')[0].sparkles).toBe(0);
+    expect(only(still, 'chipPop')[0].scale).toBeLessThanOrEqual(T.REDUCED_MOTION_MAX_SCALE);
+    expect(only(still, 'shake')).toHaveLength(0);
+    expect(only(still, 'flash')).toHaveLength(0);
+  });
+
+  it('is what the app expects while uploading (previewScore with a discovery)', () => {
+    const expected = buildRevealTimeline({
+      score: previewScore(DEFAULT_CONFIG, 4, undefined, { discovery: true, streakExtended: true }),
+      reduceMotion: false,
+    });
+    expect(expected).toEqual(play());
+  });
+
+  it('stays under 6 s with eight weeks, the flame and the bonus question', () => {
+    const score = previewScore(DEFAULT_CONFIG, 8, undefined, { discovery: true, streakExtended: true });
+    const events = buildRevealTimeline({ score, reduceMotion: false, bonus: true });
+    expect(timelineEndMs(events)).toBeLessThan(6000);
+  });
+});
+
+describe('the streak flame', () => {
+  const extended = (reduceMotion: boolean, bonus = true) =>
+    buildRevealTimeline({ score: previewScore(DEFAULT_CONFIG, 5, undefined, { streakExtended: true }), reduceMotion, bonus });
+
+  it('grows after the slam with its whoosh and a light haptic, then the bonus question follows', () => {
+    const events = extended(false);
+    const slam = only(events, 'slam')[0].atMs - T.AUDIO_LEAD_MS;
+    const flameAt = slam + T.FLAME_DELAY_MS;
+    expect(only(events, 'flame')[0]).toMatchObject({ atMs: flameAt + T.AUDIO_LEAD_MS, weeks: 5, grow: true });
+    expect(events.filter((e) => e.atMs === flameAt).map((e) => (e.type === 'sound' ? e.id : e.type === 'haptic' ? e.kind : e.type))).toEqual([
+      'flame_whoosh',
+      'light',
+    ]);
+    expect(only(events, 'showBonusQuestion')[0].atMs).toBe(flameAt + T.FLAME_HOLD_MS + T.AUDIO_LEAD_MS);
+  });
+
+  it('stands still with Reduce Motion, with the same sound', () => {
+    const events = extended(true);
+    expect(only(events, 'flame')[0].grow).toBe(false);
+    expect(sounds(events)).toContain('flame_whoosh');
+  });
+
+  it('is not there when the streak was extended before this week', () => {
+    expect(only(reveal(5, { bonus: true }), 'flame')).toHaveLength(0);
+    expect(sounds(reveal(5))).not.toContain('flame_whoosh');
   });
 });
 

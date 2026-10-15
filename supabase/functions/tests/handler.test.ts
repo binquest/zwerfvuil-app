@@ -50,6 +50,12 @@ const SCORE = {
   total: 12,
 };
 
+const GAME = {
+  discovery: { bin_id: 7, ordinal: 3, discovered: 3, total_bins: 120, status: "pending" },
+  milestone: null,
+  as_of: "2026-10-15T18:00:00+00:00",
+};
+
 const OK_RESULT: RecordCheckinResult = {
   ok: true,
   reason: null,
@@ -58,11 +64,12 @@ const OK_RESULT: RecordCheckinResult = {
   retry_after_s: null,
   streak_weeks: 2,
   score: SCORE,
+  game: GAME,
   bonus_question: QUESTION,
   is_test: false,
 };
 
-const NO_SCORE = { streak_weeks: null, score: null, bonus_question: null, is_test: null };
+const NO_SCORE = { streak_weeks: null, score: null, game: null, bonus_question: null, is_test: null };
 
 function fakeDeps(overrides: Partial<CheckinDeps> = {}) {
   const calls = {
@@ -125,6 +132,7 @@ Deno.test("accepts a valid check-in, uploads the stripped photo and records it",
     distance_m: 12.3,
     message: "Bedankt! Je inworp wacht op goedkeuring.",
     score: SCORE,
+    game: GAME,
     bonus_question: QUESTION,
     is_test: false,
   });
@@ -293,6 +301,21 @@ Deno.test("a recorded check-in without a playable score is still a success, with
     assertEquals([data.checkin_id, data.score, data.bonus_question], [CHECKIN, null, null], JSON.stringify(score));
     assertEquals(calls.errors, ["record_checkin returned no score"]);
     assertEquals(calls.deletes, []);
+  }
+});
+
+Deno.test("the game is passed on as the database made it; anything but an object becomes null", async () => {
+  const game = { discovery: null, milestone: { threshold: 10, points: 50, status: "pending" }, as_of: "x", later: 1 };
+  const { handler } = fakeDeps({ recordCheckin: () => Promise.resolve({ ...OK_RESULT, game }) });
+  assertEquals((await body(await handler(request()))).game, game);
+
+  for (const odd of [null, [], "game", 3]) {
+    const { handler: other, calls } = fakeDeps({
+      recordCheckin: () => Promise.resolve({ ...OK_RESULT, game: odd as RecordCheckinResult["game"] }),
+    });
+    const data = await body(await other(request()));
+    assertEquals([data.game, data.score], [null, SCORE], JSON.stringify(odd));
+    assertEquals(calls.errors, []);
   }
 });
 

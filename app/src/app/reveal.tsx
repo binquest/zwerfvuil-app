@@ -1,6 +1,9 @@
 // The points reveal after a check-in. The POINTS chip counts up to the base,
-// the MULT badge climbs with every streak week (bigger, faster, hotter), the
-// total slams in, then an optional bonus question with its +5. Tap to skip.
+// a new bin drops its banner and adds +5 chips, the MULT badge climbs with
+// every streak week (bigger, faster, hotter), the total slams in, the first
+// check-in of the week lights the streak flame, then an optional bonus
+// question with its +5. A milestone follows on its own screen (celebrate.tsx).
+// Tap to skip.
 // Respects the silent switch (sounds) and Reduce Motion (same sounds and
 // haptics, no movement). Every number comes from the server's score
 // (score.steps); the Dev mode preview builds its own and sends nothing.
@@ -24,6 +27,8 @@ import { AccessibilityInfo, AppState, Pressable, Text, View } from 'react-native
 import Animated from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SymbolView } from 'expo-symbols';
+
 import { holdAnalytics, track } from '@/analytics';
 import { roundTo100 } from '@/analytics/props';
 import { GlassPanel } from '@/components/GlassPanel';
@@ -35,16 +40,19 @@ import { BADGE_OFFSET } from '@/feedback/reveal/motion';
 import { playTimeline, preloadTimeline, type Playback, type PlaybackStart } from '@/feedback/reveal/playback';
 import { applyRevealEvent, endState, INITIAL_REVEAL_STATE, multiplierLabel, type RevealState } from '@/feedback/reveal/state';
 import { buildBonusTimeline, buildRevealTimeline, type Event } from '@/feedback/reveal/timeline';
-import { VOLUME } from '@/feedback/reveal/tuning';
+import { DISCOVERY_SPARKLES, VOLUME } from '@/feedback/reveal/tuning';
 import { MAX_PARTICLES, useParticleStyle, useRevealMotion } from '@/feedback/reveal/useRevealMotion';
 import { play, stopAll } from '@/feedback/sfx/engine';
 import { bonusSoundtrack, revealSoundtrack, warmUpSounds } from '@/feedback/sfx/soundtrack';
-import { answerBonus, markBonusShown } from '@/lib/api';
+import { setPendingCelebration } from '@/game/celebration';
+import { discoveryLine, type DiscoveryNews } from '@/game/discoveries';
+import { answerBonus, markBonusShown, markMomentsSeen } from '@/lib/api';
 import { formatWeeks } from '@/lib/format';
 import { formatMultiplier, type BonusOption } from '@/lib/points';
 import { revealSummary, setPendingReveal, takePendingReveal, type RevealData } from '@/lib/reveal';
-import { baseStep, streakStep, type StreakStep } from '@/lib/score';
+import { baseStep, discoveryStep, streakStep, type StreakStep } from '@/lib/score';
 import { useReduceMotion, useScreenReader } from '@/lib/useAccessibility';
+import { useGame } from '@/providers/GameProvider';
 import { ToastViewport } from '@/providers/ToastProvider';
 import { createStore, useSyncState, type Store } from '@/lib/useSyncState';
 import { colors, numberStyle, playColors, spacing, type } from '@/theme';
@@ -75,9 +83,55 @@ function useRevealPart<T>(store: RevealStore, select: (state: RevealState) => T)
 
 const chipText = { color: 'white', fontSize: 34, ...numberStyle } as const;
 
+// The chips: the base, plus the discovery's chips once they landed.
 const ChipsValue = memo(function ChipsValue({ store, base }: { store: RevealStore; base: number }) {
-  const value = useRevealPart(store, (state) => Math.min(state.value, base));
+  const value = useRevealPart(store, (state) => Math.min(state.value, base + state.discovery));
   return <Text style={chipText}>{value}</Text>;
+});
+
+/** "Nieuwe vuilbak ontdekt! · #58 · 12/120", above the chips; its numbers come from `game` (none when it is missing). */
+function DiscoveryBanner({ news, motion }: { news: DiscoveryNews | null; motion: ReturnType<typeof useRevealMotion> }) {
+  return (
+    <View style={{ alignItems: 'center' }}>
+      <Animated.View
+        style={[
+          { backgroundColor: playColors.gold, borderRadius: 16, borderCurve: 'continuous', paddingHorizontal: 16, paddingVertical: 8, alignItems: 'center' },
+          motion.styles.bannerStyle,
+        ]}>
+        <Text style={[type.headline, { color: '#1C1C1E', fontWeight: '900' }]}>Nieuwe vuilbak ontdekt!</Text>
+        {news ? <Text style={[type.subheadline, { color: '#1C1C1E', fontWeight: '700', fontVariant: ['tabular-nums'] }]}>{discoveryLine(news)}</Text> : null}
+      </Animated.View>
+      <View pointerEvents="none" style={{ position: 'absolute', top: '50%', left: '50%' }}>
+        {Array.from({ length: DISCOVERY_SPARKLES }, (_, i) => (
+          <Sparkle key={i} index={i} motion={motion} />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function Sparkle({ index, motion }: { index: number; motion: ReturnType<typeof useRevealMotion> }) {
+  const style = useParticleStyle(index, motion.sparkle, motion.sparkleCount);
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[{ position: 'absolute', width: 6, height: 6, marginLeft: -3, marginTop: -3, borderRadius: 3, backgroundColor: playColors.gold }, style]}
+    />
+  );
+}
+
+/** The label of a step the app does not know yet ("PREMIE ×2"). */
+const StepLabel = memo(function StepLabel({ store, motion }: { store: RevealStore; motion: ReturnType<typeof useRevealMotion> }) {
+  const label = useRevealPart(store, (state) => state.step);
+  return (
+    <Animated.View style={[{ minHeight: 28, alignItems: 'center' }, motion.styles.stepStyle]}>
+      {label ? (
+        <View style={{ backgroundColor: playColors.gold, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 4 }}>
+          <Text style={[type.footnote, { color: '#1C1C1E', fontWeight: '900', letterSpacing: 1 }]}>{label}</Text>
+        </View>
+      ) : null}
+    </Animated.View>
+  );
 });
 
 const MultBadgeText = memo(function MultBadgeText({ store }: { store: RevealStore }) {
@@ -104,9 +158,31 @@ const TotalNumber = memo(function TotalNumber({ store, onCommit }: { store: Reve
   );
 });
 
-const StreakLine = memo(function StreakLine({ store, streak }: { store: RevealStore; streak: StreakStep | null }) {
+const StreakLine = memo(function StreakLine({
+  store,
+  streak,
+  motion,
+}: {
+  store: RevealStore;
+  streak: StreakStep | null;
+  motion: ReturnType<typeof useRevealMotion>;
+}) {
   const max = useRevealPart(store, (state) => state.max);
+  const flame = useRevealPart(store, (state) => state.flame);
   const weeks = streak?.weeks ?? 0;
+  if (flame) {
+    // The first check-in of the week: the flame grows (stands still with Reduce Motion).
+    return (
+      <Animated.View style={[{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm }, motion.styles.flameStyle]}>
+        <Animated.View style={motion.styles.flameIconStyle}>
+          <SymbolView name="flame.fill" size={28} tintColor={playColors.heat} />
+        </Animated.View>
+        <Text style={[type.headline, { color: 'white', fontWeight: '800' }]}>
+          {weeks <= 1 ? 'Reeks gestart' : `Reeks verlengd · ${formatWeeks(weeks)}`}
+        </Text>
+      </Animated.View>
+    );
+  }
   return (
     <Text style={[type.subheadline, { color: 'rgba(255,255,255,0.8)', textAlign: 'center' }]}>
       {streak && streak.stages.length > 0
@@ -161,6 +237,7 @@ export default function RevealScreen() {
   // What the timeline shows (number, MULT) lives in a store the memoised parts
   // read; the rest of the screen changes a few times per reveal.
   const [store] = useState(() => createStore<RevealState>(INITIAL_REVEAL_STATE));
+  const { refresh: refreshGame } = useGame();
   const [phase, setPhase] = useSyncState<Phase>('loading');
   const [bonusShown, setBonusShown] = useSyncState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -185,7 +262,10 @@ export default function RevealScreen() {
 
   const score = data?.score ?? null;
   const question = data?.question ?? null;
+  const game = data?.game ?? null;
   const base = score ? (baseStep(score)?.total ?? 0) : 0;
+  const hasDiscovery = !!score && discoveryStep(score) !== null;
+  const hasOtherStep = !!score && score.steps.some((step) => step.kind === 'other');
   // Analytics: when the question appeared (previews are test events).
   const questionShownAt = useRef<number | null>(null);
 
@@ -274,15 +354,15 @@ export default function RevealScreen() {
       const events = timeline.current;
       if (!score || !events) return;
       if (endedBy === 'skip') {
-        const { stage } = store.get();
-        track('reveal_skipped', { step: stage > 0 ? `streak_${stage}` : 'base' }, { isTest: data?.preview ?? false });
+        const { stage, discovery } = store.get();
+        track('reveal_skipped', { step: stage > 0 ? `streak_${stage}` : discovery > 0 ? 'discovery' : 'base' }, { isTest: data?.preview ?? false });
       }
       playbacks.current.forEach((playback) => playback.cancel(endedBy === 'background' ? 0 : 30));
       playbacks.current = [];
       timers.current.forEach(clearTimeout);
       timers.current = [];
       const end = endState(events);
-      motion.settle(end.stage);
+      motion.settle(end.stage, { discovery: end.discovery > 0, step: end.step !== null, flame: end.flame });
       store.set(end);
       setPhase(question ? 'total' : 'done');
       if (endedBy === 'skip' && withSound.current) play('total_chord', VOLUME.total);
@@ -311,11 +391,16 @@ export default function RevealScreen() {
   useEffect(() => {
     if (!score || reduceMotion === null || screenReader === null || started.current) return;
     started.current = true;
+    const discovered = discoveryStep(score) !== null;
     track(
       'reveal_shown',
-      { total: score.total, discovery: false, streak_weeks: streakStep(score)?.weeks ?? 0, preview: data?.preview ?? false },
+      { total: score.total, discovery: discovered, streak_weeks: streakStep(score)?.weeks ?? 0, preview: data?.preview ?? false },
       { isTest: data?.preview ?? false },
     );
+    if (discovered) {
+      const news = data?.game?.discovery ?? null;
+      track('discovery_shown', { ordinal: news?.ordinal ?? null, status: news?.status ?? null, source: 'reveal' }, { isTest: data?.preview ?? false });
+    }
     timeline.current = buildRevealTimeline({ score, reduceMotion, bonus: !!question });
     if (screenReader) {
       finish('voiceover');
@@ -428,6 +513,29 @@ export default function RevealScreen() {
     router.replace('/reveal');
   };
 
+  // Done: a milestone gets its own celebration next; otherwise the moments of
+  // this check-in are seen, and the map and counter catch up.
+  const leave = () => {
+    const milestone = game?.milestone ?? null;
+    if (milestone && data) {
+      setPendingCelebration({
+        kind: 'milestone',
+        milestone,
+        discovered: game?.discovery?.discovered ?? null,
+        totalBins: game?.discovery?.totalBins ?? null,
+        asOf: game?.asOf ?? null,
+        preview: data.preview,
+        forceReduceMotion: data.forceReduceMotion,
+        noSound: data.noSound,
+      });
+      router.replace('/celebrate');
+      return;
+    }
+    if (game?.asOf && !data?.preview) markMomentsSeen(game.asOf).catch(() => {});
+    if (!data?.preview) refreshGame();
+    router.back();
+  };
+
   if (!data || !score) return <View style={{ flex: 1, backgroundColor: playColors.backdrop }} />;
 
   const playing = phase === 'playing';
@@ -440,7 +548,7 @@ export default function RevealScreen() {
       onPress={playing ? () => finish('skip') : undefined}
       // Not one big VoiceOver element: the answers and buttons inside stay reachable.
       accessible={false}
-      onAccessibilityEscape={() => router.back()}>
+      onAccessibilityEscape={leave}>
       {diagnostics ? <FrameProbe active={probing} onSample={diagnostics.frame} /> : null}
       <SafeAreaView style={{ flex: 1, padding: spacing.xl }}>
         <View style={{ alignItems: 'center', gap: spacing.xs }}>
@@ -450,6 +558,8 @@ export default function RevealScreen() {
         </View>
 
         <Animated.View style={[{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.xl }, styles.shakeStyle]}>
+          {/* The discovery banner: its slot is there from the start, so nothing jumps when it falls in. */}
+          {hasDiscovery ? <DiscoveryBanner news={game?.discovery ?? null} motion={motion} /> : null}
           {/* POINTS × MULT */}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
             <Animated.View
@@ -475,6 +585,7 @@ export default function RevealScreen() {
               </Animated.View>
             </View>
           </View>
+          {hasOtherStep ? <StepLabel store={store} motion={motion} /> : null}
 
           {/* TOTAL, with the slam's particles, the bonus ring, the flying +5 and its badge */}
           <View style={{ alignItems: 'center' }}>
@@ -504,7 +615,7 @@ export default function RevealScreen() {
             <Text style={[type.title3, { color: 'rgba(255,255,255,0.75)' }]}>{bonusShown ? 'punten met bonus' : 'punten'}</Text>
           </View>
 
-          <StreakLine store={store} streak={streakStep(score)} />
+          <StreakLine store={store} streak={streakStep(score)} motion={motion} />
         </Animated.View>
 
         {playing ? (
@@ -562,7 +673,7 @@ export default function RevealScreen() {
               </Host>
             ) : null}
             <Host matchContents={{ vertical: true }} style={{ alignSelf: 'stretch' }}>
-              <Button onPress={() => router.back()} modifiers={[buttonStyle('glassProminent'), controlSize('extraLarge'), tint(colors.tint)]}>
+              <Button onPress={leave} modifiers={[buttonStyle('glassProminent'), controlSize('extraLarge'), tint(colors.tint)]}>
                 <Label title="Klaar" systemImage="checkmark" modifiers={[frame({ maxWidth: 10000 }), font({ textStyle: 'headline' })]} />
               </Button>
             </Host>

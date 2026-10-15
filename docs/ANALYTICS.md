@@ -86,7 +86,7 @@ Deno-integratietest de app met de database.
 | `session_end` | zodra vaststaat dat de vorige sessie voorbij is (volgende start, afmelding, terug na > 30 min) | `duration_s` |
 | `app_background` | naar de achtergrond | `foreground_s` |
 | `screen_view` | ander scherm (`useSegments`) | `screen` (route zonder groepen of parameters, bv. `map`, `leaderboard`, `bin/[id]`) |
-| `map_bin_tap` | tik op een pin | `bin_id` |
+| `map_bin_tap` | tik op een pin | `bin_id`, `discovered` (de gebruiker ontdekte die vuilbak al) |
 | `checkin_flow_start` | "Inworp registreren" | `bin_id`, `distance_bucket` (`0_10`, `10_25`, `25_50`, `50_plus`, `unknown`) |
 | `camera_opened` | camera open | `mode` checkin/report |
 | `photo_taken` | foto genomen | `mode`, `retake` |
@@ -95,12 +95,18 @@ Deno-integratietest de app met de database.
 | `reveal_shown` | onthulling start | `total`, `discovery`, `streak_weeks`, `preview` |
 | `reveal_skipped` | onthulling overgeslagen met een tik | `step` (`base`, `streak_3`, …) |
 | `bonus_question_answered` | bonusvraag beantwoord of overgeslagen | `question_key`, `answered`, `response_ms` (op 100 ms) |
+| `discovery_shown` | een ontdekking gevierd: in de onthulling of als gemist moment | `ordinal`, `status` pending/confirmed, `source` reveal/missed |
+| `milestone_shown` | mijlpaalviering getoond (na de onthulling of als gemist moment) | `threshold`, `status` pending/granted, `source` reveal/missed |
+| `collection_viewed` | collectie geopend | `discovered`, `total` |
 | `leaderboard_viewed` | ranglijst geopend of andere periode | `period` week/all |
 | `report_flow_start` | melding van een ontbrekende vuilbak gestart ("Foto nemen") | — |
 | `report_submitted` | melding verstuurd | `ok` |
 
 Opmerkingen:
-- `discovery` in `reveal_shown` is tot fase 3 altijd `false`.
+- `discovery` in `reveal_shown` is `true` als de score een ontdekkingsstap heeft (sinds fase 3). In
+  de onthulling volgt dan meteen `discovery_shown` (`ordinal` en `status` null als het spel van de
+  server ontbrak).
+- `reveal_skipped` heeft `step` `discovery` als de tik na de ontdekking en vóór de reeks kwam.
 - Een onthulling die eindigt doordat de app naar de achtergrond gaat, of die met VoiceOver meteen op
   de eindstand begint, geeft geen `reveal_skipped` (wel `reveal_shown`).
 - Previews in Dev-modus (onthulling, bonusvraag) gaan als `is_test` mee.
@@ -114,9 +120,7 @@ fase die de functie bouwt.
 
 | Event | Fase | Props |
 |---|---|---|
-| `discovered` in `map_bin_tap` | 3 | — |
-| `discovery_shown`, `milestone_shown`, `level_up_shown`, `badge_shown` | 3–5 | `ordinal` / `threshold` / `level` / `badge_key`, `status` |
-| `collection_viewed` | 3 | `discovered`, `total` |
+| `level_up_shown`, `badge_shown` | 4–5 | `level` / `badge_key`, `status` |
 | `avatar_changed`, `onboarding_step`, `onboarding_completed` | 4 | `avatar_key`, `from` / `step` / — |
 | `approval_shown` | 5 | `approved`, `rejected`, `points` |
 | `quest_viewed`, `quest_completed`, `chest_opened`, `tip_shown` | 6 | zie GAMIFICATION.md |

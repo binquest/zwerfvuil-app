@@ -202,9 +202,34 @@ echte gebruikersdata vraagt meer.
   voor er gevoeliger sleutels bij komen (bv. hoe premies gekozen worden).
 - [ ] **De app spiegelt de formule van `private.checkin_score`** in `previewScore`
   (`app/src/game/catalog.ts`), voor de Dev-preview en de onthulling die de camera
-  tijdens het uploaden al mixt. Verandert de formule op de server (ontdekking in
-  fase 3, premie in fase 8), pas `previewScore` mee aan: anders klopt de preview niet
-  en wordt de vooraf gemixte soundtrack niet hergebruikt (geen fout, wel trager).
+  tijdens het uploaden al mixt (sinds fase 3 met de ontdekking en de vlam: de camera
+  gokt een ontdekking als de vuilbak niet in de geladen collectie staat, en de vlam
+  als de reeks deze week nog niet telde). Verandert de formule op de server (premie in
+  fase 8), pas `previewScore` mee aan: anders klopt de preview niet en wordt de vooraf
+  gemixte soundtrack niet hergebruikt (geen fout, wel trager).
+- [ ] **De teller van de ontdekkingen kent één regio** (vier sleutels `region_*` in
+  `game_config`, de bbox van `config/region.json`). De collectie is de actieve,
+  toegelaten vuilbakken in die bbox plus alles wat de gebruiker erbuiten ontdekte; het
+  totaal kan dus per gebruiker verschillen. Mijlpalen tellen alle ontdekkingen. Er is
+  geen controle dat west < oost en zuid < noord (een tikfout geeft een teller van 0).
+  Met meer regio's (ROADMAP): een regiotabel en tellers per regio.
+- [ ] **Een ontdekking die naar een latere inworp schuift, verliest haar +5 chips**
+  (die zaten bevroren in de afgewezen inworp). Zo staat het in het plan (2.8); bekijk
+  of spelers dat oneerlijk vinden.
+- [ ] **Gemiste momenten** (`my_unseen`) geven de nieuwste 20; `mark_seen` zet daarna
+  alles tot `as_of` op gezien. Na een onthulling markeert de app tot de `as_of` van die
+  inworp: een ouder moment dat de presenter nog niet toonde (bv. meteen weer naar de
+  camera na een crash) wordt dan stil overgeslagen. Voor echte gebruikers: gezien per
+  moment bijhouden i.p.v. met één tijdstip.
+- [ ] **Fouten in de spellogica** landen in `private.game_errors` (alleen in Studio te
+  zien) en worden hersteld door de volgende refresh of `repair_game_state(user)`. Er is
+  geen melding of scherm in Beheer: kijk de tabel na bij de spelerstest.
+- [ ] **De refresh rekent elke keer de volledige stand van één gebruiker** (alle
+  echte inworpen, ontdekkingen en mijlpalen). Voor honderden inworpen per gebruiker
+  is dat snel; meet het bij de spelerstest (doel `record_checkin` < 50 ms).
+- [ ] **Confetti en vonkjes zijn Reanimated-views** (40 stukjes, één gedeelde waarde,
+  geen Skia of nieuwe native module). Meet de framerate op een oudere iPhone; te
+  traag → minder stukjes, of Skia met een nieuwe IPA.
 - [ ] **Wijzigingen aan `game_config` laten geen spoor na** (alleen `updated_at`).
   Voor echte gebruikers: een auditlog (wie, wanneer, oud → nieuw) of alleen nog
   wijzigen via migraties. Een wijziging van `bonus_question_points` geldt voor elk

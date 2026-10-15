@@ -9,6 +9,8 @@
 
 export type DistanceBucket = '0_10' | '10_25' | '25_50' | '50_plus' | 'unknown';
 export type PhotoMode = 'checkin' | 'report';
+/** Where a celebration was shown: in the reveal (or right after it) or as a missed moment. */
+export type CelebrationSource = 'reveal' | 'missed';
 
 export interface EventProps {
   app_open: { kind: 'cold' | 'warm' };
@@ -16,7 +18,7 @@ export interface EventProps {
   session_end: { duration_s: number };
   app_background: { foreground_s: number };
   screen_view: { screen: string };
-  map_bin_tap: { bin_id: number };
+  map_bin_tap: { bin_id: number; discovered: boolean };
   checkin_flow_start: { bin_id: number; distance_bucket: DistanceBucket };
   camera_opened: { mode: PhotoMode };
   photo_taken: { mode: PhotoMode; retake: boolean };
@@ -25,6 +27,9 @@ export interface EventProps {
   reveal_shown: { total: number; discovery: boolean; streak_weeks: number; preview: boolean };
   reveal_skipped: { step: string };
   bonus_question_answered: { question_key: string; answered: boolean; response_ms: number | null };
+  discovery_shown: { ordinal: number | null; status: string | null; source: CelebrationSource };
+  milestone_shown: { threshold: number; status: string; source: CelebrationSource };
+  collection_viewed: { discovered: number; total: number };
   leaderboard_viewed: { period: 'week' | 'all' };
   report_flow_start: Record<string, never>;
   report_submitted: { ok: boolean };
@@ -48,6 +53,9 @@ const NAMES = {
   reveal_shown: true,
   reveal_skipped: true,
   bonus_question_answered: true,
+  discovery_shown: true,
+  milestone_shown: true,
+  collection_viewed: true,
   leaderboard_viewed: true,
   report_flow_start: true,
   report_submitted: true,

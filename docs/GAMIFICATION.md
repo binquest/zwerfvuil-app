@@ -868,7 +868,8 @@ vergelijking van de punten en in fase 1b van de eventtellingen in Studio.
 ## Overdracht
 
 Stand op 15 oktober 2026: fase 1a, 1b en 2 zijn af en gemerged in `main` (PR #2, #3 en #4); fase 2 staat
-op staging en als EAS Update op `dev`.
+op staging en als EAS Update op `dev`. Fase 3 is gebouwd en lokaal getest op `gamification/3-ontdekken`,
+nog niet op staging (wacht op akkoord).
 
 - Af: dit plan; fase 1a (puntenledger); fase 1b (config en eventlog), lokaal.
   - Server (`20261015120000_points_ledger.sql`): `point_transactions` met de projectie vanuit
@@ -1023,6 +1024,90 @@ op staging en als EAS Update op `dev`.
   onthulling (stil op de eindstand); VoiceOver (eindstand + samenvatting); een echte inworp (de
   meting toont "mix uit cache" als de verwachte onthulling klopte); Componenten (ring scherp op
   44/72/120 pt, rollend getal, knop, balk) en een testtoast, ook terwijl de camera open is.
-- Nog te doen: fase 3 t/m 7.
-- Volgende stap: fase 3 in een nieuwe sessie, op `gamification/3-ontdekken` vanaf `main` (de
-  iPhone-punten hierboven horen bij de test van fase 2).
+
+**Fase 3 (ontdekken: ontdekkingen, mijlpalen, collectie)**
+- Server (`20261015180000_discoveries.sql`):
+  - `game_config`: `discovery_chips` 5 (0 = de economie van vóór fase 3) en de regio als
+    `region_west/south/east/north` (de bbox van `config/region.json`), elk met een regel.
+  - Catalogus `milestones` (10, 20, … 150; +50, bij 50 +150, bij 100 +300); spelfeiten `discoveries`
+    (pending/confirmed/revoked) en `user_milestones` (pending/granted/revoked, bevroren punten, anker),
+    RLS eigen rijen/admins, geen schrijfrechten; `private.game_errors`; `profiles.moments_seen_at`.
+  - `private.checkin_score(weeks, discovery, streak_extended)`: stap `discovery` (`chips` 15, `add` 5)
+    vóór de reeks, de reeks op 15 chips, `streak_extended` en `parts` (`checkin` = round(10·m),
+    `discovery` = totaal − checkin). `checkins.score` bewaart de score (controle: `total` =
+    `points_earned`); de projectie maakt de ledgerrijen uit `parts` (ook `bounty` voor fase 8).
+  - `private.refresh_game_state(user)`: ontdekkingen (eerste niet-afgewezen echte inworp per vuilbak;
+    confirmed zodra er een goedgekeurde is; verschuift of vervalt bij afwijzen), mijlpalen (granted
+    over confirmed, pending over alle niet-vervallen ontdekkingen, anders revoked; opnieuw verdiend =
+    dezelfde rij en bevroren bedrag) en hun ledgerrijen `milestone:<drempel>`. Past alleen aan wat
+    afwijkt en geeft het aantal gewijzigde rijen terug (tweede keer 0). `record_checkin` (niet voor
+    testinworpen), `review_checkin`, `revoke_checkin` en het bonusantwoord roepen hem aan via
+    `refresh_game_state_safely` (fout → `game_errors`, de inworp of beoordeling gaat door).
+  - `record_checkin` geeft `game` terug: `discovery` {bin_id, ordinal, discovered, total_bins, status},
+    `milestone` (de hoogste die in deze transactie bereikt werd) en `as_of`. Nieuwe RPC's:
+    `my_collection()`, `my_game_state()` v1, `my_unseen()`, `mark_seen('moments', until)`,
+    `repair_game_state(user)` (admin); `game_catalog()` met `milestones`. Events `discovery_shown`,
+    `milestone_shown`, `collection_viewed`. De migratie rekent de spelstand van bestaande gebruikers uit
+    (oude inworpen: ontdekkingen zonder punten; niets als gemist moment).
+- Functie: `submit-checkin` geeft `game` door (alleen een object, anders `null`). Na de migratie dus
+  ook `stagingctl.py deploy`.
+- App:
+  - Onthulling: de tijdlijn speelt de stappen in de volgorde van de server. Ontdekking: banner
+    "Nieuwe vuilbak ontdekt! · #58 · 12/120" valt in met `discover_fanfare` en een medium haptiek,
+    dan CHIPS +5 met `chip_add` en een pop, vonkjes; een onbekende stap speelt met zijn label, zijn
+    totaal en `chip_add`; na de slam bij de eerste inworp van de week de vlam ("Reeks verlengd · 4
+    weken", `flame_whoosh`). Reduce Motion: banner, label en vlam alleen fade, geen vonkjes, geen
+    schudden, pop ≤ 1,05. Overslaan, achtergrond en VoiceOver eindigen op dezelfde eindstand
+    (banner, vlam en label inbegrepen); VoiceOver zegt ook "Nieuwe vuilbak ontdekt." en "Reeks
+    verlengd".
+  - Na "Klaar": een mijlpaal opent `celebrate.tsx` (fullScreenModal, confetti op het akkoord van
+    `milestone_fanfare`, "+50 · wacht op goedkeuring", `<ToastViewport hold />`, analytics op pauze);
+    daarna (of zonder mijlpaal meteen) `mark_seen` tot `as_of`.
+  - `GameProvider` (`my_game_state` + `my_collection`, opnieuw bij terug naar de voorgrond en na elke
+    inworp). Kaart: niet-ontdekte vuilbakken gedimd met "?", teller "34/120 ontdekt" met balk naar de
+    volgende mijlpaal; vuilbak-sheet "Ontdekt: 12 okt. · 3 inworpen" of "Nog niet ontdekt".
+    Collectie (`src/screens/CollectionScreen.tsx`, route `/(profile)/collection`, knop in Profiel):
+    teller, balk, filter Alle/Ontdekt/Nog niet, raster van 4; tik → de vuilbak op de kaart
+    (`BinsProvider.showOnMap`).
+  - Gemiste momenten: `MissedMoments` is de eerste bron van de `MomentsPresenter` (`my_unseen` bij een
+    koude en warme start; bij het tonen opnieuw gevraagd) en opent `celebrate.tsx` met de ontdekkingen
+    en de hoogste mijlpaal.
+  - Geluid: `discover_fanfare`, `chip_add`, `flame_whoosh`, `milestone_fanfare` uit `generate-sfx.mjs`.
+    De camera mixt tijdens het uploaden de verwachte onthulling met ontdekking en vlam.
+  - Dev-modus: in "Onthulling bekijken" schakelaars voor ontdekking, vlam, een onbekende stap
+    ("PREMIE ×2") en een mijlpaal erna; nieuwe sectie "Vieringen bekijken" (mijlpaal kiezen, al
+    toegekend, gemiste momenten). Schrijft niets en markeert niets als gezien.
+- Tests: `12_discoveries` (62: catalogus, score en ledgerdelen, eerste niet-afgewezen inworp,
+  testinworpen maken niets, afwijzen verschuift of laat vervallen, opnieuw ontdekt, mijlpaal
+  pending/granted/revoked en opnieuw verdiend met bevroren bedrag, refresh twee keer = 0, collectie,
+  spelstand, gemiste momenten, rechten, een fout in de spellogica breekt de inworp niet, invarianten);
+  02, 06, 07, 08 en 09 zetten binnen hun transactie `discovery_chips` op 0; 09 vergelijkt alleen de
+  vier oude sleutels; 10 kent de nieuwe events; 11 met `streak_extended` en `parts` en een ontdekking
+  in `record_checkin`. Samen 476. Deno: `game` doorgegeven (handler 35); integratie: eerste inworp =
+  ontdekking met `game`, `my_unseen`/`mark_seen`, tweede inworp bij dezelfde vuilbak niet, afwijzen
+  schuift door en haalt weg, `my_game_state`. Jest 248: tijdlijn (volgorde, geluiden, Reduce Motion,
+  onbekende stap, vlam, < 6 s), eindstand na overslaan, parsers (`game`, spelstand, collectie, gemist),
+  viering, confetti; `golden.test.ts` ongewijzigd groen.
+- Kleine keuzes buiten het plan:
+  - de ledgersplitsing staat in de score zelf (`parts`), zodat de projectie geen formule herhaalt;
+  - de collectie = de vuilbakken van de regio plus wat de gebruiker erbuiten ontdekte (de teller kan
+    nooit boven 100 % gaan); mijlpalen tellen alle ontdekkingen;
+  - `checkin_id` van een ontdekking verdwijnt met haar inworp (cascade; de volgende refresh maakt ze
+    opnieuw); een vervallen ontdekking of mijlpaal houdt haar rij;
+  - `game.milestone` is enkelvoudig (de hoogste); een moment telt vanaf `discovered_at` (de inworp) of
+    `reached_at` (bereikt, ook opnieuw);
+  - `my_game_state` v1 is nog `stable` (pas `volatile` met de quests in fase 6);
+  - `streak_extended` is altijd `false` voor testinworpen; bij de eerste week zegt de vlam "Reeks
+    gestart";
+  - `discovery_shown` en `milestone_shown` hebben ook `source` (reveal/missed); `map_bin_tap.discovered`
+    is `false` zolang de collectie niet geladen is;
+  - nog niet gebouwd uit hoofdstuk 5: de vlaggen NIEUW en "mijlpaal hangt hiervan af" in Beheer, en de
+    trigger op meldingen (die heeft pas zin met quests en badges).
+- Nog te controleren op de iPhone (na `update:dev`): Dev-preview met ontdekking, vlam, onbekende stap
+  en mijlpaal, met en zonder Reduce Motion en geluid; "Vieringen bekijken"; een echte eerste inworp
+  bij een nieuwe vuilbak (banner, +5 chips, pin wordt groen, teller +1); een tweede inworp daar (geen
+  banner); na afwijzen in Beheer klopt de collectie; de app sluiten tijdens een onthulling met
+  ontdekking en opnieuw openen (gemist moment); de 10e ontdekking toont "+50 · wacht op goedkeuring".
+- Nog te doen: staging-uitrol van fase 3 (na akkoord), dan fase 4 t/m 7.
+- Volgende stap: akkoord op fase 3, dan de staging-uitrol (backup, telling, dry-run, `migrate --apply`
+  door de gebruiker, `deploy`, de drie checks, `update:dev`).

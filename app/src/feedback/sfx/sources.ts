@@ -1,5 +1,5 @@
-// The sound files of the reveal (scripts/generate-sfx.mjs writes them into
-// assets/sfx/). Most of them are only mixed into the soundtrack of a reveal
+// The sound files of the reveal and the celebrations (scripts/generate-sfx.mjs
+// writes them into assets/sfx/). Most of them are only mixed into the soundtrack of a reveal
 // (soundtrack.ts); the few played on their own get voices (engine.ts).
 
 export const SFX_SOURCES = {
@@ -28,6 +28,10 @@ export const SFX_SOURCES = {
   bonus_land: require('../../../assets/sfx/bonus_land.wav'),
   neutral_tock: require('../../../assets/sfx/neutral_tock.wav'),
   heat_loop: require('../../../assets/sfx/heat_loop.wav'),
+  discover_fanfare: require('../../../assets/sfx/discover_fanfare.wav'),
+  chip_add: require('../../../assets/sfx/chip_add.wav'),
+  flame_whoosh: require('../../../assets/sfx/flame_whoosh.wav'),
+  milestone_fanfare: require('../../../assets/sfx/milestone_fanfare.wav'),
 } as const;
 
 export type SfxId = keyof typeof SFX_SOURCES;

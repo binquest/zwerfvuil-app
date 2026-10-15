@@ -21,6 +21,10 @@ const EXPECTED = [
   'bonus_land',
   'neutral_tock',
   'heat_loop',
+  'discover_fanfare',
+  'chip_add',
+  'flame_whoosh',
+  'milestone_fanfare',
 ].map((name) => `${name}.wav`);
 
 function parse(bytes) {
@@ -113,6 +117,11 @@ test('the lengths fit the role of each sound', () => {
   assert.ok(length('total_chord') <= 1200);
   assert.ok(Math.abs(length('whoosh_up') - 300) < 1);
   assert.equal(parse(files['heat_loop.wav']).samples.length, SAMPLE_RATE, 'the loop is exactly one second');
+  // The reveal stays under about 6 s with a discovery and the flame.
+  assert.ok(length('discover_fanfare') <= 1000);
+  assert.ok(length('chip_add') <= 150);
+  assert.ok(length('flame_whoosh') <= 500);
+  assert.ok(length('milestone_fanfare') <= 1800);
 });
 
 test('the ticks and multipliers sit on the C major pentatonic scale, each higher than the last', () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { SERVER_SCORES } from '../../feedback/reveal/__fixtures__/scores';
-import { baseStep, parseScore, streakStep, streakWeeks } from '../score';
+import { SERVER_DISCOVERY_SCORE, SERVER_SCORES } from '../../feedback/reveal/__fixtures__/scores';
+import { baseStep, discoveryStep, parseScore, streakStep, streakWeeks } from '../score';
 
 describe('parseScore', () => {
   it('reads the steps the server sends, with their running totals', () => {
@@ -21,7 +21,20 @@ describe('parseScore', () => {
         },
       ],
       total: 13,
+      streakExtended: false,
     });
+  });
+
+  it('reads a discovery step and the flame of the first check-in of the week', () => {
+    const score = parseScore(SERVER_DISCOVERY_SCORE)!;
+    expect(discoveryStep(score)).toEqual({ kind: 'discovery', label: 'NIEUW', chips: 15, add: 5, mult: 1, total: 15 });
+    expect(score.streakExtended).toBe(true);
+    expect(score.total).toBe(22);
+  });
+
+  it('refuses a malformed discovery step', () => {
+    const base = { kind: 'base', label: 'BASIS', chips: 10, mult: 1, total: 10 };
+    expect(parseScore({ steps: [base, { kind: 'discovery', label: 'NIEUW', chips: 15, mult: 1, total: 15 }], total: 15 })).toBeNull();
   });
 
   it('keeps a step of a kind it does not know, with its label and total', () => {

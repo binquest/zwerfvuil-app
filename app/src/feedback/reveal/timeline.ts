@@ -7,7 +7,7 @@
 // AUDIO_LEAD_MS later. The timing comes from tuning.ts, every number shown
 // from the score the server sent (score.steps): the timeline lands on its total.
 import { countSteps } from '../../lib/reveal';
-import { baseStep, streakStep, type Score } from '../../lib/score';
+import { streakStep, type Score } from '../../lib/score';
 import type { HapticKind } from '../haptics';
 import type { SfxId } from '../sfx/sources';
 import * as T from './tuning';
@@ -22,6 +22,12 @@ export type Event =
   // The big number.
   | { atMs: number; type: 'chipIn' }
   | { atMs: number; type: 'count'; value: number }
+  // A discovery: the banner falls in (`sparkles` is 0 with Reduce Motion) and
+  // the chips get `add` more; the POINTS chip pops when they land.
+  | { atMs: number; type: 'discovery'; add: number; sparkles: number }
+  | { atMs: number; type: 'chipPop'; scale: number }
+  // A step of a kind the app does not know: its label, and its running total.
+  | { atMs: number; type: 'step'; label: string; total: number | null }
   // One streak multiplier lands: the badge, the number, the heat layer.
   | { atMs: number; type: 'mult'; stage: number; multiplier: number; total: number; max: boolean; peakScale: number; heat: number }
   | { atMs: number; type: 'shake'; px: number; ms: number; rotationDeg: number }
@@ -42,12 +48,17 @@ export type Event =
       spring: { damping: number; stiffness: number };
       particles: number;
     }
+  // The first check-in of the week: the streak flame grows (stands still with Reduce Motion).
+  | { atMs: number; type: 'flame'; weeks: number; grow: boolean }
   | { atMs: number; type: 'showBonusQuestion' }
   // The +5.
   | { atMs: number; type: 'bonusChip'; durationMs: number; value: number }
   | { atMs: number; type: 'punch'; scale: number }
   | { atMs: number; type: 'ring' }
-  | { atMs: number; type: 'badge'; value: number };
+  | { atMs: number; type: 'badge'; value: number }
+  // A celebration (celebrate.tsx): confetti (0 pieces with Reduce Motion), its reward comes in.
+  | { atMs: number; type: 'confetti'; pieces: number }
+  | { atMs: number; type: 'reward' };
 
 type DistributiveOmit<U, K extends PropertyKey> = U extends unknown ? Omit<U, K> : never;
 /** An event without its time. */
@@ -110,73 +121,112 @@ function jitter(index: number): number {
 }
 
 /**
- * The reveal of `score`: the base counted up, one hit per streak stage, the
- * total. Steps of an unknown kind do not play yet; the slam lands on the total
- * either way.
+ * The reveal of `score`, step by step in the server's order: the base counted
+ * up, the discovery (banner, +5 chips), one hit per streak stage, a step of an
+ * unknown kind with its label and the chip sound; then the total slams in, and
+ * on the first check-in of the week the streak flame grows.
  */
 export function buildRevealTimeline(input: RevealTimelineInput): Event[] {
   const { score } = input;
-  const base = Math.max(0, Math.round(baseStep(score)?.total ?? 0));
-  const streak = streakStep(score);
-  const weeks = streak?.weeks ?? 0;
-  const stages = streak?.stages ?? [];
   const reduce = input.reduceMotion;
-  const stageCount = stages.length;
   const { add, visual, done } = collector();
 
   visual(0, { type: 'chipIn' });
 
-  // Counting up to the base points.
-  const steps = base > 0 ? countSteps(0, base, T.BASE_TICKS) : [];
-  let at = T.LEAD_IN_MS;
-  steps.forEach((value, i) => {
-    if (i > 0) {
-      const progress = steps.length > 2 ? (i - 1) / (steps.length - 2) : 0;
-      const eased = progress * progress * (3 - 2 * progress);
-      at += Math.round(T.TICK_INTERVAL_START_MS + (T.TICK_INTERVAL_END_MS - T.TICK_INTERVAL_START_MS) * eased);
+  // `cursor` is when the next step starts, `shown` the running total on screen.
+  let cursor = T.LEAD_IN_MS;
+  let shown = 0;
+  let stageCount = 0;
+  for (const step of score.steps) {
+    switch (step.kind) {
+      case 'base': {
+        // Counting up to the base points.
+        const base = Math.max(0, Math.round(step.total));
+        const values = base > 0 ? countSteps(0, base, T.BASE_TICKS) : [];
+        let at = cursor;
+        values.forEach((value, i) => {
+          if (i > 0) {
+            const progress = values.length > 2 ? (i - 1) / (values.length - 2) : 0;
+            const eased = progress * progress * (3 - 2 * progress);
+            at += Math.round(T.TICK_INTERVAL_START_MS + (T.TICK_INTERVAL_END_MS - T.TICK_INTERVAL_START_MS) * eased);
+          }
+          const id = `tick_${Math.floor(i / 2) % T.TICK_PITCHES}` as SfxId;
+          add(at, { type: 'sound', id, volume: T.VOLUME.tick * (1 + T.TICK_JITTER * jitter(i)) });
+          if (i % 2 === 0) add(at, { type: 'haptic', kind: 'selection' });
+          visual(at, { type: 'count', value });
+        });
+        shown = base;
+        cursor = at + T.TICK_INTERVAL_END_MS;
+        break;
+      }
+      case 'discovery': {
+        // The banner with its fanfare, then the chips get their +5.
+        const bannerAt = cursor + T.DISCOVERY_LEAD_MS;
+        add(bannerAt, { type: 'sound', id: 'discover_fanfare', volume: T.VOLUME.fanfare });
+        add(bannerAt, { type: 'haptic', kind: 'medium' });
+        visual(bannerAt, { type: 'discovery', add: step.add, sparkles: reduce ? 0 : T.DISCOVERY_SPARKLES });
+        const addAt = bannerAt + T.DISCOVERY_ADD_MS;
+        add(addAt, { type: 'sound', id: 'chip_add', volume: T.VOLUME.chipAdd });
+        add(addAt, { type: 'haptic', kind: 'selection' });
+        visual(addAt, { type: 'count', value: step.total });
+        visual(addAt, { type: 'chipPop', scale: reduce ? T.REDUCED_MOTION_MAX_SCALE : T.CHIP_POP_SCALE });
+        shown = step.total;
+        cursor = addAt + T.DISCOVERY_HOLD_MS;
+        break;
+      }
+      case 'streak': {
+        // Anticipation, then one hit per streak week.
+        add(cursor, { type: 'sound', id: 'riser', volume: T.VOLUME.riser });
+        let at = cursor + T.ANTICIPATION_MS;
+        const { weeks, stages } = step;
+        stageCount = stages.length;
+        for (let stage = 1; stage <= stageCount; stage++) {
+          const { mult, total } = stages[stage - 1];
+          // Sound, haptics and motion grow up to the top stage and stay there.
+          const level = Math.min(stage, T.TOP_STAGE);
+          add(at, { type: 'sound', id: `mult_${level}` as SfxId, volume: T.VOLUME.mult });
+          add(at, { type: 'sound', id: 'transient', volume: T.VOLUME.transient });
+          for (const { kind, delayMs } of stageHaptics(level)) add(at + delayMs, { type: 'haptic', kind });
+          // The low crackle is audio: it stays with Reduce Motion, the glow does not.
+          if (heatOf(level) > 0) add(at, { type: 'sound', id: 'heat_loop', volume: T.HEAT_LOOP_VOLUME * heatOf(level), loop: true });
+          visual(at, {
+            type: 'mult',
+            stage,
+            multiplier: mult,
+            total,
+            max: weeks > stageCount && stage === stageCount,
+            peakScale: Math.min(reduce ? T.REDUCED_MOTION_MAX_SCALE : Infinity, T.STAGE_PEAK_SCALE.base + T.STAGE_PEAK_SCALE.step * level),
+            heat: reduce ? 0 : heatOf(level),
+          });
+          if (!reduce) {
+            const sign = stage % 2 === 1 ? 1 : -1;
+            visual(at, {
+              type: 'shake',
+              px: T.STAGE_SHAKE_PX.base + T.STAGE_SHAKE_PX.step * level,
+              ms: level === T.TOP_STAGE ? T.LAST_STAGE_SHAKE_MS : T.STAGE_SHAKE_MS.base + T.STAGE_SHAKE_MS.step * level,
+              rotationDeg: sign * (T.STAGE_ROTATION_DEG.base + T.STAGE_ROTATION_DEG.step * level),
+            });
+            visual(at, { type: 'flash', opacity: T.STAGE_FLASH.base + T.STAGE_FLASH.step * level });
+          }
+          shown = total;
+          at += stageIntervalMs(stage, reduce);
+        }
+        cursor = at;
+        break;
+      }
+      case 'other': {
+        // A kind the app does not know yet: its label and total, the chip sound.
+        const stepAt = cursor + T.STEP_LEAD_MS;
+        add(stepAt, { type: 'sound', id: 'chip_add', volume: T.VOLUME.chipAdd });
+        add(stepAt, { type: 'haptic', kind: 'medium' });
+        visual(stepAt, { type: 'step', label: step.label, total: step.total });
+        if (step.total !== null) shown = step.total;
+        cursor = stepAt + T.STEP_HOLD_MS;
+        break;
+      }
     }
-    const id = `tick_${Math.floor(i / 2) % T.TICK_PITCHES}` as SfxId;
-    add(at, { type: 'sound', id, volume: T.VOLUME.tick * (1 + T.TICK_JITTER * jitter(i)) });
-    if (i % 2 === 0) add(at, { type: 'haptic', kind: 'selection' });
-    visual(at, { type: 'count', value });
-  });
-
-  // Anticipation, then one hit per streak week.
-  const riserAt = at + T.TICK_INTERVAL_END_MS;
-  add(riserAt, { type: 'sound', id: 'riser', volume: T.VOLUME.riser });
-  at = riserAt + T.ANTICIPATION_MS;
-  let shown = base;
-  for (let stage = 1; stage <= stageCount; stage++) {
-    const { mult, total } = stages[stage - 1];
-    // Sound, haptics and motion grow up to the top stage and stay there.
-    const level = Math.min(stage, T.TOP_STAGE);
-    add(at, { type: 'sound', id: `mult_${level}` as SfxId, volume: T.VOLUME.mult });
-    add(at, { type: 'sound', id: 'transient', volume: T.VOLUME.transient });
-    for (const { kind, delayMs } of stageHaptics(level)) add(at + delayMs, { type: 'haptic', kind });
-    // The low crackle is audio: it stays with Reduce Motion, the glow does not.
-    if (heatOf(level) > 0) add(at, { type: 'sound', id: 'heat_loop', volume: T.HEAT_LOOP_VOLUME * heatOf(level), loop: true });
-    visual(at, {
-      type: 'mult',
-      stage,
-      multiplier: mult,
-      total,
-      max: weeks > stageCount && stage === stageCount,
-      peakScale: Math.min(reduce ? T.REDUCED_MOTION_MAX_SCALE : Infinity, T.STAGE_PEAK_SCALE.base + T.STAGE_PEAK_SCALE.step * level),
-      heat: reduce ? 0 : heatOf(level),
-    });
-    if (!reduce) {
-      const sign = stage % 2 === 1 ? 1 : -1;
-      visual(at, {
-        type: 'shake',
-        px: T.STAGE_SHAKE_PX.base + T.STAGE_SHAKE_PX.step * level,
-        ms: level === T.TOP_STAGE ? T.LAST_STAGE_SHAKE_MS : T.STAGE_SHAKE_MS.base + T.STAGE_SHAKE_MS.step * level,
-        rotationDeg: sign * (T.STAGE_ROTATION_DEG.base + T.STAGE_ROTATION_DEG.step * level),
-      });
-      visual(at, { type: 'flash', opacity: T.STAGE_FLASH.base + T.STAGE_FLASH.step * level });
-    }
-    shown = total;
-    at += stageIntervalMs(stage, reduce);
   }
+  let at = cursor;
 
   // Hit-stop, then the total slams in.
   if (!reduce) {
@@ -198,7 +248,17 @@ export function buildRevealTimeline(input: RevealTimelineInput): Event[] {
     particles: reduce ? 0 : Math.min(T.SLAM_PARTICLES_MAX, T.SLAM_PARTICLES_MIN + stageCount),
   });
   if (!reduce) visual(at, { type: 'flash', opacity: T.SLAM_FLASH });
-  if (input.bonus) visual(at + T.SETTLE_MS, { type: 'showBonusQuestion' });
+
+  // The first check-in of the week: the streak flame, then the bonus question.
+  let settleAt = at + T.SETTLE_MS;
+  if (score.streakExtended) {
+    const flameAt = at + T.FLAME_DELAY_MS;
+    add(flameAt, { type: 'sound', id: 'flame_whoosh', volume: T.VOLUME.flame });
+    add(flameAt, { type: 'haptic', kind: 'light' });
+    visual(flameAt, { type: 'flame', weeks: streakStep(score)?.weeks ?? 0, grow: !reduce });
+    settleAt = flameAt + T.FLAME_HOLD_MS;
+  }
+  if (input.bonus) visual(settleAt, { type: 'showBonusQuestion' });
 
   return done();
 }

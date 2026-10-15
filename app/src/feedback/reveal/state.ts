@@ -16,9 +16,24 @@ export interface RevealState {
   max: boolean;
   /** The total has slammed in. */
   landed: boolean;
+  /** The chips a discovery added (0 = no discovery yet); the banner shows from then on. */
+  discovery: number;
+  /** The label of the last step of an unknown kind, if any. */
+  step: string | null;
+  /** The streak flame of the first check-in of the week. */
+  flame: boolean;
 }
 
-export const INITIAL_REVEAL_STATE: RevealState = { value: 0, stage: 0, multiplier: 1, max: false, landed: false };
+export const INITIAL_REVEAL_STATE: RevealState = {
+  value: 0,
+  stage: 0,
+  multiplier: 1,
+  max: false,
+  landed: false,
+  discovery: 0,
+  step: null,
+  flame: false,
+};
 
 /** The state after `event`; the same object when the event changes nothing shown. */
 export function applyRevealEvent(state: RevealState, event: Event): RevealState {
@@ -29,6 +44,12 @@ export function applyRevealEvent(state: RevealState, event: Event): RevealState 
       return { ...state, value: event.total, stage: event.stage, multiplier: event.multiplier, max: state.max || event.max };
     case 'slam':
       return { ...state, value: event.to, landed: true };
+    case 'discovery':
+      return { ...state, discovery: event.add };
+    case 'step':
+      return { ...state, step: event.label, value: event.total ?? state.value };
+    case 'flame':
+      return { ...state, flame: true };
     default:
       return state;
   }

@@ -2,14 +2,17 @@
 // preview) before it opens the screen. The reveal itself is a timeline:
 // src/feedback/reveal/timeline.ts.
 
+import type { CheckinGame } from '../game/discoveries';
 import { formatPoints, formatWeeks } from './format';
 import type { BonusQuestion } from './points';
-import { streakWeeks, type Score } from './score';
+import { discoveryStep, streakWeeks, type Score } from './score';
 
 /** What the reveal screen shows; set by the camera (or the Dev mode preview) before opening it. */
 export interface RevealData {
   /** The steps and the total, from the server (the preview builds its own). */
   score: Score;
+  /** What the check-in made new: the banner's numbers, a milestone after the reveal. */
+  game?: CheckinGame | null;
   question: BonusQuestion | null;
   /** The check-in the bonus question belongs to; null in the preview. */
   checkinId: string | null;
@@ -38,11 +41,16 @@ export function takePendingReveal(): RevealData | null {
   return data;
 }
 
-/** What VoiceOver says instead of the animation: "13 punten, wacht op goedkeuring. Reeks van 3 weken." */
+/**
+ * What VoiceOver says instead of the animation: "22 punten, wacht op
+ * goedkeuring. Nieuwe vuilbak ontdekt. Reeks verlengd: 4 weken."
+ */
 export function revealSummary(score: Score, preview = false): string {
   const weeks = streakWeeks(score);
   const parts = [`${formatPoints(score.total)}, ${preview ? 'voorbeeld' : 'wacht op goedkeuring'}.`];
-  if (weeks > 0) parts.push(`Reeks van ${formatWeeks(weeks)}.`);
+  if (discoveryStep(score)) parts.push('Nieuwe vuilbak ontdekt.');
+  if (score.streakExtended && weeks > 0) parts.push(weeks === 1 ? 'Reeks gestart.' : `Reeks verlengd: ${formatWeeks(weeks)}.`);
+  else if (weeks > 0) parts.push(`Reeks van ${formatWeeks(weeks)}.`);
   return parts.join(' ');
 }
 

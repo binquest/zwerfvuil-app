@@ -67,6 +67,24 @@ export const SLAM_SUCCESS_DELAY_MS = 60;
 /** After the slam, before the bonus question comes in. */
 export const SETTLE_MS = 400;
 
+// The discovery (a new bin): after the base the banner falls in with its
+// fanfare, then the chips get their +5, then the streak.
+export const DISCOVERY_LEAD_MS = 120;
+export const DISCOVERY_ADD_MS = 260;
+export const DISCOVERY_HOLD_MS = 420;
+export const DISCOVERY_SPARKLES = 10;
+export const CHIP_POP_SCALE = 1.25;
+
+// A step the app does not know yet: its label and running total, with the
+// chip sound (a new kind of bonus needs no app update).
+export const STEP_LEAD_MS = 120;
+export const STEP_HOLD_MS = 380;
+
+// The streak flame (the first check-in of the week), after the slam and
+// before the bonus question.
+export const FLAME_DELAY_MS = 450;
+export const FLAME_HOLD_MS = 650;
+
 // The +5 of the bonus question.
 export const BONUS_CHIP_ARC_MS = 320;
 export const BONUS_HIT_STOP_MS = 80;
@@ -94,4 +112,8 @@ export const VOLUME = {
   bonusTick: 0.7,
   bonusLand: 0.9,
   tock: 0.6,
+  fanfare: 0.8,
+  chipAdd: 0.75,
+  flame: 0.7,
+  milestone: 0.9,
 };

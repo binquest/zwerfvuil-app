@@ -12,15 +12,29 @@ import { EmptyState } from '@/components/EmptyState';
 import { describeStressResult, runSoundStressTest } from '@/feedback/reveal/stress';
 import { buildRevealTimeline } from '@/feedback/reveal/timeline';
 import { warmUpSounds } from '@/feedback/sfx/soundtrack';
-import { previewScore, streakMultiplierLabel } from '@/game/catalog';
+import { previewScore, streakMultiplierLabel, type GameConfig } from '@/game/catalog';
+import { setPendingCelebration } from '@/game/celebration';
+import { milestoneTitle, type CheckinGame, type MissedMoment } from '@/game/discoveries';
 import { useGameCatalog } from '@/game/useGameCatalog';
 import { adminErrorMessage } from '@/lib/errors';
 import { formatPoints, formatWeeks } from '@/lib/format';
 import type { BonusQuestion } from '@/lib/points';
 import { setPendingReveal } from '@/lib/reveal';
+import type { Score } from '@/lib/score';
 import { useDevMode } from '@/providers/DevModeProvider';
 import { useLocation } from '@/providers/LocationProvider';
 import { useToast } from '@/providers/ToastProvider';
+
+/** The preview's discovery: bin #58, the 12th of 120 (made-up numbers, nothing is read or written). */
+const PREVIEW_DISCOVERY = { binId: 58, ordinal: 12, discovered: 12, totalBins: 120, status: 'pending' as const };
+
+/** The score of the preview: base, discovery, streak, and optionally a step the app does not know ("PREMIE ×2"). */
+function previewRevealScore(config: GameConfig, weeks: number, base: number, discovery: boolean, extended: boolean, unknownStep: boolean): Score {
+  const score = previewScore(config, weeks, base, { discovery, streakExtended: extended });
+  if (!unknownStep) return score;
+  const total = score.total * 2;
+  return { ...score, steps: [...score.steps, { kind: 'other', name: 'bounty', label: 'PREMIE ×2', total }], total };
+}
 
 /** Shown in the preview, with the points from the config; the real questions come from the server. */
 function previewQuestion(points: number): BonusQuestion {
@@ -49,6 +63,14 @@ export default function DevModeScreen() {
   const [previewAwarded, setPreviewAwarded] = useState(true);
   const [previewReduceMotion, setPreviewReduceMotion] = useState(false);
   const [previewNoSound, setPreviewNoSound] = useState(false);
+  const [previewDiscovery, setPreviewDiscovery] = useState(true);
+  const [previewExtended, setPreviewExtended] = useState(true);
+  const [previewUnknownStep, setPreviewUnknownStep] = useState(false);
+  const [previewMilestone, setPreviewMilestone] = useState(false);
+  const milestones = useGameCatalog()?.milestones ?? [];
+  const [milestoneIndex, setMilestoneIndex] = useState(0);
+  const [milestoneGranted, setMilestoneGranted] = useState(false);
+  const chosenMilestone = milestones[Math.min(milestoneIndex, Math.max(0, milestones.length - 1))] ?? null;
   const [stress, setStress] = useState<string | null>(null);
   const stopStress = useRef<(() => void) | null>(null);
   const [override, setOverride] = useState(dev.status?.streakOverride ?? 4);
@@ -58,8 +80,15 @@ export default function DevModeScreen() {
   // starting the app can take longer than the reveal waits for them.
   useEffect(() => {
     if (!dev.available) return;
-    warmUpSounds(config ? buildRevealTimeline({ score: previewScore(config, previewWeeks, previewBase), reduceMotion: false }) : []);
-  }, [dev.available, config, previewWeeks, previewBase]);
+    warmUpSounds(
+      config
+        ? buildRevealTimeline({
+            score: previewRevealScore(config, previewWeeks, previewBase, previewDiscovery, previewExtended, previewUnknownStep),
+            reduceMotion: false,
+          })
+        : [],
+    );
+  }, [dev.available, config, previewWeeks, previewBase, previewDiscovery, previewExtended, previewUnknownStep]);
 
   // A stress test still running when the screen goes stops.
   useEffect(() => () => stopStress.current?.(), []);
@@ -87,11 +116,17 @@ export default function DevModeScreen() {
 
   const playPreview = () => {
     if (!config) return;
-    const score = previewScore(config, previewWeeks, previewBase);
+    const score = previewRevealScore(config, previewWeeks, previewBase, previewDiscovery, previewExtended, previewUnknownStep);
     // The reveal waits for the sounds; start loading them now.
     if (!previewNoSound) warmUpSounds(buildRevealTimeline({ score, reduceMotion: previewReduceMotion }));
+    const game: CheckinGame = {
+      discovery: previewDiscovery ? PREVIEW_DISCOVERY : null,
+      milestone: previewMilestone && chosenMilestone ? { ...chosenMilestone, status: 'pending' } : null,
+      asOf: null,
+    };
     setPendingReveal({
       score,
+      game,
       question: previewBonus ? previewQuestion(config.bonusQuestionPoints) : null,
       checkinId: null,
       isTest: true,
@@ -101,6 +136,39 @@ export default function DevModeScreen() {
       forceReduceMotion: previewReduceMotion,
     });
     router.push('/reveal');
+  };
+
+  /** The milestone celebration on its own, as after a reveal. */
+  const showMilestone = () => {
+    if (!chosenMilestone) return;
+    setPendingCelebration({
+      kind: 'milestone',
+      milestone: { ...chosenMilestone, status: milestoneGranted ? 'granted' : 'pending' },
+      discovered: chosenMilestone.threshold,
+      totalBins: 120,
+      asOf: null,
+      preview: true,
+      forceReduceMotion: previewReduceMotion,
+      noSound: previewNoSound,
+    });
+    router.push('/celebrate');
+  };
+
+  /** Missed moments as the presenter shows them: three discoveries, and the chosen milestone. */
+  const showMissed = () => {
+    const at = new Date().toISOString();
+    const moments: MissedMoment[] = [58, 61, 74].map((binId, i) => ({ kind: 'discovery', at, binId, ordinal: 10 + i, status: 'pending' }));
+    if (chosenMilestone) moments.push({ kind: 'milestone', at, ...chosenMilestone, status: 'pending' });
+    setPendingCelebration({
+      kind: 'missed',
+      moments,
+      total: moments.length,
+      asOf: null,
+      preview: true,
+      forceReduceMotion: previewReduceMotion,
+      noSound: previewNoSound,
+    });
+    router.push('/celebrate');
   };
 
   const startStressTest = () => {
@@ -174,6 +242,10 @@ export default function DevModeScreen() {
             </Text>
           </LabeledContent>
           <Slider value={previewWeeks} min={0} max={10} step={1} onValueChange={(weeks) => setPreviewWeeks(Math.round(weeks))} />
+          <Toggle label="Nieuwe vuilbak (ontdekking)" isOn={previewDiscovery} onIsOnChange={setPreviewDiscovery} />
+          <Toggle label="Reeks verlengd (vlam)" isOn={previewExtended} onIsOnChange={setPreviewExtended} />
+          <Toggle label="Onbekende stap (PREMIE ×2)" isOn={previewUnknownStep} onIsOnChange={setPreviewUnknownStep} />
+          <Toggle label="Daarna een mijlpaal" isOn={previewMilestone} onIsOnChange={setPreviewMilestone} />
           <Toggle label="Met bonusvraag" isOn={previewBonus} onIsOnChange={setPreviewBonus} />
           <Toggle
             label="Bonus toegekend"
@@ -184,6 +256,26 @@ export default function DevModeScreen() {
           <Toggle label="Reduce Motion forceren" isOn={previewReduceMotion} onIsOnChange={setPreviewReduceMotion} />
           <Toggle label="Zonder geluid (diagnose)" isOn={previewNoSound} onIsOnChange={setPreviewNoSound} />
           <Button label={config ? 'Speel af' : 'Config laden…'} systemImage="play.fill" onPress={playPreview} modifiers={[disabled(!config)]} />
+        </Section>
+
+        <Section
+          title="Vieringen bekijken"
+          footer={
+            <Text>
+              De mijlpaalviering (volledig scherm, confetti) en de gemiste momenten zoals ze na het openen verschijnen.
+              Reduce Motion en geluid volgen de schakelaars hierboven. Schrijft niets weg en markeert niets als gezien.
+            </Text>
+          }>
+          <Stepper
+            label={chosenMilestone ? `Mijlpaal: ${milestoneTitle(chosenMilestone.threshold)} · +${chosenMilestone.points}` : 'Mijlpalen laden…'}
+            value={milestoneIndex}
+            min={0}
+            max={Math.max(0, milestones.length - 1)}
+            onValueChange={setMilestoneIndex}
+          />
+          <Toggle label="Al toegekend" isOn={milestoneGranted} onIsOnChange={setMilestoneGranted} />
+          <Button label="Mijlpaal tonen" systemImage="flag.checkered" onPress={showMilestone} modifiers={[disabled(!chosenMilestone)]} />
+          <Button label="Gemiste momenten tonen" systemImage="tray.full" onPress={showMissed} />
         </Section>
 
         <Section

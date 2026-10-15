@@ -1,6 +1,8 @@
 -- The score of a check-in (private.checkin_score): steps and running totals
 -- from the config, the score in record_checkin, test check-ins with only base
 -- and streak, a rejection that takes the points back, and game_catalog().
+-- Since phase 3 the first real check-in at a bin is a discovery (see
+-- 12_discoveries); every score carries streak_extended and its ledger parts.
 -- The point stage assertions of 06 moved here with checkin_point_stages.
 -- Run with: npm run db:test
 
@@ -56,13 +58,13 @@ $$;
 select is(private.checkin_score(0),
   '{"steps": [{"kind": "base", "label": "BASIS", "chips": 10, "mult": 1, "total": 10},
               {"kind": "streak", "label": "REEKS", "weeks": 0, "per_week": 1.1, "stages": []}],
-    "total": 10}'::jsonb,
+    "total": 10, "streak_extended": false, "parts": {"checkin": 10}}'::jsonb,
   'no streak: the base of 10 and an empty streak step');
 select is(private.checkin_score(3),
   '{"steps": [{"kind": "base", "label": "BASIS", "chips": 10, "mult": 1, "total": 10},
               {"kind": "streak", "label": "REEKS", "weeks": 3, "per_week": 1.1,
                "stages": [{"mult": 1.1, "total": 11}, {"mult": 1.21, "total": 12}, {"mult": 1.331, "total": 13}]}],
-    "total": 13}'::jsonb,
+    "total": 13, "streak_extended": false, "parts": {"checkin": 13}}'::jsonb,
   'three weeks: one stage per week, each with its multiplier and running total');
 select is(pg_temp.score_stages(private.checkin_score(0)), array[10], 'no streak: only the base of 10 points');
 select is(pg_temp.score_stages(private.checkin_score(1)), array[10, 11], 'one streak week: one x1.1 stage');
@@ -103,7 +105,7 @@ select is(private.checkin_score(5),
   '{"steps": [{"kind": "base", "label": "BASIS", "chips": 12, "mult": 1, "total": 12},
               {"kind": "streak", "label": "REEKS", "weeks": 5, "per_week": 1.2,
                "stages": [{"mult": 1.2, "total": 14}, {"mult": 1.44, "total": 17}]}],
-    "total": 17}'::jsonb,
+    "total": 17, "streak_extended": false, "parts": {"checkin": 17}}'::jsonb,
   'base, multiplier and maximum from the config: 12, x1.2, two stages');
 update game_config set value = '0' where key = 'streak_max_steps';
 select is(pg_temp.score_stages(private.checkin_score(5)), array[12], 'a maximum of 0 steps: the streak multiplies nothing');
@@ -129,10 +131,12 @@ select is(
 create temp table r1 as select * from pg_temp.checkin('b1000000-0000-0000-0000-000000000001', 900000000001101);
 select set_config('test.r1', (select checkin_id::text from r1), true);
 select is((select row(ok, streak_weeks, is_test)::text from r1), '(t,1,f)', 'a first real check-in: a streak of 1 week');
-select is((select score from r1), private.checkin_score(1), 'its score is checkin_score of its streak');
+select is((select score from r1), private.checkin_score(1, true, true),
+  'its score is checkin_score of its streak, with the discovery and the first check-in of the week');
 select is(
   (select row(c.points_earned, pg_temp.rows_of(c.id))::text from checkins c where c.id = current_setting('test.r1')::uuid),
-  '(11,checkin:11:pending)', 'the check-in stores the score''s total; the ledger has it pending');
+  '(17,"checkin:11:pending,discovery:6:pending")',
+  'the check-in stores the score''s total (15 x1.1); the ledger has it pending, split into check-in and discovery');
 
 -- A test check-in (admin on local, streak override): base and streak only,
 -- test points only.
@@ -155,7 +159,8 @@ select set_config('request.jwt.claims', '{"sub":"b1000000-0000-0000-0000-0000000
 select review_checkin(current_setting('test.r1')::uuid, false, 'Foto onduidelijk');
 select review_checkin(current_setting('test.t1')::uuid, false);
 reset role;
-select is(pg_temp.rows_of(current_setting('test.r1')::uuid), 'checkin:11:revoked', 'a rejection revokes the check-in''s points');
+select is(pg_temp.rows_of(current_setting('test.r1')::uuid), 'checkin:11:revoked,discovery:6:revoked',
+  'a rejection revokes the check-in''s points');
 select is(pg_temp.rows_of((select checkin_id from t1)), 'checkin:13:revoked:test', 'also for a test check-in');
 select is((select row(points, test_points)::text from profiles where id = 'b1000000-0000-0000-0000-000000000001'), '(0,0)',
   'nothing counts after the rejection');
@@ -167,8 +172,10 @@ select is((select row(points, test_points)::text from profiles where id = 'b1000
 update game_config set value = '1.15' where key = 'streak_multiplier';
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"b1000000-0000-0000-0000-000000000001","role":"authenticated"}', true);
-select is(game_catalog(),
-  '{"config": {"checkin_base_chips": 10, "streak_multiplier": 1.15, "streak_max_steps": 8, "bonus_question_points": 5}}'::jsonb,
+select is(game_catalog()->'config',
+  '{"checkin_base_chips": 10, "streak_multiplier": 1.15, "streak_max_steps": 8, "bonus_question_points": 5,
+    "discovery_chips": 5, "region_west": 3.708015, "region_south": 51.044642, "region_east": 3.725743,
+    "region_north": 51.059883}'::jsonb,
   'game_catalog gives signed-in users every number of the config, as it is now');
 select throws_ok($$ select private.checkin_score(1) $$, '42501', null, 'users cannot call checkin_score');
 reset role;

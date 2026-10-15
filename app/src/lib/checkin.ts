@@ -1,5 +1,6 @@
 // Interpreting submit-checkin responses and failures (pure, unit tested).
 
+import { parseCheckinGame, type CheckinGame } from '../game/discoveries';
 import { type BonusQuestion, parseBonusQuestion } from './points';
 import { parseScore, type Score } from './score';
 
@@ -22,6 +23,8 @@ export type CheckinOutcome =
       message: string;
       /** The steps of the reveal; null when the server sent none (the app then skips the reveal). */
       score: Score | null;
+      /** What the check-in made new (a discovery, a milestone); null for test check-ins. */
+      game: CheckinGame | null;
       question: BonusQuestion | null;
       /** Dev mode: a test check-in. */
       isTest: boolean;
@@ -75,6 +78,7 @@ export function parseCheckinResponse(status: number, bodyText: string | null, de
       distanceM: typeof data.distance_m === 'number' ? data.distance_m : null,
       message: typeof data.message === 'string' ? data.message : 'Bedankt! Je inworp wacht op goedkeuring.',
       score: parseScore(data.score),
+      game: parseCheckinGame(data.game),
       question: parseBonusQuestion(data.bonus_question),
       isTest: data.is_test === true,
     };

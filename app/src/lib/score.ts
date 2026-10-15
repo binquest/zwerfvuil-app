@@ -3,9 +3,9 @@
 // total, and the total. The app plays exactly these numbers and computes
 // nothing itself (docs/GAMIFICATION.md, chapter 4).
 //
-// Known steps: base and streak. A step of another kind is kept with its label
-// and total, so a new kind of bonus does not break the reveal: it lands on the
-// total either way.
+// Known steps: base, discovery (the first check-in at a bin, +5 chips) and
+// streak. A step of another kind is kept with its label and total and plays as
+// a generic step, so a new kind of bonus needs no app update.
 
 export interface StreakStage {
   /** The combined multiplier after this stage, rounded for display (1.21). */
@@ -15,12 +15,16 @@ export interface StreakStage {
 
 export type ScoreStep =
   | { kind: 'base'; label: string; chips: number; mult: number; total: number }
+  /** The chips after the discovery (base + add) and the running total. */
+  | { kind: 'discovery'; label: string; chips: number; add: number; mult: number; total: number }
   | { kind: 'streak'; label: string; weeks: number; perWeek: number; stages: StreakStage[] }
   | { kind: 'other'; name: string; label: string; total: number | null };
 
 export interface Score {
   steps: ScoreStep[];
   total: number;
+  /** The first check-in of the week: the reveal shows the streak flame. */
+  streakExtended: boolean;
 }
 
 function isNumber(value: unknown): value is number {
@@ -34,6 +38,10 @@ function parseStep(value: unknown): ScoreStep | null {
   if (v.kind === 'base') {
     if (!isNumber(v.chips) || !isNumber(v.mult) || !isNumber(v.total)) return null;
     return { kind: 'base', label: v.label, chips: v.chips, mult: v.mult, total: v.total };
+  }
+  if (v.kind === 'discovery') {
+    if (!isNumber(v.chips) || !isNumber(v.add) || !isNumber(v.mult) || !isNumber(v.total)) return null;
+    return { kind: 'discovery', label: v.label, chips: v.chips, add: v.add, mult: v.mult, total: v.total };
   }
   if (v.kind === 'streak') {
     if (!isNumber(v.weeks) || !isNumber(v.per_week) || !Array.isArray(v.stages)) return null;
@@ -53,14 +61,19 @@ export function parseScore(value: unknown): Score | null {
   if (!isNumber(v.total) || !Array.isArray(v.steps) || v.steps.length === 0) return null;
   const steps = v.steps.map(parseStep);
   if (steps.some((step) => step === null)) return null;
-  return { steps: steps as ScoreStep[], total: v.total };
+  return { steps: steps as ScoreStep[], total: v.total, streakExtended: v.streak_extended === true };
 }
 
 export type BaseStep = Extract<ScoreStep, { kind: 'base' }>;
+export type DiscoveryStep = Extract<ScoreStep, { kind: 'discovery' }>;
 export type StreakStep = Extract<ScoreStep, { kind: 'streak' }>;
 
 export function baseStep(score: Score): BaseStep | null {
   return (score.steps.find((step) => step.kind === 'base') as BaseStep | undefined) ?? null;
+}
+
+export function discoveryStep(score: Score): DiscoveryStep | null {
+  return (score.steps.find((step) => step.kind === 'discovery') as DiscoveryStep | undefined) ?? null;
 }
 
 export function streakStep(score: Score): StreakStep | null {

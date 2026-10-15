@@ -4,6 +4,14 @@ import { File } from 'expo-file-system';
 
 import { track } from '@/analytics';
 
+import {
+  parseCollection,
+  parseGameState,
+  parseUnseen,
+  type CollectionEntry,
+  type GameState,
+  type Unseen,
+} from '../game/discoveries';
 import { CHECKIN_TIMEOUT_MS, localFailure, parseCheckinResponse, type CheckinOutcome } from './checkin';
 import { describeError, devLog } from './devlog';
 import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from './env';
@@ -131,6 +139,37 @@ export async function fetchLeaderboard(period: LeaderboardPeriod, includeTest = 
 }
 
 /** Starts the answer timer of the bonus question (the server flags very fast answers). */
+/** my_game_state(): points, streak, the discovery counter and the next milestone. */
+export async function fetchMyGameState(): Promise<GameState> {
+  const { data, error } = await supabase.rpc('my_game_state');
+  if (error) throw error;
+  const state = parseGameState(data);
+  if (!state) throw new Error('my_game_state: unexpected answer');
+  return state;
+}
+
+/** my_collection(): every bin of the region and every bin discovered, with the discovery. */
+export async function fetchMyCollection(): Promise<CollectionEntry[]> {
+  const { data, error } = await supabase.rpc('my_collection');
+  if (error) throw error;
+  return parseCollection(data);
+}
+
+/** my_unseen(): the moments missed since the last visit. */
+export async function fetchMyUnseen(): Promise<Unseen> {
+  const { data, error } = await supabase.rpc('my_unseen');
+  if (error) throw error;
+  const unseen = parseUnseen(data);
+  if (!unseen) throw new Error('my_unseen: unexpected answer');
+  return unseen;
+}
+
+/** Marks the moments up to `until` (a server time) as seen. */
+export async function markMomentsSeen(until: string): Promise<void> {
+  const { error } = await supabase.rpc('mark_seen', { kind: 'moments', until });
+  if (error) throw error;
+}
+
 export async function markBonusShown(checkinId: string): Promise<void> {
   const { error } = await supabase.rpc('mark_bonus_question_shown', { checkin_id: checkinId });
   if (error) throw error;

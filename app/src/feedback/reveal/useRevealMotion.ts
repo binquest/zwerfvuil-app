@@ -4,8 +4,9 @@
 //
 // Every animation uses ReduceMotion.System, so Reanimated also jumps to the end
 // when the system setting is on (ReduceMotion.Always when the Dev mode preview
-// forces it); the timeline already leaves out shake, flash, particles and the
-// flying chip then (timeline.ts).
+// forces it); the timeline already leaves out shake, flash, particles, sparkles
+// and the flying chip then (timeline.ts). Only opacity fades run with Reduce
+// Motion on (the discovery banner, a step's label, the flame): nothing moves.
 import { useCallback, useMemo } from 'react';
 import {
   cancelAnimation,
@@ -32,7 +33,16 @@ function animations(reduceMotion: ReduceMotion) {
     spring: (toValue: number, damping: number, stiffness: number) => withSpring(toValue, { damping, stiffness, reduceMotion }),
     /** Jump to a value, then animate on (Reanimated has no "set and go" in one call). */
     jump: (toValue: number) => withTiming(toValue, { duration: 0, reduceMotion }),
+    /** An opacity fade: it also runs with Reduce Motion on, since nothing moves. */
+    fade: (toValue: number, duration: number) => withTiming(toValue, { duration, easing: Easing.out(Easing.quad), reduceMotion: ReduceMotion.Never }),
   };
+}
+
+/** What a skip lands on, besides the streak stages. */
+export interface SettledParts {
+  discovery: boolean;
+  step: boolean;
+  flame: boolean;
 }
 
 /** The MULT badge ramps orange → red → magenta up to the top stage. */
@@ -44,7 +54,10 @@ export const BONUS_FROM = { x: 0, y: 320 };
 export const MAX_PARTICLES = 20;
 
 export function useRevealMotion(forceReduceMotion = false) {
-  const { timing, spring, jump } = useMemo(() => animations(forceReduceMotion ? ReduceMotion.Always : ReduceMotion.System), [forceReduceMotion]);
+  const { timing, spring, jump, fade } = useMemo(
+    () => animations(forceReduceMotion ? ReduceMotion.Always : ReduceMotion.System),
+    [forceReduceMotion],
+  );
   const shakeT = useSharedValue(1);
   const shakePx = useSharedValue(0);
   const shakeDeg = useSharedValue(0);
@@ -60,6 +73,16 @@ export function useRevealMotion(forceReduceMotion = false) {
   const ring = useSharedValue(0);
   const badge = useSharedValue(0);
   const sheet = useSharedValue(0);
+  // The discovery banner (fade and drop), its sparkles and the POINTS chip pop.
+  const bannerIn = useSharedValue(0);
+  const bannerDrop = useSharedValue(0);
+  const sparkle = useSharedValue(0);
+  const sparkleCount = useSharedValue(0);
+  const chipPop = useSharedValue(1);
+  // The label of a step the app does not know, and the streak flame.
+  const stepIn = useSharedValue(0);
+  const flameIn = useSharedValue(0);
+  const flameGrow = useSharedValue(0);
   // The size of the number, measured by the screen: the flying +5 lands on its badge.
   const numberWidth = useSharedValue(160);
   const numberHeight = useSharedValue(132);
@@ -112,15 +135,37 @@ export function useRevealMotion(forceReduceMotion = false) {
       case 'showBonusQuestion':
         sheet.set(spring(1, 18, 160));
         return true;
+      case 'discovery':
+        bannerIn.set(fade(1, 220));
+        bannerDrop.set(withSequence(jump(0), spring(1, 12, 220)));
+        sparkleCount.set(event.sparkles);
+        if (event.sparkles > 0) sparkle.set(withSequence(jump(0), timing(1, 700, Easing.out(Easing.cubic))));
+        return true;
+      case 'chipPop':
+        chipPop.set(withSequence(timing(event.scale, 70), spring(1, 10, 300)));
+        return true;
+      case 'step':
+        stepIn.set(fade(1, 200));
+        return true;
+      case 'flame':
+        flameIn.set(fade(1, 220));
+        // A flame that grows, or one that simply stands there.
+        flameGrow.set(event.grow ? withSequence(jump(0), spring(1, 8, 180)) : jump(1));
+        return true;
       default:
         return false;
     }
-  }, [arc, badge, burst, burstCount, chips, flash, heat, multPop, multRamp, ring, shakeDeg, shakePx, shakeT, sheet, totalScale, timing, spring, jump]);
+  }, [
+    arc, badge, bannerDrop, bannerIn, burst, burstCount, chipPop, chips, flameGrow, flameIn, flash, heat, multPop, multRamp, ring,
+    shakeDeg, shakePx, shakeT, sheet, sparkle, sparkleCount, stepIn, totalScale, timing, spring, jump, fade,
+  ]);
 
   /** A skip: stop everything and stand still on the end state. */
   const settle = useCallback(
-    (stages: number) => {
-      for (const value of [shakeT, flash, chips, multPop, multRamp, heat, totalScale, burst, arc, ring]) cancelAnimation(value);
+    (stages: number, parts: SettledParts = { discovery: false, step: false, flame: false }) => {
+      for (const value of [shakeT, flash, chips, multPop, multRamp, heat, totalScale, burst, arc, ring, bannerIn, bannerDrop, sparkle, chipPop, stepIn, flameIn, flameGrow]) {
+        cancelAnimation(value);
+      }
       shakeT.set(1);
       flash.set(0);
       chips.set(1);
@@ -131,8 +176,15 @@ export function useRevealMotion(forceReduceMotion = false) {
       burst.set(0);
       arc.set(-1);
       ring.set(0);
+      bannerIn.set(parts.discovery ? 1 : 0);
+      bannerDrop.set(1);
+      sparkle.set(0);
+      chipPop.set(1);
+      stepIn.set(parts.step ? 1 : 0);
+      flameIn.set(parts.flame ? 1 : 0);
+      flameGrow.set(1);
     },
-    [arc, burst, chips, flash, heat, multPop, multRamp, ring, shakeT, totalScale],
+    [arc, bannerDrop, bannerIn, burst, chipPop, chips, flameGrow, flameIn, flash, heat, multPop, multRamp, ring, shakeT, sparkle, stepIn, totalScale],
   );
 
   const showSheet = useCallback(() => {
@@ -153,7 +205,11 @@ export function useRevealMotion(forceReduceMotion = false) {
     return { transform: [{ translateX: x }, { translateY: y }, { rotateZ: `${rotation}deg` }] };
   });
   const flashStyle = useAnimatedStyle(() => ({ opacity: flash.get() }));
-  const chipStyle = useAnimatedStyle(() => ({ opacity: chips.get(), transform: [{ scale: 0.6 + 0.4 * chips.get() }] }));
+  const chipStyle = useAnimatedStyle(() => ({ opacity: chips.get(), transform: [{ scale: (0.6 + 0.4 * chips.get()) * chipPop.get() }] }));
+  const bannerStyle = useAnimatedStyle(() => ({ opacity: bannerIn.get(), transform: [{ translateY: (bannerDrop.get() - 1) * 36 }] }));
+  const stepStyle = useAnimatedStyle(() => ({ opacity: stepIn.get() }));
+  const flameStyle = useAnimatedStyle(() => ({ opacity: flameIn.get() }));
+  const flameIconStyle = useAnimatedStyle(() => ({ transform: [{ scale: 0.4 + 0.6 * flameGrow.get() }] }));
   const multStyle = useAnimatedStyle(() => ({
     opacity: chips.get(),
     backgroundColor: interpolateColor(multRamp.get(), [0, 0.5, 1], MULT_COLORS),
@@ -181,13 +237,33 @@ export function useRevealMotion(forceReduceMotion = false) {
       setNumberSize,
       burst,
       burstCount,
-      styles: { shakeStyle, flashStyle, chipStyle, multStyle, glowStyle, totalStyle, arcStyle, ringStyle, badgeStyle, sheetStyle },
+      sparkle,
+      sparkleCount,
+      styles: {
+        shakeStyle,
+        flashStyle,
+        chipStyle,
+        multStyle,
+        glowStyle,
+        totalStyle,
+        arcStyle,
+        ringStyle,
+        badgeStyle,
+        sheetStyle,
+        bannerStyle,
+        stepStyle,
+        flameStyle,
+        flameIconStyle,
+      },
     }),
-    [apply, settle, showSheet, setNumberSize, burst, burstCount, shakeStyle, flashStyle, chipStyle, multStyle, glowStyle, totalStyle, arcStyle, ringStyle, badgeStyle, sheetStyle],
+    [
+      apply, settle, showSheet, setNumberSize, burst, burstCount, sparkle, sparkleCount, shakeStyle, flashStyle, chipStyle, multStyle,
+      glowStyle, totalStyle, arcStyle, ringStyle, badgeStyle, sheetStyle, bannerStyle, stepStyle, flameStyle, flameIconStyle,
+    ],
   );
 }
 
-/** The animated style of particle `index`, driven by the burst of the slam. */
+/** The animated style of particle `index`, driven by a burst (the slam's, or the discovery's sparkles). */
 export function useParticleStyle(index: number, burst: SharedValue<number>, burstCount: SharedValue<number>) {
   return useAnimatedStyle(() => {
     const p = particle(index, burstCount.get(), burst.get());

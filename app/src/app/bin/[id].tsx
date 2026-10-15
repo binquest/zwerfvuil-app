@@ -7,11 +7,14 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Alert } from 'react-native';
 
+import { binDiscoveryLabel } from '@/game/discoveries';
 import type { Bin } from '@/lib/api';
 import { adminErrorMessage } from '@/lib/errors';
+import { formatDate } from '@/lib/format';
 import { distanceMeters, formatDistance } from '@/lib/geo';
 import { useAuth } from '@/providers/AuthProvider';
 import { useBins } from '@/providers/BinsProvider';
+import { useGame } from '@/providers/GameProvider';
 import { useLocation } from '@/providers/LocationProvider';
 
 const WASTE_LABELS: Record<string, string> = {
@@ -36,6 +39,7 @@ export default function BinSheet() {
   const { bins, setSelectedId, setEligibility } = useBins();
   const { position } = useLocation();
   const { profile } = useAuth();
+  const { collection } = useGame();
   const [busy, setBusy] = useState(false);
   const bin = bins.find((b) => b.id === Number(id)) ?? null;
 
@@ -81,6 +85,11 @@ export default function BinSheet() {
           {bin ? (
             <>
               <Section>
+                {collection && bin.eligible ? (
+                  <LabeledContent label="Ontdekt">
+                    <Text>{binDiscoveryLabel(collection.get(bin.id), formatDate)}</Text>
+                  </LabeledContent>
+                ) : null}
                 <LabeledContent label="Bron">
                   <Text>{bin.source === 'user' ? 'Gemeld door een gebruiker' : 'OpenStreetMap'}</Text>
                 </LabeledContent>

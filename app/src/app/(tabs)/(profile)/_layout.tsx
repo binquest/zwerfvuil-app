@@ -2,8 +2,9 @@ import { Stack } from 'expo-router';
 
 import { colors } from '@/theme';
 
-// Both screens are SwiftUI forms: an opaque header in the grouped background
-// color keeps the form below it, like Settings.
+// Profile and leaderboard are SwiftUI forms: an opaque header in the grouped
+// background color keeps the form below it, like Settings. The collection is a
+// React Native grid on the same background.
 export default function ProfileStack() {
   return (
     <Stack
@@ -16,6 +17,7 @@ export default function ProfileStack() {
       }}>
       <Stack.Screen name="profile" options={{ title: 'Profiel' }} />
       <Stack.Screen name="leaderboard" options={{ title: 'Ranglijst' }} />
+      <Stack.Screen name="collection" options={{ title: 'Collectie' }} />
     </Stack>
   );
 }

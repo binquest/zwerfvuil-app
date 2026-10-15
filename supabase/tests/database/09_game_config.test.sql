@@ -8,6 +8,10 @@ set search_path = public, extensions;
 
 select plan(40);
 
+-- The economy before phase 3: no discovery chips, so the points below stay
+-- as they were (12_discoveries covers discoveries).
+update game_config set value = '0' where key = 'discovery_chips';
+
 insert into auth.users (id, email, aud, role) values
   ('91000000-0000-0000-0000-000000000001', 'cfg-user@example.test', 'authenticated', 'authenticated'),
   ('91000000-0000-0000-0000-000000000002', 'cfg-admin@example.test', 'authenticated', 'authenticated');
@@ -56,7 +60,8 @@ $$;
 -- ---------------------------------------------------------------------------
 
 select is(
-  (select jsonb_object_agg(c.key, c.value) from game_config c),
+  (select jsonb_object_agg(c.key, c.value) from game_config c
+   where c.key in ('checkin_base_chips', 'streak_multiplier', 'streak_max_steps', 'bonus_question_points')),
   '{"checkin_base_chips": 10, "streak_multiplier": 1.1, "streak_max_steps": 8, "bonus_question_points": 5}'::jsonb,
   'game_config holds the old constants: base 10, x1.1 per week, at most 8 steps, bonus 5');
 select is_empty($$ select c.key from game_config c where not exists (

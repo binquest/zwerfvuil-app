@@ -17,8 +17,28 @@ describe('parseCheckinResponse', () => {
       distanceM: 12.3,
       message: 'Bedankt! Je inworp wacht op goedkeuring.',
       score: null,
+      game: null,
       question: null,
       isTest: false,
+    });
+  });
+
+  it('reads what the check-in made new', () => {
+    const outcome = parseCheckinResponse(
+      201,
+      json({
+        checkin_id: 'abc',
+        game: {
+          discovery: { bin_id: 58, ordinal: 12, discovered: 12, total_bins: 120, status: 'pending' },
+          milestone: { threshold: 10, points: 50, status: 'pending' },
+          as_of: '2026-10-15T18:00:00+00:00',
+        },
+      }),
+    );
+    expect(outcome.ok && outcome.game).toEqual({
+      discovery: { binId: 58, ordinal: 12, discovered: 12, totalBins: 120, status: 'pending' },
+      milestone: { threshold: 10, points: 50, status: 'pending' },
+      asOf: '2026-10-15T18:00:00+00:00',
     });
   });
 

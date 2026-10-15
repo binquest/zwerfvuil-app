@@ -12,7 +12,7 @@ import {
 } from '@expo/ui/swift-ui/modifiers';
 import { router } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { Alert, Linking, Text, View } from 'react-native';
 import MapView, { Marker, Polygon, type LongPressEvent, type MapPressEvent } from 'react-native-maps';
 import { SafeAreaView } from 'react-native-screens/experimental';
@@ -20,15 +20,18 @@ import type { SFSymbol } from 'sf-symbols-typescript';
 
 import { track } from '@/analytics';
 import { distanceBucket } from '@/analytics/props';
+import { ProgressBar } from '@/components/game';
 import { GlassPanel } from '@/components/GlassPanel';
 import { MapPin } from '@/components/MapPin';
 import { OsmAttribution } from '@/components/OsmAttribution';
+import { counterLabel, nextMilestoneLabel } from '@/game/discoveries';
 import type { Bin } from '@/lib/api';
 import { checkinAvailability, formatDistance, nearestEligibleBin } from '@/lib/geo';
 import { INITIAL_MAP_REGION, isInRegion, REGION_OUTLINE } from '@/lib/region';
 import { useAuth } from '@/providers/AuthProvider';
 import { useBins } from '@/providers/BinsProvider';
 import { useDevMode } from '@/providers/DevModeProvider';
+import { useGame } from '@/providers/GameProvider';
 import { useLocation } from '@/providers/LocationProvider';
 import { colors, pinColors, spacing, type } from '@/theme';
 
@@ -56,7 +59,8 @@ export default function MapScreen() {
   const mapRef = useRef<MapView>(null);
   const { profile } = useAuth();
   const isAdmin = !!profile?.isAdmin;
-  const { bins, loadError, reload, selectedId, setSelectedId } = useBins();
+  const { bins, loadError, reload, selectedId, setSelectedId, focus } = useBins();
+  const { state: game, collection } = useGame();
   const { permission, requestPermission, position, fakeMode, setFakeMode, setFakeLocation } = useLocation();
   const dev = useDevMode();
 
@@ -64,9 +68,18 @@ export default function MapScreen() {
   const visibleBins = useMemo(() => (isAdmin ? bins : bins.filter((b) => b.eligible)), [bins, isAdmin]);
   const nearest = useMemo(() => (position ? nearestEligibleBin(bins, position) : null), [bins, position]);
   const availability = checkinAvailability(position, nearest);
+  // Not discovered: only when the collection is loaded and says so.
+  const undiscovered = (bin: Bin) => !!collection && !collection.get(bin.id)?.status;
+
+  // "Toon op de kaart" from the collection: move there (the bin is selected already).
+  useEffect(() => {
+    if (!focus) return;
+    const bin = bins.find((b) => b.id === focus.id);
+    if (bin) mapRef.current?.animateToRegion({ latitude: bin.latitude, longitude: bin.longitude, latitudeDelta: 0.003, longitudeDelta: 0.003 }, 400);
+  }, [focus, bins]);
 
   const openBin = (bin: Bin) => {
-    track('map_bin_tap', { bin_id: bin.id });
+    track('map_bin_tap', { bin_id: bin.id, discovered: !!collection?.get(bin.id)?.status });
     setSelectedId(bin.id);
     router.push({ pathname: '/bin/[id]', params: { id: String(bin.id) } });
   };
@@ -125,7 +138,8 @@ export default function MapScreen() {
 
   const pinColor = (bin: Bin) => {
     if (!bin.eligible) return pinColors.excluded;
-    return nearest?.bin.id === bin.id ? pinColors.nearest : pinColors.eligible;
+    if (nearest?.bin.id === bin.id) return pinColors.nearest;
+    return undiscovered(bin) ? pinColors.undiscovered : pinColors.eligible;
   };
 
   return (
@@ -145,13 +159,18 @@ export default function MapScreen() {
           const selected = bin.id === selectedId;
           return (
             <Marker
-              key={`${bin.id}-${String(pinColor(bin))}-${selected}`}
+              key={`${bin.id}-${String(pinColor(bin))}-${selected}-${undiscovered(bin)}`}
               coordinate={bin}
               anchor={{ x: 0.5, y: 0.5 }}
               tracksViewChanges={false}
               zIndex={selected ? 2 : 1}
               onPress={() => openBin(bin)}>
-              <MapPin color={pinColor(bin)} selected={selected} />
+              <MapPin
+                color={pinColor(bin)}
+                selected={selected}
+                symbol={bin.eligible && undiscovered(bin) ? 'questionmark' : 'trash.fill'}
+                dimmed={bin.eligible && undiscovered(bin)}
+              />
             </Marker>
           );
         })}
@@ -183,6 +202,26 @@ export default function MapScreen() {
                   {nearest ? `Dichtstbijzijnde vuilbak · ${formatDistance(nearest.distanceM)}` : 'Dichtstbijzijnde vuilbak'}
                 </Text>
                 <Text style={[type.subheadline, { color: colors.secondaryLabel }]}>{availability.message}</Text>
+                {game ? (
+                  <View style={{ gap: 4, paddingTop: spacing.xs }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: spacing.sm }}>
+                      <Text style={[type.footnote, { color: colors.label, fontWeight: '600', fontVariant: ['tabular-nums'] }]}>
+                        {counterLabel(game.discovered, game.totalBins)}
+                      </Text>
+                      <Text style={[type.footnote, { color: colors.secondaryLabel, fontVariant: ['tabular-nums'] }]}>
+                        {nextMilestoneLabel(game.discovered, game.nextMilestone) ?? 'Alle mijlpalen gehaald'}
+                      </Text>
+                    </View>
+                    {game.nextMilestone ? (
+                      <ProgressBar
+                        value={game.discovered - game.nextMilestone.previous}
+                        max={game.nextMilestone.threshold - game.nextMilestone.previous}
+                        label={`Volgende mijlpaal: ${game.nextMilestone.threshold} ontdekt`}
+                        height={6}
+                      />
+                    ) : null}
+                  </View>
+                ) : null}
               </GlassPanel>
               <View style={{ gap: spacing.sm }}>
                 <MapButton symbol="location.fill" label="Toon mijn locatie" onPress={centerOnMe} />

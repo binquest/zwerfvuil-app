@@ -11,7 +11,9 @@ import { CONFIG_ERROR } from '@/lib/env';
 import { AuthProvider, useAuth } from '@/providers/AuthProvider';
 import { BinsProvider } from '@/providers/BinsProvider';
 import { DevModeProvider } from '@/providers/DevModeProvider';
+import { GameProvider } from '@/providers/GameProvider';
 import { LocationProvider } from '@/providers/LocationProvider';
+import { MissedMoments } from '@/providers/MissedMoments';
 import { MomentsPresenter } from '@/providers/MomentsPresenter';
 import { ToastProvider } from '@/providers/ToastProvider';
 import { colors } from '@/theme';
@@ -46,10 +48,13 @@ function RootStack() {
     <LocationProvider enabled={signedIn}>
       <DevModeProvider isAdmin={signedIn && !!profile?.isAdmin}>
         <BinsProvider enabled={signedIn}>
+          <GameProvider enabled={signedIn}>
           <AnalyticsTracker userId={session?.user.id ?? null} />
           <UpdatePrompt />
           <ToastProvider>
             <MomentsPresenter enabled={signedIn}>
+              {/* Registered before the presenter's first start runs (child effects run first). */}
+              {signedIn ? <MissedMoments /> : null}
               <Stack screenOptions={{ headerShown: false }}>
                 <Stack.Protected guard={!signedIn}>
                   <Stack.Screen name="login" />
@@ -79,10 +84,15 @@ function RootStack() {
                     name="reveal"
                     options={{ presentation: 'fullScreenModal', animation: 'fade', gestureEnabled: false }}
                   />
+                  <Stack.Screen
+                    name="celebrate"
+                    options={{ presentation: 'fullScreenModal', animation: 'fade', gestureEnabled: false }}
+                  />
                 </Stack.Protected>
               </Stack>
             </MomentsPresenter>
           </ToastProvider>
+          </GameProvider>
         </BinsProvider>
       </DevModeProvider>
     </LocationProvider>

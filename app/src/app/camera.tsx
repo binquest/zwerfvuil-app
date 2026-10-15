@@ -1,8 +1,10 @@
 // Takes a photo with the camera (never the gallery) for a check-in or a
 // report of a missing bin, compresses it and submits it. A successful check-in
 // continues to the points reveal. While it uploads, the sound of the reveal
-// the app expects (this week's streak) is mixed and loaded ahead: when the
-// server's score matches, the reveal starts from that file at once.
+// the app expects (this week's streak, a discovery at a bin not in the
+// collection, the flame on the first check-in of the week) is mixed and loaded
+// ahead: when the server's score matches, the reveal starts from that file at
+// once.
 import { Host } from '@expo/ui';
 import { Button, HStack, Label } from '@expo/ui/swift-ui';
 import { buttonBorderShape, buttonStyle, controlSize, disabled, frame, labelStyle, tint } from '@expo/ui/swift-ui/modifiers';
@@ -31,6 +33,7 @@ import { compressPhoto } from '@/lib/photo';
 import { setPendingReveal } from '@/lib/reveal';
 import { useReduceMotion } from '@/lib/useAccessibility';
 import { useDevMode } from '@/providers/DevModeProvider';
+import { useGame } from '@/providers/GameProvider';
 import { useLocation } from '@/providers/LocationProvider';
 import { ToastViewport } from '@/providers/ToastProvider';
 import { colors, radius, spacing, type } from '@/theme';
@@ -80,7 +83,8 @@ function CameraContent() {
   const mode = params.mode === 'report' ? 'report' : 'checkin';
   const [permission, requestPermission] = useCameraPermissions();
   const camera = useRef<CameraView>(null);
-  const { freshPosition } = useLocation();
+  const { freshPosition, fakeMode } = useLocation();
+  const { collection, refresh: refreshGame } = useGame();
 
   const [ready, setReady] = useState(false);
   const [capturing, setCapturing] = useState(false);
@@ -109,8 +113,18 @@ function CameraContent() {
   /** Mixes and loads the reveal the app expects, while the check-in uploads. */
   const prepareExpectedReveal = () => {
     if (!catalog || reduceMotion === null) return;
-    const weeks = expectedStreakWeeks(streak, dev.status?.streakOverride ?? null);
-    preloadTimeline(buildRevealTimeline({ score: previewScore(catalog.config, weeks), reduceMotion }), revealSoundtrack);
+    const override = dev.status?.streakOverride ?? null;
+    const weeks = expectedStreakWeeks(streak, override);
+    // Test check-ins get base and streak only; a real one at a bin outside the
+    // collection is a discovery, the first of the week lights the flame.
+    const test = fakeMode || override !== null;
+    const options = test
+      ? {}
+      : { discovery: !!collection && !collection.get(Number(params.binId))?.status, streakExtended: !!streak && !streak.thisWeek };
+    preloadTimeline(
+      buildRevealTimeline({ score: previewScore(catalog.config, weeks, undefined, options), reduceMotion }),
+      revealSoundtrack,
+    );
   };
 
   const close = () => router.back();
@@ -154,6 +168,7 @@ function CameraContent() {
         if (outcome.ok && outcome.score) {
           setPendingReveal({
             score: outcome.score,
+            game: outcome.game,
             question: outcome.question,
             checkinId: outcome.checkinId,
             isTest: outcome.isTest,
@@ -162,8 +177,12 @@ function CameraContent() {
           router.replace('/reveal');
           return;
         }
-        if (outcome.ok) haptic.success();
-        else haptic.warning();
+        if (outcome.ok) {
+          haptic.success();
+          refreshGame();
+        } else {
+          haptic.warning();
+        }
         setResult(
           outcome.ok
             ? { ok: true, title: 'Inworp geregistreerd', message: outcome.message }

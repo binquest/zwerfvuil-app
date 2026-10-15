@@ -65,6 +65,15 @@ export interface Score {
   total: number;
 }
 
+/**
+ * What a check-in made new (docs/GAMIFICATION.md, 2.7): a discovery with its
+ * counter, a milestone, and `as_of` for mark_seen. Passed on as the database
+ * made it; null for test check-ins.
+ */
+export interface Game {
+  [field: string]: unknown;
+}
+
 export interface RecordCheckinResult {
   ok: boolean;
   reason: string | null;
@@ -74,6 +83,8 @@ export interface RecordCheckinResult {
   /** Only when ok: the streak and the score (private.checkin_score). */
   streak_weeks: number | null;
   score: Score | null;
+  /** Only for real check-ins, and null when the game logic failed. */
+  game: Game | null;
   bonus_question: BonusQuestion | null;
   /** Dev mode (fake location or streak override): kept apart from real data. */
   is_test: boolean | null;
@@ -114,6 +125,11 @@ export function isScore(value: unknown): value is Score {
     steps.every((step) =>
       !!step && typeof step === "object" && typeof step.kind === "string" && typeof step.label === "string"
     );
+}
+
+/** A game answer: an object (never an array or a scalar). */
+export function isGame(value: unknown): value is Game {
+  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 export function reject(code: RejectCode, details: Details = {}): Response {
@@ -229,6 +245,8 @@ async function handle(deps: CheckinDeps, req: Request): Promise<Response> {
     // The app plays exactly these steps and running totals and lands on the
     // total. Granted when an admin approves the check-in.
     score,
+    // New game facts (a discovery, a milestone); the app celebrates them.
+    game: isGame(result.game) ? result.game : null,
     bonus_question: result.bonus_question,
     is_test: result.is_test === true,
   });

@@ -8,6 +8,10 @@ set search_path = public, extensions;
 
 select plan(65);
 
+-- The economy before phase 3: no discovery chips, so the points below stay
+-- as they were (12_discoveries covers discoveries).
+update game_config set value = '0' where key = 'discovery_chips';
+
 -- The rows of one check-in (or user), compact.
 create function pg_temp.rows_of(c uuid) returns text language sql as $$
   select string_agg(t.source || ':' || t.amount || ':' || t.status, ',' order by t.source)
