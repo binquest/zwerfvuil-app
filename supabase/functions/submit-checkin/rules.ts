@@ -2,11 +2,18 @@
 // tested in supabase/functions/tests/rules.test.ts.
 //
 // Rules that need the database (distance <= 25 m, active and eligible bin,
-// 10-minute cooldown per bin, 20 check-ins per day) live in the SQL function
-// public.record_checkin so they are enforced atomically.
+// 10-minute cooldown per bin, 20 check-ins per day, who may send a fake
+// location) live in the SQL function public.record_checkin so they are
+// enforced atomically.
 
 export const MAX_ACCURACY_M = 30;
 export const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
+
+// For the response only: the database computes the points
+// (checkin_point_stages, answer_bonus_question in
+// 20261014200000_points_streaks_bonus_leaderboard.sql).
+export const STREAK_MULTIPLIER = 1.1;
+export const BONUS_POINTS = 5;
 
 export type RejectCode =
   | "method_not_allowed"
@@ -86,9 +93,10 @@ function parseBinId(value: string | null | undefined): number | null {
  *
  * - is_mocked=true (Android's location.mocked) is refused.
  * - accuracy_m is required and must be <= 30 m.
- * - fake_location=true is only accepted when the dev-only ALLOW_FAKE_LOCATION
- *   escape is on; it then skips the mock and accuracy checks (the location was
- *   picked on the map), but the distance rules in the database still apply.
+ * - fake_location=true (Dev mode: a location picked on the map) is refused
+ *   outright when allowFakeLocation is false (production). Otherwise it skips
+ *   the mock and accuracy checks and the database decides: only admins on a
+ *   local or staging database, as a test check-in; the distance rules apply.
  */
 export function validateCheckinFields(
   fields: Fields,
@@ -135,24 +143,24 @@ export function validatePhotoSize(size: number | null | undefined): Validation<n
   return { ok: true, value: size };
 }
 
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "kong", "host.docker.internal"]);
-
-/** True for the URLs a local Supabase stack uses (kong is the gateway inside Docker). */
-export function isLocalSupabaseUrl(url: string | undefined): boolean {
-  if (!url) return false;
-  try {
-    const host = new URL(url).hostname;
-    return LOCAL_HOSTS.has(host) || host.endsWith(".localhost");
-  } catch {
-    return false;
-  }
+/**
+ * Fake locations exist only for Dev mode; the database decides who may use
+ * them (admins on a local or staging database). With APP_ENV=production the
+ * function refuses them before asking the database.
+ */
+export function fakeLocationPossible(env: (name: string) => string | undefined): boolean {
+  return env("APP_ENV") !== "production";
 }
 
 /**
- * The dev escape is on only when ALLOW_FAKE_LOCATION is exactly "true" AND the
- * function runs against a local Supabase stack, so it can never be enabled in
- * a hosted project by accident.
+ * ALLOW_FAKE_LOCATION was the old local-only escape and is retired (Dev mode
+ * replaced it). Outside a local environment the function still refuses to
+ * start while it is set at all, so a stale configuration is noticed.
  */
-export function fakeLocationAllowed(env: (name: string) => string | undefined): boolean {
-  return env("ALLOW_FAKE_LOCATION") === "true" && isLocalSupabaseUrl(env("SUPABASE_URL"));
+export function assertFakeLocationConfig(env: (name: string) => string | undefined): void {
+  const appEnv = env("APP_ENV");
+  const local = appEnv === undefined || appEnv === "local";
+  if (!local && env("ALLOW_FAKE_LOCATION") !== undefined) {
+    throw new Error(`ALLOW_FAKE_LOCATION must not be set when APP_ENV=${appEnv}`);
+  }
 }

@@ -64,5 +64,72 @@ class RequireLocalTests(unittest.TestCase):
             self.assertEqual(devenv.database_url(), devenv.DEFAULT_DATABASE_URL)
 
 
+class TargetTests(unittest.TestCase):
+    def test_local_target_refuses_databases_marked_otherwise(self):
+        devenv.check_target(None, "local")
+        devenv.check_target("local", "local")
+        for marker in ("staging", "production"):
+            with self.assertRaises(SystemExit, msg=marker) as ctx:
+                devenv.check_target(marker, "local")
+            self.assertIn(f"--target {marker}", str(ctx.exception))
+
+    def test_staging_target_requires_the_staging_marker(self):
+        devenv.check_target("staging", "staging")
+        for marker in (None, "local", "production"):
+            with self.assertRaises(SystemExit, msg=str(marker)):
+                devenv.check_target(marker, "staging")
+
+    def test_database_environment_reads_the_marker(self):
+        class Cursor:
+            def __init__(self, results):
+                self.results = results
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def execute(self, sql):
+                pass
+
+            def fetchone(self):
+                return self.results.pop(0)
+
+        class Conn:
+            def __init__(self, *results):
+                self.results = list(results)
+
+            def cursor(self):
+                return Cursor(self.results)
+
+        self.assertIsNone(devenv.database_environment(Conn((False,))), "no table yet")
+        self.assertIsNone(devenv.database_environment(Conn((True,), None)), "table without row")
+        self.assertEqual(devenv.database_environment(Conn((True,), ("staging",))), "staging")
+
+
+class ConfirmTests(unittest.TestCase):
+    def test_yes_skips_the_question(self):
+        with mock.patch("builtins.input", side_effect=AssertionError("asked")):
+            devenv.confirm("Import?", yes=True)
+
+    def test_without_a_terminal_it_refuses(self):
+        with mock.patch.object(sys.stdin, "isatty", return_value=False), self.assertRaises(SystemExit):
+            devenv.confirm("Import?", yes=False)
+
+    def test_end_of_input_refuses(self):
+        with mock.patch.object(sys.stdin, "isatty", return_value=True), \
+                mock.patch("builtins.input", side_effect=EOFError), self.assertRaises(SystemExit):
+            devenv.confirm("Import?", yes=False)
+
+    def test_only_the_word_staging_continues(self):
+        with mock.patch.object(sys.stdin, "isatty", return_value=True):
+            with mock.patch("builtins.input", return_value=" staging "):
+                devenv.confirm("Import?", yes=False)
+            for answer in ("y", "yes", "Staging", ""):
+                with mock.patch("builtins.input", return_value=answer), self.assertRaises(SystemExit, msg=answer):
+                    devenv.confirm("Import?", yes=False)
+
+
 if __name__ == "__main__":
     unittest.main()

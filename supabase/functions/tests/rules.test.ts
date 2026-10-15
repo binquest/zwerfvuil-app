@@ -1,8 +1,8 @@
-import { assert, assertEquals, assertFalse, assertStringIncludes } from "@std/assert";
+import { assert, assertEquals, assertFalse, assertStringIncludes, assertThrows } from "@std/assert";
 import {
-  fakeLocationAllowed,
+  assertFakeLocationConfig,
+  fakeLocationPossible,
   type Fields,
-  isLocalSupabaseUrl,
   MAX_PHOTO_BYTES,
   type RejectCode,
   validateCheckinFields,
@@ -11,16 +11,16 @@ import {
 import { messageFor } from "../submit-checkin/messages.ts";
 
 const VALID: Fields = { bin_id: "42", lat: "51.0523", lon: "3.7169", accuracy_m: "8.5", is_mocked: "false" };
-const strict = { allowFakeLocation: false };
+const production = { allowFakeLocation: false };
 const dev = { allowFakeLocation: true };
 
-function code(fields: Fields, options = strict): RejectCode | "ok" {
+function code(fields: Fields, options = dev): RejectCode | "ok" {
   const result = validateCheckinFields(fields, options);
   return result.ok ? "ok" : result.code;
 }
 
 Deno.test("a valid check-in is parsed", () => {
-  assertEquals(validateCheckinFields(VALID, strict), {
+  assertEquals(validateCheckinFields(VALID, production), {
     ok: true,
     value: { binId: 42, lat: 51.0523, lon: 3.7169, accuracyM: 8.5, isMocked: false, fakeLocation: false },
   });
@@ -59,18 +59,19 @@ Deno.test("accuracy must be given and at most 30 m", () => {
   assertEquals(code({ ...VALID, accuracy_m: "-1" }), "invalid_request");
   assertEquals(code({ ...VALID, accuracy_m: "0" }), "ok");
   assertEquals(code({ ...VALID, accuracy_m: "30" }), "ok");
-  assertEquals(validateCheckinFields({ ...VALID, accuracy_m: "30.1" }, strict), {
+  assertEquals(validateCheckinFields({ ...VALID, accuracy_m: "30.1" }, production), {
     ok: false,
     code: "low_accuracy",
     details: { accuracy_m: 30.1, max_accuracy_m: 30 },
   });
 });
 
-Deno.test("a fake location is refused unless the dev escape is on", () => {
-  assertEquals(code({ ...VALID, fake_location: "true" }, strict), "fake_location_not_allowed");
+Deno.test("in production a fake location is refused before the database", () => {
+  assertEquals(code({ ...VALID, fake_location: "true" }, production), "fake_location_not_allowed");
+  assertEquals(code(VALID, production), "ok");
 });
 
-Deno.test("with the dev escape on, a fake location skips the mock and accuracy checks", () => {
+Deno.test("elsewhere a fake location skips the mock and accuracy checks (the database decides who)", () => {
   const result = validateCheckinFields(
     { ...VALID, fake_location: "true", is_mocked: "true", accuracy_m: undefined },
     dev,
@@ -82,7 +83,7 @@ Deno.test("with the dev escape on, a fake location skips the mock and accuracy c
   assertEquals(code({ ...VALID, fake_location: "true", accuracy_m: "500" }, dev), "ok");
 });
 
-Deno.test("with the dev escape on, real locations follow the normal rules", () => {
+Deno.test("real locations always follow the normal rules", () => {
   assertEquals(code({ ...VALID, is_mocked: "true" }, dev), "mocked_location");
   assertEquals(code({ ...VALID, accuracy_m: "31" }, dev), "low_accuracy");
 });
@@ -98,24 +99,26 @@ Deno.test("photo size: required and at most 5 MB", () => {
   });
 });
 
-Deno.test("only local Supabase URLs count as local", () => {
-  for (const url of ["http://kong:8000", "http://127.0.0.1:54321", "http://localhost:54321", "http://api.localhost"]) {
-    assert(isLocalSupabaseUrl(url), url);
-  }
-  for (
-    const url of ["https://abcd.supabase.co", "http://kong.example.com", "http://example.com/?kong", "nope", undefined]
-  ) {
-    assertFalse(isLocalSupabaseUrl(url), String(url));
-  }
+Deno.test("fake locations are possible everywhere except APP_ENV=production", () => {
+  const env = (values: Record<string, string>) => (name: string) => values[name];
+  assert(fakeLocationPossible(env({})), "local (unset)");
+  assert(fakeLocationPossible(env({ APP_ENV: "local" })));
+  assert(fakeLocationPossible(env({ APP_ENV: "staging" })));
+  assertFalse(fakeLocationPossible(env({ APP_ENV: "production" })));
 });
 
-Deno.test("ALLOW_FAKE_LOCATION is only honoured when exactly 'true' on a local stack", () => {
+Deno.test("outside a local environment, the retired ALLOW_FAKE_LOCATION stops the function from starting", () => {
   const env = (values: Record<string, string>) => (name: string) => values[name];
-  assert(fakeLocationAllowed(env({ ALLOW_FAKE_LOCATION: "true", SUPABASE_URL: "http://kong:8000" })));
-  assertFalse(fakeLocationAllowed(env({ SUPABASE_URL: "http://kong:8000" })), "off by default");
-  assertFalse(fakeLocationAllowed(env({ ALLOW_FAKE_LOCATION: "TRUE", SUPABASE_URL: "http://kong:8000" })));
-  assertFalse(fakeLocationAllowed(env({ ALLOW_FAKE_LOCATION: "1", SUPABASE_URL: "http://kong:8000" })));
-  assertFalse(fakeLocationAllowed(env({ ALLOW_FAKE_LOCATION: "true", SUPABASE_URL: "https://abcd.supabase.co" })));
+  for (const value of ["true", "false", ""]) {
+    assertThrows(
+      () => assertFakeLocationConfig(env({ APP_ENV: "staging", ALLOW_FAKE_LOCATION: value })),
+      Error,
+      "APP_ENV=staging",
+    );
+  }
+  assertFakeLocationConfig(env({ APP_ENV: "staging" }));
+  assertFakeLocationConfig(env({ ALLOW_FAKE_LOCATION: "true" }));
+  assertFakeLocationConfig(env({ APP_ENV: "local", ALLOW_FAKE_LOCATION: "true" }));
 });
 
 Deno.test("every code has a Dutch message with its details", () => {

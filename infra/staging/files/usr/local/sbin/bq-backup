@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Dump of the Supabase database (postgres) to the data disk.
+# Managed by infra/staging (zwerfvuil-app); run nightly by bq-backup.timer
+# (03:30) and by hand with: sudo systemctl start bq-backup
+#
+# - pg_dump as supabase_admin (superuser), custom format: every schema of the
+#   postgres database (public, private, auth, storage, migrations, ...). The
+#   _supabase database (Logflare logs) is not included.
+# - Written as .partial and renamed only after `pg_restore --list` could read
+#   it, with a .sha256 next to it. Files are root-only (they hold personal data).
+# - Keeps BQ_BACKUP_KEEP_DAYS days (default 7: today and the 6 days before),
+#   and never removes the newest dump.
+set -euo pipefail
+
+DIR=/srv/bq-data/backups/pg
+KEEP_DAYS=${BQ_BACKUP_KEEP_DAYS:-7}
+umask 077
+log() { echo "bq-backup: $*"; }
+
+mountpoint -q /srv/bq-data && [ -f /srv/bq-data/.bq-data-disk ] || { log "data disk not mounted"; exit 1; }
+[ "$(docker inspect -f '{{.State.Running}}' supabase-db 2>/dev/null)" = true ] || { log "supabase-db is not running"; exit 1; }
+install -d -m 700 /srv/bq-data/backups "$DIR"
+
+file="$DIR/postgres-$(date +%Y%m%d-%H%M%S).dump"
+tmp="$file.partial"
+trap 'rm -f "$tmp"' EXIT
+docker exec supabase-db pg_dump -U supabase_admin -d postgres --format=custom --compress=6 >"$tmp"
+docker exec -i supabase-db pg_restore --list >/dev/null <"$tmp" || { log "the dump is not readable"; exit 1; }
+mv "$tmp" "$file"
+trap - EXIT
+(cd "$DIR" && sha256sum "$(basename "$file")" >"$(basename "$file").sha256")
+log "wrote $(basename "$file") ($(du -h "$file" | cut -f1))"
+
+# -mtime +N matches files at least N+1 full days old.
+newest=$(ls -1t "$DIR"/postgres-*.dump | head -1)
+find "$DIR" -maxdepth 1 -name 'postgres-*.dump' -mtime "+$((KEEP_DAYS - 1))" ! -path "$newest" -print |
+  while read -r old; do
+    rm -f "$old" "$old.sha256"
+    log "removed $(basename "$old") (older than $KEEP_DAYS days)"
+  done
+log "$(ls -1 "$DIR"/postgres-*.dump | wc -l) dumps kept, $(du -sh "$DIR" | cut -f1) in $DIR"

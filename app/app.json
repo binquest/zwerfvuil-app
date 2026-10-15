@@ -6,13 +6,14 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "bundleIdentifier": "be.zwerfvuil.app"
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#2FC177",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -38,6 +39,33 @@
           "cameraPermission": "Zwerfvuil Gent gebruikt de camera voor een foto van je inworp of van een ontbrekende vuilbak.",
           "microphonePermission": false,
           "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "ios": {
+            "image": "./assets/splash-ios.png",
+            "enableFullScreenImage_legacy": true,
+            "resizeMode": "cover",
+            "backgroundColor": "#2FC177"
+          },
+          "android": {
+            "image": "./assets/splash-icon.png",
+            "imageWidth": 150,
+            "resizeMode": "contain",
+            "backgroundColor": "#0E3A24"
+          }
+        }
+      ],
+      "expo-image",
+      "expo-web-browser",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": false,
+          "recordAudioAndroid": false,
+          "enableBackgroundPlayback": false
         }
       ]
     ],

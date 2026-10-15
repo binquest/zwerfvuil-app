@@ -1,24 +1,59 @@
 // Takes a photo with the camera (never the gallery) for a check-in or a
-// report of a missing bin, compresses it and submits it.
-import Ionicons from '@expo/vector-icons/Ionicons';
+// report of a missing bin, compresses it and submits it. A successful check-in
+// continues to the points reveal.
+import { Host } from '@expo/ui';
+import { Button, HStack, Label } from '@expo/ui/swift-ui';
+import { buttonBorderShape, buttonStyle, controlSize, disabled, frame, labelStyle, tint } from '@expo/ui/swift-ui/modifiers';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useRef, useState } from 'react';
-import { ActivityIndicator, Image, Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, KeyboardAvoidingView, Linking, Pressable, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import type { SFSymbol } from 'sf-symbols-typescript';
 
-import { Button } from '@/components/Button';
-import { Message } from '@/components/Message';
+import { EmptyState } from '@/components/EmptyState';
+import { GlassPanel } from '@/components/GlassPanel';
 import { submitCheckin, submitReport } from '@/lib/api';
 import { FAILURE_TITLE } from '@/lib/checkin';
 import { describeError, devLog } from '@/lib/devlog';
+import { haptic } from '@/feedback/haptics';
+import { warmUpSounds } from '@/feedback/sfx/soundtrack';
 import { genericErrorMessage, reportErrorMessage } from '@/lib/errors';
 import { compressPhoto } from '@/lib/photo';
+import { setPendingReveal } from '@/lib/reveal';
 import { useLocation } from '@/providers/LocationProvider';
-import { colors, spacing } from '@/theme';
+import { colors, radius, spacing, type } from '@/theme';
 
 type Params = { mode?: string; binId?: string; lat?: string; lon?: string };
 type Result = { ok: boolean; title: string; message: string };
+
+function GlassAction({
+  label,
+  symbol,
+  onPress,
+  prominent = false,
+  busy = false,
+}: {
+  label: string;
+  symbol: SFSymbol;
+  onPress: () => void;
+  prominent?: boolean;
+  busy?: boolean;
+}) {
+  return (
+    <Button
+      onPress={onPress}
+      modifiers={[
+        buttonStyle(prominent ? 'glassProminent' : 'glass'),
+        controlSize('large'),
+        tint(prominent ? colors.tint : 'white'),
+        disabled(busy),
+      ]}>
+      <Label title={busy ? 'Versturen…' : label} systemImage={symbol} modifiers={[frame({ maxWidth: 10000 })]} />
+    </Button>
+  );
+}
 
 export default function CameraScreen() {
   const params = useLocalSearchParams<Params>();
@@ -33,6 +68,12 @@ export default function CameraScreen() {
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
+
+  // Load and prime the reveal sounds while the photo is taken, well before the
+  // reveal; they stay loaded for the next check-in.
+  useEffect(() => {
+    if (mode === 'checkin') warmUpSounds();
+  }, [mode]);
 
   const close = () => router.back();
 
@@ -69,6 +110,19 @@ export default function CameraScreen() {
           fake: position.fake,
           photoUri: compressed,
         });
+        if (outcome.ok && outcome.points) {
+          setPendingReveal({
+            points: outcome.points,
+            question: outcome.question,
+            checkinId: outcome.checkinId,
+            isTest: outcome.isTest,
+            preview: false,
+          });
+          router.replace('/reveal');
+          return;
+        }
+        if (outcome.ok) haptic.success();
+        else haptic.warning();
         setResult(
           outcome.ok
             ? { ok: true, title: 'Inworp geregistreerd', message: outcome.message }
@@ -81,6 +135,7 @@ export default function CameraScreen() {
           note,
           photoUri: compressed,
         });
+        haptic.success();
         setResult({
           ok: true,
           title: 'Bedankt voor je melding',
@@ -89,6 +144,7 @@ export default function CameraScreen() {
       }
     } catch (error) {
       devLog(mode === 'report' ? 'submit-report' : 'submit-checkin', false, { error: describeError(error) });
+      haptic.warning();
       const message = mode === 'report' ? reportErrorMessage(error as Error) : genericErrorMessage(error as Error);
       setResult({ ok: false, title: 'Niet gelukt', message });
     } finally {
@@ -98,130 +154,149 @@ export default function CameraScreen() {
 
   if (result) {
     return (
-      <SafeAreaView style={styles.light}>
-        <Message title={result.title} text={result.message}>
-          <Ionicons
-            name={result.ok ? 'checkmark-circle' : 'alert-circle'}
-            size={64}
-            color={result.ok ? colors.primary : colors.danger}
-          />
-          <View style={styles.resultButtons}>
-            {!result.ok && photoUri ? (
-              <Button title="Opnieuw proberen" variant="secondary" onPress={() => setResult(null)} />
-            ) : null}
-            <Button title="Terug naar de kaart" onPress={close} />
-          </View>
-        </Message>
-      </SafeAreaView>
+      <View style={{ flex: 1, backgroundColor: colors.background }}>
+        <EmptyState
+          title={result.title}
+          systemImage={result.ok ? 'checkmark.circle.fill' : 'exclamationmark.triangle.fill'}
+          description={result.message}
+          actions={[
+            ...(!result.ok && photoUri ? [{ label: 'Opnieuw proberen', onPress: () => setResult(null) }] : []),
+            { label: 'Terug naar de kaart', onPress: close, prominent: true },
+          ]}
+        />
+      </View>
     );
   }
 
   if (!permission) {
     return (
-      <View style={[styles.light, styles.center]}>
-        <ActivityIndicator color={colors.primary} />
+      <View style={{ flex: 1, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator />
       </View>
     );
   }
 
   if (!permission.granted) {
     return (
-      <SafeAreaView style={styles.light}>
-        <Message title="Camera nodig" text="Neem een foto als bewijs. Een foto uit je galerij is niet mogelijk.">
-          <View style={styles.resultButtons}>
-            {permission.canAskAgain ? (
-              <Button title="Camera toestaan" onPress={requestPermission} />
-            ) : (
-              <Button title="Open instellingen" onPress={() => Linking.openSettings()} />
-            )}
-            <Button title="Annuleren" variant="secondary" onPress={close} />
-          </View>
-        </Message>
-      </SafeAreaView>
+      <View style={{ flex: 1, backgroundColor: colors.background }}>
+        <EmptyState
+          title="Camera nodig"
+          systemImage="camera.fill"
+          description="Neem een foto als bewijs. Een foto uit je galerij is niet mogelijk."
+          actions={[
+            permission.canAskAgain
+              ? { label: 'Camera toestaan', onPress: requestPermission, prominent: true }
+              : { label: 'Open Instellingen', onPress: () => Linking.openSettings(), prominent: true },
+            { label: 'Annuleren', onPress: close },
+          ]}
+        />
+      </View>
     );
   }
 
   if (photoUri) {
     return (
-      <SafeAreaView style={styles.dark}>
-        <Image source={{ uri: photoUri }} style={styles.preview} resizeMode="contain" />
-        <View style={styles.panel}>
-          {mode === 'report' ? (
-            <TextInput
-              style={styles.note}
-              value={note}
-              onChangeText={setNote}
-              placeholder="Opmerking (optioneel), bv. naast de bushalte"
-              maxLength={500}
-              multiline
-            />
-          ) : null}
-          <View style={styles.row}>
-            <Button
-              title="Opnieuw"
-              variant="secondary"
-              onPress={() => setPhotoUri(null)}
-              disabled={busy}
-              style={styles.flex}
-            />
-            <Button
-              title={mode === 'checkin' ? 'Versturen' : 'Melding versturen'}
-              onPress={submit}
-              loading={busy}
-              style={styles.flex}
-            />
-          </View>
-        </View>
-      </SafeAreaView>
+      <View style={{ flex: 1, backgroundColor: 'black' }}>
+        <Image source={{ uri: photoUri }} style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }} contentFit="contain" />
+        <KeyboardAvoidingView behavior="padding" style={{ flex: 1, justifyContent: 'flex-end' }}>
+          <SafeAreaView edges={['bottom']} style={{ padding: spacing.lg }}>
+            <GlassPanel dark style={{ padding: spacing.md, gap: spacing.md }}>
+              {mode === 'report' ? (
+                <TextInput
+                  value={note}
+                  onChangeText={setNote}
+                  placeholder="Opmerking (optioneel), bv. naast de bushalte"
+                  placeholderTextColor="rgba(235,235,245,0.4)"
+                  keyboardAppearance="dark"
+                  maxLength={500}
+                  multiline
+                  style={[
+                    type.body,
+                    {
+                      color: 'white',
+                      backgroundColor: 'rgba(118,118,128,0.3)',
+                      borderRadius: radius.control,
+                      borderCurve: 'continuous',
+                      padding: spacing.md,
+                      minHeight: 60,
+                    },
+                  ]}
+                />
+              ) : null}
+              <Host matchContents={{ vertical: true }} style={{ alignSelf: 'stretch' }}>
+                <HStack spacing={10}>
+                  <GlassAction
+                    label="Opnieuw"
+                    symbol="arrow.counterclockwise"
+                    onPress={() => {
+                      // The camera remounts; wait for onCameraReady again.
+                      setReady(false);
+                      setPhotoUri(null);
+                    }}
+                    busy={busy}
+                  />
+                  <GlassAction
+                    label={mode === 'checkin' ? 'Versturen' : 'Melden'}
+                    symbol="paperplane.fill"
+                    onPress={submit}
+                    prominent
+                    busy={busy}
+                  />
+                </HStack>
+              </Host>
+            </GlassPanel>
+          </SafeAreaView>
+        </KeyboardAvoidingView>
+      </View>
     );
   }
 
   return (
-    <View style={styles.dark}>
-      <CameraView ref={camera} style={StyleSheet.absoluteFill} facing="back" onCameraReady={() => setReady(true)} />
-      <SafeAreaView style={styles.overlay} pointerEvents="box-none">
-        <View style={styles.header}>
-          <Pressable onPress={close} hitSlop={12} accessibilityRole="button" accessibilityLabel="Sluiten">
-            <Ionicons name="close" size={30} color="#fff" />
-          </Pressable>
-          <Text style={styles.headerText}>
-            {mode === 'checkin' ? 'Fotografeer je inworp in de vuilbak' : 'Fotografeer de ontbrekende vuilbak'}
-          </Text>
+    <View style={{ flex: 1, backgroundColor: 'black' }}>
+      <CameraView
+        ref={camera}
+        style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 }}
+        facing="back"
+        onCameraReady={() => setReady(true)}
+      />
+      <SafeAreaView style={{ flex: 1, justifyContent: 'space-between', padding: spacing.lg }} pointerEvents="box-none">
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+          <Host matchContents>
+            <Button
+              label="Sluiten"
+              systemImage="xmark"
+              onPress={close}
+              modifiers={[buttonStyle('glass'), buttonBorderShape('circle'), labelStyle('iconOnly'), controlSize('large'), tint('white')]}
+            />
+          </Host>
+          <GlassPanel dark style={{ flex: 1, borderRadius: 999, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm + 2 }}>
+            <Text style={[type.subheadline, { color: 'white', fontWeight: '600' }]}>
+              {mode === 'checkin' ? 'Fotografeer je inworp in de vuilbak' : 'Fotografeer de ontbrekende vuilbak'}
+            </Text>
+          </GlassPanel>
         </View>
-        <View style={styles.shutterRow}>
+        <View style={{ alignItems: 'center', paddingBottom: spacing.lg }}>
           <Pressable
             onPress={takePhoto}
             disabled={!ready || capturing}
-            style={({ pressed }) => [styles.shutter, (pressed || capturing) && styles.shutterPressed]}
             accessibilityRole="button"
             accessibilityLabel="Foto nemen"
-          />
+            style={{ width: 80, height: 80, borderRadius: 40, borderWidth: 5, borderColor: 'white', alignItems: 'center', justifyContent: 'center' }}>
+            {({ pressed }) => (
+              <View
+                style={{
+                  width: 64,
+                  height: 64,
+                  borderRadius: 32,
+                  backgroundColor: 'white',
+                  transform: [{ scale: pressed || capturing ? 0.88 : 1 }],
+                  opacity: ready ? 1 : 0.5,
+                }}
+              />
+            )}
+          </Pressable>
         </View>
       </SafeAreaView>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  light: { flex: 1, backgroundColor: colors.background },
-  dark: { flex: 1, backgroundColor: '#000' },
-  center: { alignItems: 'center', justifyContent: 'center' },
-  overlay: { flex: 1, justifyContent: 'space-between' },
-  header: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.lg },
-  headerText: { color: '#fff', fontSize: 16, fontWeight: '600', flex: 1 },
-  shutterRow: { alignItems: 'center', paddingBottom: spacing.xl },
-  shutter: { width: 76, height: 76, borderRadius: 38, borderWidth: 6, borderColor: '#fff', backgroundColor: 'rgba(255,255,255,0.3)' },
-  shutterPressed: { backgroundColor: 'rgba(255,255,255,0.8)' },
-  preview: { flex: 1 },
-  panel: { padding: spacing.lg, gap: spacing.md, backgroundColor: '#000' },
-  note: {
-    backgroundColor: colors.surface,
-    borderRadius: 12,
-    padding: spacing.md,
-    fontSize: 15,
-    minHeight: 60,
-  },
-  row: { flexDirection: 'row', gap: spacing.md },
-  flex: { flex: 1 },
-  resultButtons: { alignSelf: 'stretch', gap: spacing.md, marginTop: spacing.lg },
-});

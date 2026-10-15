@@ -1,22 +1,23 @@
-import { Linking, Pressable, StyleSheet, Text, type StyleProp, type ViewStyle } from 'react-native';
+import * as WebBrowser from 'expo-web-browser';
+import { Pressable, Text, type StyleProp, type ViewStyle } from 'react-native';
+
+import { GlassPanel } from '@/components/GlassPanel';
+import { colors, type } from '@/theme';
 
 export const OSM_COPYRIGHT_URL = 'https://www.openstreetmap.org/copyright';
 
-/** Required attribution for the OSM bin data, linking to the licence page. */
+/** Required attribution for the OSM bin data; opens the licence page in Safari. */
 export function OsmAttribution({ style }: { style?: StyleProp<ViewStyle> }) {
   return (
-    <Pressable
-      accessibilityRole="link"
-      accessibilityLabel="© OpenStreetMap contributors, open de licentiepagina"
-      onPress={() => Linking.openURL(OSM_COPYRIGHT_URL)}
-      hitSlop={8}
-      style={[styles.box, style]}>
-      <Text style={styles.text}>© OpenStreetMap contributors</Text>
-    </Pressable>
+    <GlassPanel interactive style={[{ borderRadius: 999 }, style]}>
+      <Pressable
+        accessibilityRole="link"
+        accessibilityLabel="© OpenStreetMap contributors, open de licentiepagina"
+        onPress={() => WebBrowser.openBrowserAsync(OSM_COPYRIGHT_URL)}
+        hitSlop={8}
+        style={{ paddingHorizontal: 10, paddingVertical: 4 }}>
+        <Text style={[type.caption, { color: colors.secondaryLabel }]}>© OpenStreetMap</Text>
+      </Pressable>
+    </GlassPanel>
   );
 }
-
-const styles = StyleSheet.create({
-  box: { backgroundColor: 'rgba(255,255,255,0.85)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
-  text: { fontSize: 11, color: '#1b1b1b', textDecorationLine: 'underline' },
-});

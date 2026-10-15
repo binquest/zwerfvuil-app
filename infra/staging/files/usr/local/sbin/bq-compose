@@ -1,0 +1,22 @@
+#!/bin/sh
+# docker compose for the Supabase stack of binquest-staging, with the upstream
+# files, our override and all env files. Managed by infra/staging (zwerfvuil-app).
+#
+#   sudo bq-compose ps
+#   sudo bq-compose logs -f auth
+#
+# Start and stop the stack with systemctl (bq-supabase.service), not with
+# `bq-compose up/down`, so the data-disk checks always apply.
+set -eu
+UPSTREAM=/opt/binquest/upstream/docker
+COMPOSE=/opt/binquest/compose
+exec docker compose \
+  --project-name supabase \
+  --project-directory "$UPSTREAM" \
+  --env-file "$COMPOSE/settings.env" \
+  --env-file /opt/binquest/secrets/supabase.env \
+  --env-file "$COMPOSE/host.env" \
+  -f "$UPSTREAM/docker-compose.yml" \
+  -f "$UPSTREAM/docker-compose.logs.yml" \
+  -f "$COMPOSE/docker-compose.bq.yml" \
+  "$@"

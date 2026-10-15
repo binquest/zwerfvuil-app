@@ -1,0 +1,175 @@
+# Unsigned iOS build (.ipa) of "Zwerfvuil Dev" (be.zwerfvuil.app.dev): a
+# Release build against the staging server, next to the staging app, that gets
+# new JavaScript as EAS Updates on the channel "dev" (npm run update:dev). Only
+# needed again when native code changes; then bump DEV_RUNTIME_VERSION in
+# app/app.config.ts first.
+#
+# Like the staging IPA it is NOT signed: you sign it on your iPhone with your own
+# certificate in a sideload app. The staging URL and publishable key come from
+# the environment "staging", as for ios-staging.yml. See README ("Zwerfvuil Dev").
+#
+# Start (a tag works from any branch):
+#   git tag ios-dev-<yyyymmdd-hhmm>
+#   git push origin ios-dev-<yyyymmdd-hhmm>
+
+name: iOS dev IPA (unsigned, staging + EAS Update)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "ios-dev-*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-dev
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build unsigned dev IPA
+    runs-on: macos-26
+    environment: staging
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: app
+    env:
+      CI: "1"
+      # Read by app/app.config.ts: dev name, bundle id, updates.
+      APP_VARIANT: development
+      # Read by app/scripts/staging.mjs, written to staging.env.local below.
+      STAGING_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+      STAGING_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Tools
+        run: |
+          xcodebuild -version
+          node --version
+          echo "started_at=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Staging configuration
+        run: |
+          umask 077
+          {
+            echo "EXPO_PUBLIC_SUPABASE_URL=$STAGING_SUPABASE_URL"
+            echo "EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=$STAGING_SUPABASE_PUBLISHABLE_KEY"
+          } > staging.env.local
+          node scripts/staging.mjs node --version
+
+      - name: Check the bundle (staging config, no old dev toggle, no dev config)
+        run: npm run check:staging-bundle
+
+      - name: Generate the iOS project (expo prebuild, CocoaPods)
+        run: node scripts/staging.mjs npx --yes expo prebuild --platform ios --clean
+
+      - name: Check the generated app icon and launch screen
+        run: node scripts/check-ios-assets.mjs ios
+
+      - name: Archive (Release) without code signing
+        run: |
+          workspace=$(ls -d ios/*.xcworkspace | head -1)
+          scheme=$(basename "$workspace" .xcworkspace)
+          echo "workspace=$workspace scheme=$scheme"
+          set +e
+          node scripts/staging.mjs xcodebuild archive \
+            -workspace "$workspace" \
+            -scheme "$scheme" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -archivePath "$RUNNER_TEMP/app.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            > "$RUNNER_TEMP/xcodebuild.log" 2>&1
+          status=$?
+          set -e
+          grep -E "^\*\* |error:" "$RUNNER_TEMP/xcodebuild.log" | tail -n 40 || true
+          echo "xcodebuild exit status: $status"
+          test "$status" -eq 0
+          test -d "$RUNNER_TEMP/app.xcarchive/Products/Applications"
+
+      - name: Package and verify the .ipa
+        run: |
+          app=$(ls -d "$RUNNER_TEMP"/app.xcarchive/Products/Applications/*.app | head -1)
+          plist="$app/Info.plist"
+          bundle_id=$(/usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" "$plist")
+          echo "bundle id: $bundle_id"
+          test "$bundle_id" = "be.zwerfvuil.app.dev"
+          test ! -e "$app/embedded.mobileprovision" || { echo "unexpected provisioning profile"; exit 1; }
+          if codesign -dv "$app" 2>&1 | grep -q "not signed at all"; then echo "code signature: none (as intended)"; else codesign -dv "$app" 2>&1; exit 1; fi
+          # The JavaScript is in the app (Release), checked like the staging bundle.
+          test -f "$app/main.jsbundle"
+          node scripts/check-staging-bundle.mjs "$app"
+          # EAS Update: enabled, the project's URL, channel "dev", the runtime version.
+          expo_plist="$app/Expo.plist"
+          updates_enabled=$(/usr/libexec/PlistBuddy -c "Print :EXUpdatesEnabled" "$expo_plist")
+          updates_url=$(/usr/libexec/PlistBuddy -c "Print :EXUpdatesURL" "$expo_plist")
+          runtime=$(/usr/libexec/PlistBuddy -c "Print :EXUpdatesRuntimeVersion" "$expo_plist")
+          channel=$(/usr/libexec/PlistBuddy -c "Print :EXUpdatesRequestHeaders:expo-channel-name" "$expo_plist")
+          echo "updates: enabled=$updates_enabled url=$updates_url runtime=$runtime channel=$channel"
+          test "$updates_enabled" = "true"
+          [[ "$updates_url" == https://u.expo.dev/* ]] || { echo "::error::no EAS Update URL"; exit 1; }
+          test "$channel" = "dev"
+          test -n "$runtime"
+          # Liquid Glass: built with the iOS 26 SDK and not opted out.
+          compat=$(/usr/libexec/PlistBuddy -c "Print :UIDesignRequiresCompatibility" "$plist" 2>/dev/null || echo "not set")
+          test "$compat" != "true" || { echo "::error::Liquid Glass is switched off (UIDesignRequiresCompatibility)"; exit 1; }
+          sdk=$(/usr/libexec/PlistBuddy -c "Print DTSDKName" "$plist" 2>/dev/null || echo "?")
+          # No microphone permission (expo-audio only plays sounds).
+          ! /usr/libexec/PlistBuddy -c "Print :NSMicrophoneUsageDescription" "$plist" >/dev/null 2>&1 \
+            || { echo "::error::unexpected NSMicrophoneUsageDescription"; exit 1; }
+          ipa="ZwerfvuilDev-unsigned-${GITHUB_RUN_NUMBER}.ipa"
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          cp -R "$app" "$RUNNER_TEMP/ipa/Payload/"
+          (cd "$RUNNER_TEMP/ipa" && zip -qry "$RUNNER_TEMP/$ipa" Payload)
+          echo "ipa_path=$RUNNER_TEMP/$ipa" >> "$GITHUB_ENV"
+          {
+            echo "### Unsigned Zwerfvuil Dev IPA"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| File | \`$ipa\` |"
+            echo "| Size | $(du -h "$RUNNER_TEMP/$ipa" | cut -f1) |"
+            echo "| Bundle ID | \`$bundle_id\` |"
+            echo "| Updates | channel \`$channel\`, runtime \`$runtime\` |"
+            echo "| SDK | \`$sdk\` (Liquid Glass opt-out: $compat) |"
+            echo "| Commit | \`${GITHUB_SHA::12}\` (${GITHUB_REF_NAME}) |"
+            echo "| Build time | $(( ($(date +%s) - started_at) / 60 )) min (whole job: see the run's billable time) |"
+            echo ""
+            echo "Sign it in your sideload app with your own certificate; see the README."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the .ipa
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ env.ipa_path }}
+          archive: false
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Upload the build log (on failure)
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: xcodebuild-log-${{ github.run_number }}
+          path: ${{ runner.temp }}/xcodebuild.log
+          retention-days: 3
+          if-no-files-found: ignore

@@ -21,3 +21,7 @@ export function formatDateTime(iso: string): string {
 export function formatPoints(points: number): string {
   return `${points} ${points === 1 ? 'punt' : 'punten'}`;
 }
+
+export function formatWeeks(weeks: number): string {
+  return `${weeks} ${weeks === 1 ? 'week' : 'weken'}`;
+}

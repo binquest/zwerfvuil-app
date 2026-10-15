@@ -14,11 +14,15 @@ export interface CurrentPosition extends Position {
 interface LocationState {
   permission: PermissionState;
   requestPermission: () => Promise<void>;
-  /** The position used for check-ins: the device's, or the dev fake location. */
+  /** The position used for check-ins: the device's, or the Dev mode test location. */
   position: CurrentPosition | null;
   /** A position no older than `maxAgeMs`, fetching a new fix when needed. */
   freshPosition: (maxAgeMs?: number) => Promise<CurrentPosition | null>;
-  /** Dev only (hidden toggle): pick the location on the map instead of GPS. */
+  /**
+   * Dev mode (admins on local or staging): pick the location on the map
+   * instead of GPS. The server refuses it from anyone else and flags the
+   * check-in as a test.
+   */
   fakeMode: boolean;
   setFakeMode: (on: boolean) => void;
   setFakeLocation: (point: LatLon) => void;
@@ -77,7 +81,6 @@ export function LocationProvider({ enabled, children }: { enabled: boolean; chil
   }, [enabled, permission]);
 
   const setFakeMode = useCallback((on: boolean) => {
-    if (!__DEV__) return;
     setFakeModeState(on);
     if (!on) setFakeLocationState(null);
   }, []);

@@ -12,7 +12,13 @@ Usage (from anywhere, paths are resolved from the repo root):
 
 The database URL comes from DATABASE_URL (shell or the repo-root .env) and
 defaults to the local Supabase database. Non-local hosts are refused unless
---allow-remote is given.
+--allow-remote is given, and so is any database marked 'staging' or
+'production'.
+
+Staging (the homeserver VM, through an SSH tunnel) only on purpose:
+    python scripts/import-bins/import_bins.py --target staging --dry-run
+    python scripts/import-bins/import_bins.py --target staging
+The second form shows the dry run and asks you to type 'staging' first.
 """
 
 from __future__ import annotations
@@ -183,44 +189,71 @@ def import_bins(conn, rows: list[BinRow], *, allow_mass_removal: bool = False) -
 check_local = devenv.require_local
 
 
+def run_import(url: str, rows: list[BinRow], *, target: str, dry_run: bool,
+               allow_mass_removal: bool) -> ImportResult:
+    """Imports in one transaction after checking the database's environment marker."""
+    import psycopg  # imported lazily so the pure helpers can be tested without it
+
+    with psycopg.connect(url) as conn:
+        devenv.check_target(devenv.database_environment(conn), target)
+        result = import_bins(conn, rows, allow_mass_removal=allow_mass_removal)
+        if dry_run:
+            conn.rollback()
+        else:
+            conn.commit()
+    return result
+
+
+def print_summary(result: ImportResult, rows: list[BinRow], file: Path, *, target: str, dry_run: bool) -> None:
+    ineligible = [r for r in rows if not r.eligible]
+    print(f"Import into {target}{' (dry run, rolled back)' if dry_run else ''}: {result.total} bins in "
+          f"{file.name} ({result.total - len(ineligible)} eligible, {len(ineligible)} not eligible)")
+    print(f"  inserted {result.inserted}, updated {result.updated}, unchanged {result.unchanged}, "
+          f"marked removed {result.removed}")
+    for r in ineligible:
+        reason = {k: r.tags[k] for k in ("waste", "access") if k in r.tags}
+        print(f"  not eligible: {r.osm_type}/{r.osm_id} {reason}")
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--file", type=Path, default=DEFAULT_FILE, help="GeoJSON input (default: data/bins.geojson)")
     parser.add_argument("--dry-run", action="store_true", help="run the import and roll it back")
     parser.add_argument("--allow-mass-removal", action="store_true",
                         help=f"allow marking more than {MAX_REMOVAL_FRACTION * 100:.0f}%% of the active OSM bins as removed")
-    parser.add_argument("--allow-remote", action="store_true", help="allow a non-local DATABASE_URL")
+    parser.add_argument("--allow-remote", action="store_true", help="allow a non-local DATABASE_URL (target local)")
+    devenv.add_target_argument(parser)
     args = parser.parse_args(argv)
 
     import psycopg  # imported lazily so the pure helpers can be tested without it
 
     devenv.load_env_file()
-    url = devenv.database_url()
-    check_local(url, args.allow_remote)
     if not args.file.exists():
         sys.exit(f"{args.file} not found, run scripts/osm/osm_bins.py first")
 
     try:
         rows = parse_features(json.loads(args.file.read_text(encoding="utf-8")))
-        with psycopg.connect(url) as conn:
-            result = import_bins(conn, rows, allow_mass_removal=args.allow_mass_removal)
+        options = {"target": args.target, "allow_mass_removal": args.allow_mass_removal}
+        if args.target == "local":
+            url = devenv.database_url()
+            check_local(url, args.allow_remote)
+            result = run_import(url, rows, dry_run=args.dry_run, **options)
+            print_summary(result, rows, args.file, target=args.target, dry_run=args.dry_run)
+            return
+        # Staging: always show the dry run first, then ask before importing.
+        with devenv.staging_endpoints() as staging:
+            preview = run_import(staging.database_url, rows, dry_run=True, **options)
+            print_summary(preview, rows, args.file, target=args.target, dry_run=True)
             if args.dry_run:
-                conn.rollback()
-            else:
-                conn.commit()
+                return
+            devenv.confirm(f"Import this into STAGING (insert {preview.inserted}, update {preview.updated}, "
+                           f"mark removed {preview.removed})?", yes=args.yes)
+            result = run_import(staging.database_url, rows, dry_run=False, **options)
+            print_summary(result, rows, args.file, target=args.target, dry_run=False)
     except BinImportError as error:
         sys.exit(f"Import aborted: {error}")
     except psycopg.OperationalError as error:
         sys.exit(f"Cannot connect to the database ({error}). Is Supabase running (npm run db:start)?")
-
-    ineligible = [r for r in rows if not r.eligible]
-    print(f"Import{' (dry run, rolled back)' if args.dry_run else ''}: {result.total} bins in "
-          f"{args.file.name} ({result.total - len(ineligible)} eligible, {len(ineligible)} not eligible)")
-    print(f"  inserted {result.inserted}, updated {result.updated}, unchanged {result.unchanged}, "
-          f"marked removed {result.removed}")
-    for r in ineligible:
-        reason = {k: r.tags[k] for k in ("waste", "access") if k in r.tags}
-        print(f"  not eligible: {r.osm_type}/{r.osm_id} {reason}")
 
 
 if __name__ == "__main__":

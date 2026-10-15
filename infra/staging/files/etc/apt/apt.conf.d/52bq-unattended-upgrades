@@ -1,0 +1,17 @@
+// Managed by infra/staging (zwerfvuil-app).
+// Only Debian security updates are installed automatically. Point releases,
+// Docker and Tailscale are upgraded by hand (see docs/STAGING.md).
+#clear Unattended-Upgrade::Origins-Pattern;
+Unattended-Upgrade::Origins-Pattern {
+        "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
+        "origin=Debian,codename=${distro_codename},label=Debian-Security";
+};
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+
+// Reboot only when an update needs it (/run/reboot-required, created e.g. by
+// a kernel update), at 04:30: after the database backup (03:30) and the
+// upgrade run (04:00, see apt-daily-upgrade.timer.d/10-bq.conf).
+Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-WithUsers "true";
+Unattended-Upgrade::Automatic-Reboot-Time "04:30";

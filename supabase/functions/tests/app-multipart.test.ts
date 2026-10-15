@@ -68,8 +68,20 @@ Deno.test("submit-checkin accepts the app's request", async () => {
     deletePhoto: () => Promise.resolve(),
     recordCheckin: (args) => {
       records.push(args);
-      return Promise.resolve({ ok: true, reason: null, checkin_id: "c1", distance_m: 8, retry_after_s: null });
+      return Promise.resolve({
+        ok: true,
+        reason: null,
+        checkin_id: "c1",
+        distance_m: 8,
+        retry_after_s: null,
+        streak_weeks: 1,
+        point_stages: [10, 11],
+        points_total: 11,
+        bonus_question: null,
+        is_test: false,
+      });
     },
+    devModeAllowed: () => Promise.resolve(false),
     newId: () => "c1",
     logError: () => {},
   });

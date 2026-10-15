@@ -9,10 +9,12 @@
 import { InvalidJpegError, stripJpegMetadata } from "../_shared/jpeg.ts";
 import { messageFor, SUCCESS_MESSAGE } from "./messages.ts";
 import {
+  BONUS_POINTS,
   type Details,
   HTTP_STATUS,
   MAX_PHOTO_BYTES,
   type RejectCode,
+  STREAK_MULTIPLIER,
   validateCheckinFields,
   validatePhotoSize,
 } from "./rules.ts";
@@ -26,6 +28,7 @@ const DB_REASONS = new Set<RejectCode>([
   "too_far",
   "cooldown",
   "daily_limit",
+  "fake_location_not_allowed",
 ]);
 
 export interface RecordCheckinArgs {
@@ -40,21 +43,37 @@ export interface RecordCheckinArgs {
   p_photo_path: string;
 }
 
+export interface BonusQuestion {
+  key: string;
+  prompt: string;
+  options: { key: string; label: string }[];
+}
+
 export interface RecordCheckinResult {
   ok: boolean;
   reason: string | null;
   checkin_id: string | null;
   distance_m: number | null;
   retry_after_s: number | null;
+  /** Only when ok: the streak and the point stages (base first, total last). */
+  streak_weeks: number | null;
+  point_stages: number[] | null;
+  points_total: number | null;
+  bonus_question: BonusQuestion | null;
+  /** Dev mode (fake location or streak override): kept apart from real data. */
+  is_test: boolean | null;
 }
 
 export interface CheckinDeps {
+  /** False in production: fake locations are refused before the database. */
   allowFakeLocation: boolean;
   /** Returns the user id for a valid access token, otherwise null. */
   authenticate(authorization: string | null): Promise<string | null>;
   uploadPhoto(path: string, jpeg: Uint8Array): Promise<void>;
   deletePhoto(path: string): Promise<void>;
   recordCheckin(args: RecordCheckinArgs): Promise<RecordCheckinResult>;
+  /** Dev mode for this user: an admin on a local or staging database (dev_mode_allowed_for). */
+  devModeAllowed(userId: string): Promise<boolean>;
   newId(): string;
   logError(message: string, error: unknown): void;
 }
@@ -113,6 +132,9 @@ async function handle(deps: CheckinDeps, req: Request): Promise<Response> {
   );
   const checked = validateCheckinFields(fields, { allowFakeLocation: deps.allowFakeLocation });
   if (!checked.ok) return reject(checked.code, checked.details);
+  // A fake location (Dev mode) from anyone else is refused before the upload;
+  // record_checkin checks the same rule again.
+  if (checked.value.fakeLocation && !(await deps.devModeAllowed(userId))) return reject("fake_location_not_allowed");
 
   const photo = form.get("photo");
   const size = validatePhotoSize(photo instanceof File ? photo.size : 0);
@@ -169,11 +191,30 @@ async function handle(deps: CheckinDeps, req: Request): Promise<Response> {
     return reject(reason, details);
   }
 
+  // The check-in is stored either way; without points the app shows a plain
+  // confirmation instead of the reveal.
+  const stages = result.point_stages ?? [];
+  const hasPoints = stages.length > 0 && result.points_total !== null && result.streak_weeks !== null;
+  if (!hasPoints) deps.logError("record_checkin returned no points", result);
+
   return json(201, {
     checkin_id: result.checkin_id,
     status: "pending",
     distance_m: result.distance_m === null ? null : Math.round(result.distance_m * 10) / 10,
     message: SUCCESS_MESSAGE,
+    // The app animates exactly these numbers: the base, then one stage per
+    // streak multiplier. Granted when an admin approves the check-in.
+    points: hasPoints
+      ? {
+        base: stages[0],
+        multiplier: STREAK_MULTIPLIER,
+        streak_weeks: result.streak_weeks,
+        stages: stages.slice(1),
+        total: result.points_total,
+      }
+      : null,
+    bonus_question: result.bonus_question ? { ...result.bonus_question, points: BONUS_POINTS } : null,
+    is_test: result.is_test === true,
   });
 }
 

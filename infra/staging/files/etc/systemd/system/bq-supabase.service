@@ -1,0 +1,23 @@
+# Managed by infra/staging (zwerfvuil-app).
+# The self-hosted Supabase stack (docker compose via bq-compose). Like Docker
+# itself, it only starts when the data disk is mounted.
+[Unit]
+Description=Supabase (self-hosted, docker compose)
+Requires=docker.service
+After=docker.service network-online.target tailscaled.service
+Wants=network-online.target
+RequiresMountsFor=/srv/bq-data
+AssertPathIsMountPoint=/srv/bq-data
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/usr/bin/test -f /srv/bq-data/.bq-data-disk
+ExecStartPre=/usr/bin/test -d /srv/bq-data/storage
+ExecStart=/usr/local/sbin/bq-compose up --detach --wait --wait-timeout 600 --remove-orphans
+ExecStop=/usr/local/sbin/bq-compose stop
+TimeoutStartSec=15min
+TimeoutStopSec=5min
+
+[Install]
+WantedBy=multi-user.target

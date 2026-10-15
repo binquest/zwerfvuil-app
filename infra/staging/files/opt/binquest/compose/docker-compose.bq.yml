@@ -1,0 +1,122 @@
+# Changes to the official self-hosted Supabase stack for binquest-staging.
+# Managed by infra/staging (zwerfvuil-app); used by /usr/local/sbin/bq-compose
+# on top of the untouched upstream docker-compose.yml and docker-compose.logs.yml
+# (supabase/supabase at the commit in SUPABASE_REF).
+#
+# - Every published port is bound to 127.0.0.1: Docker bypasses the host
+#   firewall. The API reaches the tailnet only through `tailscale serve`;
+#   Studio and Postgres only through an SSH tunnel.
+# - Data lives outside the upstream checkout: Postgres on the system disk
+#   (/opt/binquest/data), Storage (photos) on the data disk (/srv/bq-data).
+# - Disabled because the app does not use them: realtime (no channels),
+#   imgproxy (no image transformations), supavisor (no connection pooling
+#   needed; Postgres is published directly on 127.0.0.1 instead).
+# - The new API keys (sb_publishable_/sb_secret_) and asymmetric JWTs are on,
+#   like the local Supabase CLI: Auth signs with JWT_KEYS, the other services
+#   verify with JWT_JWKS.
+# - Mail goes to Mailpit (a mailcatcher, web UI only on 127.0.0.1, so only
+#   through the SSH tunnel) until a real SMTP provider is chosen. Auth reads the
+#   6-digit-code template from supabase/templates over HTTP (GoTrue only loads
+#   templates from a URL), served by mail-templates inside the Docker network.
+# - APP_ENV=staging: fake locations are Dev mode only (admins, decided by the
+#   database). The retired ALLOW_FAKE_LOCATION must not be set: with it set at
+#   all, the function refuses to start.
+
+services:
+
+  studio:
+    volumes:
+      - /opt/binquest/data/snippets:/app/snippets
+      - /opt/binquest/functions:/app/edge-functions:ro
+
+  api-gw:
+    ports: !override
+      - "127.0.0.1:8000:8000/tcp"
+
+  auth:
+    environment:
+      GOTRUE_JWT_KEYS: ${JWT_KEYS}
+      # Same as supabase/config.toml: 6-digit codes, valid for 1 hour,
+      # at most one mail per second per user.
+      GOTRUE_MAILER_OTP_LENGTH: "6"
+      GOTRUE_MAILER_OTP_EXP: "3600"
+      GOTRUE_SMTP_MAX_FREQUENCY: 1s
+      # Same templates and subjects as [auth.email.template.*] in config.toml.
+      GOTRUE_MAILER_TEMPLATES_MAGIC_LINK: http://mail-templates/otp-code.html
+      GOTRUE_MAILER_TEMPLATES_CONFIRMATION: http://mail-templates/otp-code.html
+      GOTRUE_MAILER_SUBJECTS_MAGIC_LINK: Je inlogcode voor Zwerfvuil Gent
+      GOTRUE_MAILER_SUBJECTS_CONFIRMATION: Je inlogcode voor Zwerfvuil Gent
+    depends_on:
+      mailpit:
+        condition: service_healthy
+      mail-templates:
+        condition: service_healthy
+
+  storage:
+    depends_on: !override
+      db:
+        condition: service_healthy
+      rest:
+        condition: service_started
+    environment:
+      JWT_JWKS: ${JWT_JWKS}
+      ENABLE_IMAGE_TRANSFORMATION: "false"
+    volumes:
+      # No create_host_path: without the data disk the container fails
+      # instead of writing photos to the system disk.
+      - type: bind
+        source: /srv/bq-data/storage
+        target: /var/lib/storage
+        bind:
+          create_host_path: false
+
+  functions:
+    environment:
+      SUPABASE_JWKS: ${JWT_JWKS}
+      APP_ENV: staging
+    volumes:
+      - /opt/binquest/functions:/home/deno/functions
+
+  db:
+    ports:
+      - "127.0.0.1:5432:5432/tcp"
+    volumes:
+      - /opt/binquest/data/db:/var/lib/postgresql/data
+
+  mailpit:
+    container_name: supabase-mailpit
+    image: axllent/mailpit:v1.31.3
+    restart: unless-stopped
+    ports:
+      # Web UI and API, only via the SSH tunnel. SMTP (1025) stays inside the
+      # Docker network.
+      - "127.0.0.1:8025:8025/tcp"
+    environment:
+      MP_MAX_MESSAGES: "500"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  mail-templates:
+    container_name: supabase-mail-templates
+    image: busybox:1.37
+    restart: unless-stopped
+    command: ["httpd", "-f", "-p", "80", "-h", "/www"]
+    volumes:
+      - /opt/binquest/templates:/www:ro
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "80"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  realtime:
+    profiles: ["disabled"]
+
+  imgproxy:
+    profiles: ["disabled"]
+
+  supavisor:
+    profiles: ["disabled"]

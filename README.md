@@ -6,13 +6,15 @@ alleen de testregio rond de Oude Houtlei in Gent (+600 m).
 
 | Map | Inhoud |
 |---|---|
-| `app/` | Expo-app (TypeScript, Expo Router), draait in Expo Go (SDK 57) |
+| `app/` | Expo-app (TypeScript, Expo Router, SDK 57, native iOS 26-UI), op de iPhone als "Zwerfvuil Dev" tegen staging |
 | `supabase/` | Migraties, edge function `submit-checkin`, e-mailtemplate, database- en functietests |
 | `scripts/osm/` | Testregio bepalen, Belgium-PBF downloaden, vuilbakken extraheren |
 | `scripts/import-bins/` | `data/bins.geojson` importeren in de database |
 | `scripts/seed-admin/` | Een account admin maken op basis van een e-mailadres |
 | `config/region.json` | De testregio (gedeeld door scripts en app) |
+| `infra/staging/` | Scripts en config voor de staging-VM op de homeserver (zie `docs/STAGING.md`) |
 | `docs/PRE-BETA.md` | Wat nog moet gebeuren voor er echte gebruikers bij komen |
+| `docs/STAGING.md` | Runbook van de staging-omgeving |
 
 ## In het kort (eerste keer)
 
@@ -31,18 +33,19 @@ npm run db:start
 .venv\Scripts\python scripts\osm\osm_bins.py all
 .venv\Scripts\python scripts\import-bins\import_bins.py
 .venv\Scripts\python scripts\seed-admin\seed_admin.py --email jij@voorbeeld.be
-cd app
-npx expo start --clear
 ```
 
-Vul vóór `npx expo start` eerst `app/.env.local` in (stap 6). De `Copy-Item`-regels
-zijn alleen voor de eerste keer: ze overschrijven bestaande bestanden.
+De lokale Supabase is voor de tests en scripts. De app op je iPhone ("Zwerfvuil
+Dev") praat met de staging-server en krijgt nieuwe versies als update (stap 6).
+De `Copy-Item`-regels zijn alleen voor de eerste keer: ze overschrijven bestaande
+bestanden.
 
 ## Vereisten
 
 - Windows met PowerShell (of WSL), Docker Desktop (draaiend), Node.js 20+,
   Python 3.12+ (op Windows via `py`)
-- Op de iPhone: Expo Go (SDK 57); voor testen op straat ook Tailscale
+- Op de iPhone: "Zwerfvuil Dev" (stap 6), een sideload-app met je eigen
+  certificaat, en Tailscale (de staging-server staat op het tailnet)
 
 ## 1. Installeren
 
@@ -61,7 +64,7 @@ en gebruik daarna overal `.venv/bin/python` in plaats van `.venv\Scripts\python`
 
 ## 2. Configuratie
 
-Er zijn drie configuratiebestanden. Ze staan alle drie in `.gitignore`; in git
+Er zijn vier configuratiebestanden. Ze staan alle vier in `.gitignore`; in git
 staan alleen de `.example`-versies met placeholders.
 
 | Bestand | Voor | Voorbeeld |
@@ -69,6 +72,7 @@ staan alleen de `.example`-versies met placeholders.
 | `.env` | de Python-scripts (`ADMIN_EMAIL`, `DATABASE_URL`, `OSM_CONTACT`) | `.env.example` |
 | `supabase/functions/.env` | de edge functions (`ALLOW_FAKE_LOCATION`) | `supabase/functions/.env.example` |
 | `app/.env.local` | de app (Supabase-URL, publishable key, Metro-host) | `app/.env.example` |
+| `app/staging.env.local` | staging-builds van de app (zie `docs/STAGING.md`) | `app/staging.env.example` |
 
 ```powershell
 Copy-Item .env.example .env
@@ -128,108 +132,82 @@ Of zet `ADMIN_EMAIL=...` in `.env` en draai het script zonder `--email`.
 - Admin-rechten intrekken: voeg `--revoke` toe.
 - Na `npm run db:reset` moet je het script opnieuw draaien.
 
-## 6. App starten in Expo Go
+Beide scripts werken standaard alleen op de lokale database. Voor de
+staging-omgeving: `--target staging` (zie `docs/STAGING.md`).
 
-Vul `app/.env.local` in:
+## 6. Zwerfvuil Dev op je iPhone
 
-```
-EXPO_PUBLIC_SUPABASE_URL=http://<PC_HOST>:54321
-EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<publishable key>
-REACT_NATIVE_PACKAGER_HOSTNAME=<PC_HOST>
-```
+"Zwerfvuil Dev" (`be.zwerfvuil.app.dev`) is een **Release-build** van de app tegen de
+**staging-server** (`docs/STAGING.md`), naast de staging-app "Zwerfvuil Gent". Er is
+geen Metro of pc nodig: nieuwe JavaScript komt als **EAS Update** (kanaal `dev`).
+Een nieuwe IPA is alleen nodig als de native code verandert.
 
-- De publishable key vind je met `npm run supabase -- status` ("Publishable").
-- `<PC_HOST>` is het adres waarop je iPhone je pc bereikt:
-  - **zelfde wifi**: het LAN-IP van je pc (`ipconfig`, "IPv4 Address" van de
-    wifi-adapter);
-  - **mobiele data**: het Tailscale-IP (zie hieronder).
-- Het moet `.env.local` zijn: Expo leest `REACT_NATIVE_PACKAGER_HOSTNAME` alleen
-  uit `.local`-bestanden.
+Waarom zo: zonder Apple Developer Program bouwt GitHub Actions een ongesigneerde
+IPA die je zelf signeert (zoals de staging-IPA), en dat kost telkens ongeveer 15 van
+de ongeveer 200 gratis macOS-minuten per maand. Met EAS Update kost een
+schermwijziging geen build.
 
-```powershell
-cd app
-npx expo start --clear
-```
+### Eenmalig: de IPA
 
-Scan de QR-code met de camera van je iPhone. Expo zet de waarden uit
-`.env.local` vast in de app: herstart na een wijziging altijd met `--clear`.
-
-**Firewall op wifi.** Windows Firewall moet poort 54321 (Supabase) en 8081
-(Metro) toelaten op het netwerk van je wifi. Kijk welk profiel dat netwerk heeft:
-
-```powershell
-Get-NetConnectionProfile | Select-Object InterfaceAlias, NetworkCategory
-```
-
-Docker Desktop en Node.js krijgen bij installatie meestal toegang op
-"Openbaar"; staat je wifi op "Privé" en lukt de verbinding niet, voeg dan (in
-PowerShell als administrator) een regel toe voor je lokale netwerk:
-
-```powershell
-New-NetFirewallRule -DisplayName "Zwerfvuil dev via LAN" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 54321,54324,8081 -RemoteAddress LocalSubnet -Profile Private
-```
-
-## Testen op straat via Tailscale
-
-Met Tailscale bereikt je iPhone je pc ook via mobiele data, zonder poorten open
-te zetten naar het internet.
-
-1. **Tailscale op pc en iPhone**: installeer Tailscale op beide, log in met
-   hetzelfde account en zet de verbinding aan. Op de pc:
+1. `app/app.config.ts` bevat het EAS-project (`EAS_OWNER`, `EAS_PROJECT_ID`, via
+   `npx eas-cli init`) en de runtimeversie (`DEV_RUNTIME_VERSION`).
+2. Start de build met een tag (de staging-URL en -key komen uit de GitHub-omgeving
+   `staging`, zoals bij de staging-IPA):
 
    ```powershell
-   tailscale status
-   tailscale ip -4
+   git tag ios-dev-<yyyymmdd-hhmm>
+   git push origin ios-dev-<yyyymmdd-hhmm>
    ```
 
-   `tailscale status` mag niet "Tailscale is stopped" tonen. `tailscale ip -4` geeft
-   het Tailscale-IP van je pc (`100.x.y.z`), hieronder `<TAILSCALE_IP>`.
+3. GitHub → Actions → "iOS dev IPA (unsigned, staging + EAS Update)" → Artifacts:
+   `ZwerfvuilDev-unsigned-<run>.ipa`. Signeer en installeer hem in je sideload-app.
 
-2. **Firewall** (eenmalig, PowerShell als administrator). Windows ziet het
-   Tailscale-netwerk als "Privé", terwijl Docker Desktop vaak alleen toegang
-   heeft op "Openbaar". Deze regel laat Supabase (54321), Mailpit (54324) en
-   Metro (8081) alleen toe vanaf je eigen Tailscale-apparaten:
+### Een nieuwe versie sturen (update)
 
-   ```powershell
-   New-NetFirewallRule -DisplayName "Zwerfvuil dev via Tailscale" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 54321,54324,8081 -InterfaceAlias Tailscale -RemoteAddress 100.64.0.0/10 -Profile Private
-   ```
+```powershell
+npm --prefix app run update:dev -- "wat er veranderd is"
+```
 
-   Verwijderen kan later met `Remove-NetFirewallRule -DisplayName "Zwerfvuil dev via Tailscale"`.
+Dat exporteert de bundel met het staging-profiel (`app/staging.env.local`), controleert
+hem (`check-staging-bundle`) en publiceert precies die export. Eenmalig nodig:
+`npx eas-cli login`. Op de iPhone: open de app; zodra de update binnen is, vraagt ze om
+te herstarten (of Profiel → "Zoek naar updates"). Profiel → App → Versie toont welke
+update draait.
 
-3. **App-config**: zet in `app/.env.local` beide adressen op het Tailscale-IP:
+Let op: een update gaat naar de servers van Expo, met de staging-URL en de
+publishable key erin (die staan ook in elke IPA; de URL werkt alleen op het tailnet).
 
-   ```
-   EXPO_PUBLIC_SUPABASE_URL=http://<TAILSCALE_IP>:54321
-   REACT_NATIVE_PACKAGER_HOSTNAME=<TAILSCALE_IP>
-   ```
+### Wanneer een nieuwe IPA
 
-4. **Controleren vanaf de iPhone** (Tailscale aan, wifi uit), in Safari:
-   - `http://<TAILSCALE_IP>:54321/rest/v1/` → een JSON-foutmelding over een
-     ontbrekende API key betekent: bereikbaar.
-   - `http://<TAILSCALE_IP>:8081/status` → `packager-status:running`.
+Bij elke wijziging aan native code: een package met native code, een config-plugin,
+`app.json` of `app.config.ts`. Verhoog dan eerst `DEV_RUNTIME_VERSION`: updates gaan
+alleen naar apps met dezelfde runtimeversie.
 
-5. **Starten**: `cd app` en `npx expo start --clear`, scan de QR-code. Expo Go
-   laadt de app via het Tailscale-IP.
+### Lokaal
 
-Tips:
+De iOS-UI (SwiftUI via `@expo/ui`, Liquid Glass, native tabs) draait alleen in een
+echte iOS-build; Expo Go en Metro worden niet meer gebruikt. De lokale Supabase is
+voor de database- en functietests en de scripts. Wil je toch met Metro tegen de
+lokale Supabase werken, dan heb je een development build met `expo-dev-client`
+nodig (zie commit `46faef6` voor die opzet en het Tailscale-stuk van deze README in
+die versie).
 
-- Meld je thuis één keer aan; de sessie blijft bewaard, zodat je op straat geen
-  code nodig hebt. Heb je toch een code nodig: Mailpit staat op
-  `http://<TAILSCALE_IP>:54324`.
-- Thuis op wifi kan je gewoon via Tailscale blijven werken; overschakelen naar het
-  LAN-IP is niet nodig.
-- `tailscale status` toont of de iPhone `direct` of via een relay (`relay "…"`)
-  verbonden is. Op mobiele data is dat vaak een relay (DERP): dat werkt, maar met
-  meer vertraging (~100 ms). `tailscale ping <iphone-naam>` meet die vertraging.
+## Dev-modus (testen zonder rond te lopen)
 
-## Dev: nep-locatie (thuis testen)
+Admins op local of staging vinden in de app **Beheer → Dev-modus**: de
+puntenonthulling bekijken, een reeks forceren, een testlocatie op de kaart kiezen,
+hun testdata resetten, en testdata in de ranglijst tonen. Alles wat Dev-modus doet
+is testdata en wordt gelogd; de server weigert het voor gewone gebruikers en in
+productie. Details en waarom het veilig is: `docs/STAGING.md`, "Dev-modus".
 
-1. Zet `ALLOW_FAKE_LOCATION=true` in `supabase/functions/.env` en herstart
-   Supabase (`npm run db:stop` en `npm run db:start`).
-2. In de app (alleen in dev): houd het infovak bovenaan de kaart 1,5 seconde
-   ingedrukt. Tik daarna op de kaart om je locatie te kiezen.
-3. Zet het daarna terug op `false`. De server negeert de vlag sowieso als Supabase
-   niet lokaal draait.
+Het oude `ALLOW_FAKE_LOCATION` is afgeschaft: haal het uit
+`supabase/functions/.env` als het er nog staat. Lokaal moet de database als `local`
+gemarkeerd zijn; `npm run db:reset` doet dat via `supabase/seed.sql`. Wil je je data
+houden, voer dan eenmalig uit (Studio of psql):
+
+```sql
+insert into private.app_environment (name) values ('local') on conflict (singleton) do update set name = excluded.name, updated_at = now();
+```
 
 ## Tests en controles
 
@@ -242,6 +220,9 @@ npm run test:functions:integration
 npm --prefix app run typecheck
 npm --prefix app run lint
 npm --prefix app test
+npm --prefix app run test:scripts
+npm --prefix app run check:staging-bundle
+npm --prefix app run doctor
 ```
 
 ```powershell
@@ -249,6 +230,7 @@ npm --prefix app test
 .venv\Scripts\python -m unittest discover -s scripts/osm
 .venv\Scripts\python -m unittest discover -s scripts/import-bins
 .venv\Scripts\python -m unittest discover -s scripts/seed-admin
+.venv\Scripts\python -m unittest discover -s infra/staging
 ```
 
 `db:test`, `test:functions:integration` en de import- en seed-tests hebben een
@@ -257,15 +239,41 @@ aan (`@example.test`) en ruimen die zelf op. Met `CHECKIN_API_URL=http://<host>:
 stuurt de check-in-test zijn requests via een ander adres, bijvoorbeeld je
 Tailscale-IP.
 
+## App-icoon en splash
+
+Alle iconen en de splash komen uit één bronbeeld: `app/assets/icon-source.png`
+(vierkant, effen achtergrond, witte figuur). Na een nieuw bronbeeld, in de map `app`:
+
+```powershell
+node scripts/icons.mjs --preview $env:TEMP\icon-preview
+```
+
+Het script sampelt de kleuren, schrijft alle bestanden in `app/assets` en print de
+kleuren voor `app.json`. De figuur wordt nergens gecentreerd: de compositie van het
+bronbeeld blijft (de vuilbak staat afgesneden in de hoek). Waar meer te zien is dan
+het bronbeeld (Android bij parallax, de iOS-splash op hoge schermen), loopt de
+vuilbak door langs zijn randen; zijn die niet recht, dan zegt het script dat.
+Bekijk de previews voor je commit.
+
+- **iOS**: `icon.png`; splash `splash-ios.png` over het volledige scherm. Het script
+  faalt als het deksel en het handvat niet op elk iPhone-scherm volledig zichtbaar
+  zijn. De splash gebruikt `enableFullScreenImage_legacy` (zie `docs/PRE-BETA.md`).
+- **Android**: adaptive icon (foreground, background, monochrome). De splash is het
+  icoon als afgerond vierkant, gecentreerd op donkergroen: Android 12+ toont bij
+  het opstarten alleen een gecentreerd icoon.
+
+De IPA-workflow controleert na de prebuild en na de build dat icoon en splash de
+onze zijn (`app/scripts/check-ios-assets.mjs`).
+
 ## Problemen oplossen
 
 | Probleem | Oplossing |
 |---|---|
-| De app toont "App niet geconfigureerd" | `app/.env.local` ontbreekt of bevat nog placeholders; vul het in en start met `npx expo start --clear` |
-| `expo start` meldt "Refused to load personal environment variables" | `REACT_NATIVE_PACKAGER_HOSTNAME` staat in `app/.env`; verplaats alles naar `app/.env.local` |
-| Expo Go laadt niet of de app krijgt geen verbinding | Open de controle-URL's uit de Tailscale-stappen in Safari; controleer de firewall, `tailscale status` en `<PC_HOST>` in `app/.env.local` |
-| Geen inlogcode ontvangen | Lokaal gaan mails naar Mailpit (poort 54324), niet naar je echte mailbox; per account kan er maximaal 1 mail per seconde vertrekken |
-| Inworp mislukt | De melding zegt wat er mis is (netwerk, timeout, serverfout, weigering). In dev staat elke poging als `[submit-checkin] {...}` in de Metro-console |
+| De app toont "App niet geconfigureerd" | De build of update kreeg geen of een verkeerde staging-URL of -key: controleer `app/staging.env.local` (updates) of de GitHub-omgeving `staging` (IPA) |
+| "Zwerfvuil Dev" bereikt de server niet | Tailscale op de iPhone staat uit, of de staging-VM draait niet (zie `docs/STAGING.md`, "Bereikbaarheid") |
+| Een update komt niet aan | Open de app opnieuw of kies Profiel → "Zoek naar updates". Komt ze nooit: verschilt de runtimeversie van de IPA (`DEV_RUNTIME_VERSION`)? |
+| Geen inlogcode ontvangen | Op staging gaan mails naar Mailpit op de VM (via de tunnel), lokaal naar Mailpit op poort 54324; per account maximaal 1 mail per seconde |
+| Inworp mislukt | De melding zegt wat er mis is (netwerk, timeout, serverfout, weigering) |
 | Na `npm run db:reset` is alles leeg | Importeer opnieuw (stap 4) en maak jezelf opnieuw admin (stap 5) |
 | Poorten 54321–54327 bezet | `npm run db:stop`, of stop een ander Supabase-project |
 

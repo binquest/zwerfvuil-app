@@ -9,6 +9,8 @@ interface AuthState {
   /** True until the stored session has been read. */
   loading: boolean;
   profile: Profile | null;
+  /** True once the first profile request for this session finished (even if it failed). */
+  profileLoaded: boolean;
   refreshProfile: () => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -19,9 +21,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   // The profile is stored with its user id, so a stale profile never leaks to another session.
-  const [loaded, setLoaded] = useState<{ userId: string; profile: Profile } | null>(null);
+  const [loaded, setLoaded] = useState<{ userId: string; profile: Profile | null } | null>(null);
   const userId = session?.user.id ?? null;
-  const profile = loaded && loaded.userId === userId ? loaded.profile : null;
+  const current = loaded && loaded.userId === userId ? loaded : null;
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -46,7 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let active = true;
     fetchProfile(userId)
       .then((next) => active && setLoaded({ userId, profile: next }))
-      .catch(() => {});
+      .catch(() => active && setLoaded((prev) => (prev?.userId === userId ? prev : { userId, profile: null })));
     return () => {
       active = false;
     };
@@ -57,8 +59,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ session, loading, profile, refreshProfile, signOut }),
-    [session, loading, profile, refreshProfile, signOut],
+    () => ({
+      session,
+      loading,
+      profile: current?.profile ?? null,
+      profileLoaded: current !== null,
+      refreshProfile,
+      signOut,
+    }),
+    [session, loading, current, refreshProfile, signOut],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

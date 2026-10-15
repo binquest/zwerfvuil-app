@@ -1,8 +1,10 @@
+import { Image } from 'expo-image';
+import { SymbolView } from 'expo-symbols';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Text, View } from 'react-native';
 
 import { photoUrl } from '@/lib/api';
-import { colors } from '@/theme';
+import { colors, radius, type } from '@/theme';
 
 /** Shows a photo from a private bucket through a short-lived signed URL. */
 export function PrivatePhoto({ bucket, path }: { bucket: 'checkin-photos' | 'report-photos'; path: string }) {
@@ -20,27 +22,33 @@ export function PrivatePhoto({ bucket, path }: { bucket: 'checkin-photos' | 'rep
   }, [bucket, path]);
 
   return (
-    <View style={styles.box}>
+    <View
+      style={{
+        aspectRatio: 4 / 3,
+        borderRadius: radius.control,
+        borderCurve: 'continuous',
+        overflow: 'hidden',
+        backgroundColor: colors.fill,
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+      }}>
       {failed ? (
-        <Text style={styles.error}>Foto niet beschikbaar</Text>
+        <>
+          <SymbolView name="photo.badge.exclamationmark" size={28} tintColor={colors.secondaryLabel} />
+          <Text style={[type.footnote, { color: colors.secondaryLabel }]}>Foto niet beschikbaar</Text>
+        </>
       ) : uri ? (
-        <Image source={{ uri }} style={styles.image} resizeMode="cover" onError={() => setFailed(true)} />
+        <Image
+          source={{ uri }}
+          style={{ width: '100%', height: '100%' }}
+          contentFit="cover"
+          transition={200}
+          onError={() => setFailed(true)}
+        />
       ) : (
-        <ActivityIndicator color={colors.primary} />
+        <ActivityIndicator />
       )}
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  box: {
-    height: 240,
-    borderRadius: 12,
-    overflow: 'hidden',
-    backgroundColor: '#eceeec',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  image: { width: '100%', height: '100%' },
-  error: { color: colors.muted },
-});

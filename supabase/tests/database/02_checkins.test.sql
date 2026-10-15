@@ -42,7 +42,7 @@ $$;
 create function pg_temp.checkin(osm bigint, meters double precision)
 returns table (ok boolean, reason text, checkin_id uuid, distance_m double precision, retry_after_s integer)
 language sql as $$
-  select r.* from pg_temp.near(osm, meters) n,
+  select r.ok, r.reason, r.checkin_id, r.distance_m, r.retry_after_s from pg_temp.near(osm, meters) n,
     lateral public.record_checkin(gen_random_uuid(), '11111111-1111-1111-1111-111111111111',
       pg_temp.bin(osm), n.lat, n.lon, 5, false, false,
       '11111111-1111-1111-1111-111111111111/x.jpg') r;
@@ -176,8 +176,8 @@ set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"33333333-3333-3333-3333-333333333333","role":"authenticated"}', true);
 select is(
   (select row(r.status, r.points_awarded, r.reviewed_by)::text from review_checkin(current_setting('test.first')::uuid, true) r),
-  '(approved,10,33333333-3333-3333-3333-333333333333)',
-  'admins can approve a check-in, which awards 10 points');
+  '(approved,11,33333333-3333-3333-3333-333333333333)',
+  'admins can approve a check-in, which awards its points (10 x1.1 for a one-week streak)');
 select throws_ok($$ select review_checkin(current_setting('test.first')::uuid, false) $$, '55000', null,
   'a check-in can only be reviewed once');
 select is(
@@ -190,12 +190,12 @@ select throws_ok($$ select review_checkin(current_setting('test.first')::uuid, n
   'approve must not be null');
 reset role;
 
-select is((select points from profiles where id = '11111111-1111-1111-1111-111111111111'), 10,
+select is((select points from profiles where id = '11111111-1111-1111-1111-111111111111'), 11,
   'only the approved check-in added points to the profile');
 
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}', true);
-select is((select points from profiles where id = auth.uid()), 10, 'users see their points');
+select is((select points from profiles where id = auth.uid()), 11, 'users see their points');
 select is(
   (select array_agg(status order by status) from checkins where id in (current_setting('test.first')::uuid, current_setting('test.second')::uuid)),
   array['approved', 'rejected'],

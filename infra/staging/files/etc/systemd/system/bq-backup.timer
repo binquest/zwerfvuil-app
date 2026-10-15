@@ -1,0 +1,15 @@
+# Managed by infra/staging (zwerfvuil-app).
+# Nightly at 03:30: before the security updates (04:00) and the automatic
+# reboot (04:30, only when needed). Persistent: a missed run (VM off) runs
+# at the next boot.
+[Unit]
+Description=Nightly Supabase database dump
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+AccuracySec=1min
+RandomizedDelaySec=0
+Persistent=true
+
+[Install]
+WantedBy=timers.target

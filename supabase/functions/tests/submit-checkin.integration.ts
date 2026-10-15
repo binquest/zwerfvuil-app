@@ -2,8 +2,8 @@
 // Run with: npm run test:functions:integration   (needs: npm run db:start)
 //
 // Creates a throwaway user and test bins near Null Island, and removes them
-// afterwards. The expected fake-location behaviour is read from
-// supabase/functions/.env, so run it after (re)starting Supabase.
+// afterwards. Fake locations are Dev mode: refused for users, a test check-in
+// for admins (the local database is marked 'local').
 //
 // Requests are built with the app's own multipart builder, so this tests the
 // exact bytes the app sends. Set CHECKIN_API_URL (e.g. http://<TAILSCALE_IP>:54321)
@@ -24,15 +24,6 @@ async function localStack(): Promise<{ apiUrl: string; anonKey: string; serviceR
   if (!success || !text.includes("{")) throw new Error("Supabase is not running (npm run db:start)");
   const status = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
   return { apiUrl: status.API_URL, anonKey: status.ANON_KEY, serviceRoleKey: status.SERVICE_ROLE_KEY };
-}
-
-function fakeLocationConfigured(): boolean {
-  try {
-    const env = Deno.readTextFileSync("supabase/functions/.env");
-    return /^ALLOW_FAKE_LOCATION=true\s*$/m.test(env);
-  } catch {
-    return false;
-  }
 }
 
 const ascii = (text: string) => [...text].map((c) => c.charCodeAt(0));
@@ -79,7 +70,9 @@ Deno.test("submit-checkin end to end", async (t) => {
   const checkinUrl = `${Deno.env.get("CHECKIN_API_URL") ?? apiUrl}/functions/v1/submit-checkin`;
   const admin = createClient(apiUrl, serviceRoleKey, { auth: { persistSession: false } });
   const client = createClient(apiUrl, anonKey, { auth: { persistSession: false } });
-  const expectFake = fakeLocationConfigured();
+  // The database's own marker (private.app_environment): Dev mode only works
+  // on 'local' and 'staging'.
+  const { data: dbEnvironment } = await admin.rpc("app_environment");
 
   const email = `checkin-it-${crypto.randomUUID()}@example.test`;
   const password = crypto.randomUUID() + crypto.randomUUID();
@@ -96,17 +89,22 @@ Deno.test("submit-checkin end to end", async (t) => {
     const { data: session, error: signInError } = await client.auth.signInWithPassword({ email, password });
     if (signInError) throw signInError;
     const token = session.session!.access_token;
+    const authed = createClient(apiUrl, anonKey, {
+      auth: { persistSession: false },
+      global: { headers: { Authorization: `Bearer ${token}` } },
+    });
 
-    // Bins: A eligible, B not eligible, C and D eligible (all ~200 m apart).
+    // Bins: A eligible, B not eligible, C, D and E eligible (all ~200 m apart).
     const { data: bins, error: binError } = await admin.from("bins").insert([
       { source: "user", geom: `SRID=4326;POINT(${BIN_LON} ${BIN_LAT})`, eligible: true },
       { source: "user", geom: `SRID=4326;POINT(${BIN_LON + 0.002} ${BIN_LAT})`, eligible: false },
       { source: "user", geom: `SRID=4326;POINT(${BIN_LON + 0.004} ${BIN_LAT})`, eligible: true },
       { source: "user", geom: `SRID=4326;POINT(${BIN_LON + 0.006} ${BIN_LAT})`, eligible: true },
+      { source: "user", geom: `SRID=4326;POINT(${BIN_LON + 0.008} ${BIN_LAT})`, eligible: true },
     ]).select("id");
     if (binError) throw binError;
     binIds.push(...bins.map((b) => b.id));
-    const [binA, binB, binC, binD] = binIds;
+    const [binA, binB, binC, binD, binE] = binIds;
     const lonOf = (bin: number) => BIN_LON + 0.002 * binIds.indexOf(bin);
 
     const submit = async (
@@ -157,12 +155,18 @@ Deno.test("submit-checkin end to end", async (t) => {
       assertEquals(status, 201, JSON.stringify(body));
       assertEquals(body.status, "pending");
       assertAlmostEquals(body.distance_m, 10, 0.2);
+      // A new user: this week is a one-week streak, so one x1.1 stage.
+      assertEquals(body.points, { base: 10, multiplier: 1.1, streak_weeks: 1, stages: [11], total: 11 });
+      assertEquals(body.bonus_question.key, "bin_fullness");
+      assertEquals(body.bonus_question.points, 5);
+      assertEquals(body.bonus_question.options.map((o: { key: string }) => o.key), ["empty", "half", "full"]);
       checkinId = body.checkin_id;
 
       const { data: row } = await admin.from("checkins").select("*").eq("id", checkinId).single();
       assertEquals(row.user_id, userId);
       assertEquals(row.status, "pending");
       assertEquals(row.points_awarded, 0);
+      assertEquals([row.streak_weeks, row.points_earned, row.bonus_points], [1, 11, 0]);
       assertEquals(row.is_fake_location, false);
       assertEquals(row.photo_path, `${userId}/${checkinId}.jpg`);
     });
@@ -176,6 +180,23 @@ Deno.test("submit-checkin end to end", async (t) => {
 
       const own = await client.storage.from("checkin-photos").download(`${userId}/${checkinId}.jpg`);
       assertEquals(own.error, null);
+    });
+
+    await t.step("the bonus question can be answered once, for 5 points", async () => {
+      const shown = await authed.rpc("mark_bonus_question_shown", { checkin_id: checkinId });
+      assertEquals(shown.error, null);
+      await new Promise((resolve) => setTimeout(resolve, 1300));
+      const answered = await authed.rpc("answer_bonus_question", { checkin_id: checkinId, answer: "half" });
+      assertEquals([answered.error, answered.data], [null, 5]);
+      const again = await authed.rpc("answer_bonus_question", { checkin_id: checkinId, answer: "full" });
+      assertEquals(again.error?.code, "55000");
+
+      const { data: answer } = await admin.from("bonus_answers").select("*").eq("checkin_id", checkinId).single();
+      assertEquals([answer.answer_key, answer.is_suspicious], ["half", false]);
+      assert(answer.response_ms >= 1300, `response_ms ${answer.response_ms}`);
+      const { data: row } = await admin.from("checkins").select("bonus_points, points_awarded").eq("id", checkinId)
+        .single();
+      assertEquals([row?.bonus_points, row?.points_awarded], [5, 0]);
     });
 
     await t.step("a second check-in at the same bin is refused by the cooldown", async () => {
@@ -221,23 +242,55 @@ Deno.test("submit-checkin end to end", async (t) => {
       );
     });
 
-    await t.step(`a fake location is ${expectFake ? "accepted (ALLOW_FAKE_LOCATION=true)" : "refused"}`, async () => {
+    await t.step("a fake location from a user who is not an admin is refused by the database", async () => {
       const { status, body } = await submit(binC, 3, { fake_location: "true", accuracy_m: "" });
-      if (expectFake) {
-        assertEquals(status, 201, JSON.stringify(body));
-        const { data: row } = await admin.from("checkins").select("is_fake_location").eq("id", body.checkin_id)
-          .single();
-        assertEquals(row?.is_fake_location, true);
-      } else {
-        assertEquals([status, body.error.code], [403, "fake_location_not_allowed"]);
-      }
+      assertEquals([status, body.error.code], [403, "fake_location_not_allowed"]);
+      const { count } = await admin.from("checkins").select("id", { count: "exact", head: true })
+        .eq("user_id", userId).eq("is_fake_location", true);
+      assertEquals(count, 0);
+    });
+
+    const devMode = dbEnvironment === "local" || dbEnvironment === "staging";
+    await t.step(`Dev mode (database: ${dbEnvironment ?? "no marker"}): test check-ins, override, reset`, async () => {
+      if (!devMode) return;
+      await admin.from("profiles").update({ is_admin: true }).eq("id", userId);
+
+      const fake = await submit(binC, 3, { fake_location: "true", accuracy_m: "" });
+      assertEquals(fake.status, 201, JSON.stringify(fake.body));
+      assertEquals(fake.body.is_test, true);
+
+      const override = await authed.rpc("set_dev_streak_override", { weeks: 4 });
+      assertEquals([override.error, override.data], [null, 4]);
+      const real = await submit(binE, 4);
+      assertEquals(real.status, 201, JSON.stringify(real.body));
+      assertEquals([real.body.is_test, real.body.points.streak_weeks, real.body.points.total], [true, 4, 15]);
+
+      const reset = await authed.rpc("reset_dev_test_data");
+      assertEquals(reset.error, null);
+      const { deleted_checkins, photo_paths } = reset.data[0];
+      assertEquals(deleted_checkins, 2);
+      assertEquals(
+        [...photo_paths].sort(),
+        [`${userId}/${fake.body.checkin_id}.jpg`, `${userId}/${real.body.checkin_id}.jpg`].sort(),
+      );
+
+      // The app deletes the photos of the removed test check-ins...
+      const removed = await authed.storage.from("checkin-photos").remove(photo_paths);
+      assertEquals([removed.error, removed.data?.length], [null, 2]);
+      // ...but cannot delete a photo that a real check-in still uses.
+      const kept = await authed.storage.from("checkin-photos").remove([`${userId}/${checkinId}.jpg`]);
+      assertEquals(kept.data?.length ?? 0, 0);
+      assertEquals(
+        (await photosInStorage()).sort(),
+        [`${userId}/${checkinId}.jpg`, `${userId}/${largeCheckinId}.jpg`].sort(),
+      );
+      const { count: testLeft } = await admin.from("checkins").select("id", { count: "exact", head: true })
+        .eq("user_id", userId).eq("is_test", true);
+      assertEquals(testLeft, 0);
+      await admin.from("profiles").update({ is_admin: false }).eq("id", userId);
     });
 
     await t.step("no points before approval, and users cannot call record_checkin", async () => {
-      const authed = createClient(apiUrl, anonKey, {
-        auth: { persistSession: false },
-        global: { headers: { Authorization: `Bearer ${token}` } },
-      });
       const { data: profile } = await authed.from("profiles").select("points").eq("id", userId).single();
       assertEquals(profile?.points, 0);
       const { error } = await authed.rpc("record_checkin", {

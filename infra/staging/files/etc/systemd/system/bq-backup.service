@@ -1,0 +1,12 @@
+# Managed by infra/staging (zwerfvuil-app).
+# Database dump to the data disk; started by bq-backup.timer.
+[Unit]
+Description=Supabase database dump to /srv/bq-data/backups
+After=bq-supabase.service
+RequiresMountsFor=/srv/bq-data
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/bq-backup
+Nice=10
+IOSchedulingClass=idle

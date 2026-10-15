@@ -1,5 +1,7 @@
 // Interpreting submit-checkin responses and failures (pure, unit tested).
 
+import { type BonusQuestion, type CheckinPoints, parseBonusQuestion, parsePoints } from './points';
+
 /**
  * - rejected: the server refused the check-in (too far, cooldown, …)
  * - auth: the session is missing or expired
@@ -12,7 +14,17 @@
 export type FailureKind = 'rejected' | 'auth' | 'network' | 'timeout' | 'server' | 'unexpected' | 'photo';
 
 export type CheckinOutcome =
-  | { ok: true; checkinId: string; distanceM: number | null; message: string }
+  | {
+      ok: true;
+      checkinId: string;
+      distanceM: number | null;
+      message: string;
+      /** Null when the server sent none (the app then skips the reveal). */
+      points: CheckinPoints | null;
+      question: BonusQuestion | null;
+      /** Dev mode: a test check-in. */
+      isTest: boolean;
+    }
   | { ok: false; kind: FailureKind; code: string; message: string };
 
 export const CHECKIN_TIMEOUT_MS = 60_000;
@@ -61,6 +73,9 @@ export function parseCheckinResponse(status: number, bodyText: string | null, de
       checkinId: data.checkin_id,
       distanceM: typeof data.distance_m === 'number' ? data.distance_m : null,
       message: typeof data.message === 'string' ? data.message : 'Bedankt! Je inworp wacht op goedkeuring.',
+      points: parsePoints(data.points),
+      question: parseBonusQuestion(data.bonus_question),
+      isTest: data.is_test === true,
     };
   }
 

@@ -11,7 +11,33 @@ describe('parseCheckinResponse', () => {
         201,
         json({ checkin_id: 'abc', status: 'pending', distance_m: 12.3, message: 'Bedankt! Je inworp wacht op goedkeuring.' }),
       ),
-    ).toEqual({ ok: true, checkinId: 'abc', distanceM: 12.3, message: 'Bedankt! Je inworp wacht op goedkeuring.' });
+    ).toEqual({
+      ok: true,
+      checkinId: 'abc',
+      distanceM: 12.3,
+      message: 'Bedankt! Je inworp wacht op goedkeuring.',
+      points: null,
+      question: null,
+      isTest: false,
+    });
+  });
+
+  it('reads the points, the bonus question and the test flag', () => {
+    const body = json({
+      checkin_id: 'abc',
+      status: 'pending',
+      distance_m: 4,
+      message: 'Bedankt!',
+      points: { base: 10, multiplier: 1.1, streak_weeks: 2, stages: [11, 12], total: 12 },
+      bonus_question: { key: 'find_ease', prompt: 'Hoe makkelijk?', options: [{ key: 'easy', label: 'Meteen' }, { key: 'hard', label: 'Moeilijk' }], points: 5 },
+      is_test: true,
+    });
+    expect(parseCheckinResponse(201, body)).toMatchObject({
+      ok: true,
+      points: { base: 10, stages: [11, 12], total: 12, streakWeeks: 2 },
+      question: { key: 'find_ease', points: 5 },
+      isTest: true,
+    });
   });
 
   it('shows the server message of a refusal as "rejected"', () => {
