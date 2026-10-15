@@ -867,8 +867,8 @@ vergelijking van de punten en in fase 1b van de eventtellingen in Studio.
 
 ## Overdracht
 
-Stand op 15 oktober 2026: fase 1a en 1b zijn af en gemerged in `main` (PR #2 en #3). Fase 2 is af en
-op staging uitgerold (`gamification/2-onthulling`); de iPhone-test en het akkoord om te mergen volgen.
+Stand op 15 oktober 2026: fase 1a, 1b en 2 zijn af en gemerged in `main` (PR #2, #3 en #4); fase 2 staat
+op staging en als EAS Update op `dev`.
 
 - Af: dit plan; fase 1a (puntenledger); fase 1b (config en eventlog), lokaal.
   - Server (`20261015120000_points_ledger.sql`): `point_transactions` met de projectie vanuit
@@ -1024,5 +1024,5 @@ op staging uitgerold (`gamification/2-onthulling`); de iPhone-test en het akkoor
   meting toont "mix uit cache" als de verwachte onthulling klopte); Componenten (ring scherp op
   44/72/120 pt, rollend getal, knop, balk) en een testtoast, ook terwijl de camera open is.
 - Nog te doen: fase 3 t/m 7.
-- Volgende stap: de iPhone-test van fase 2; na akkoord mergen; daarna fase 3 in een nieuwe sessie,
-  op `gamification/3-ontdekken` vanaf `main`.
+- Volgende stap: fase 3 in een nieuwe sessie, op `gamification/3-ontdekken` vanaf `main` (de
+  iPhone-punten hierboven horen bij de test van fase 2).
