@@ -33,10 +33,12 @@ export function bonusArc(t: number, from: { x: number; y: number }, to: { x: num
   };
 }
 
-/** The +5 badge sits on the number's top-right corner, this far outside it (style offsets). */
-export const BADGE_OFFSET = { right: -10, top: -14 };
 /** The badge's own size, roughly: the flying chip aims at its centre. */
 const BADGE_SIZE = { width: 52, height: 32 };
+/** Space between the number and its badge. */
+const BADGE_GAP = 6;
+/** The +5 badge sits just right of the number, level with its top, never over a digit (style offsets). */
+export const BADGE_OFFSET = { right: -(BADGE_SIZE.width + BADGE_GAP), top: -14 };
 
 /** Where the badge's centre is, relative to the centre of a number box of `width` × `height`. */
 export function badgeCentre(width: number, height: number): { x: number; y: number } {

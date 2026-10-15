@@ -49,6 +49,13 @@ describe('badgeCentre', () => {
     }
   });
 
+  it('never covers a digit: the whole badge is right of the number', () => {
+    for (const width of [80, 170, 320]) {
+      const { x } = badgeCentre(width, 132);
+      expect(x - 26).toBeGreaterThan(width / 2);
+    }
+  });
+
   it('stays on a 375 pt wide screen even for the widest number', () => {
     // The number is centred on the screen; its widest (four digits at 84 pt) is about 200 pt.
     const { x } = badgeCentre(200, 132);
