@@ -4,8 +4,10 @@
 // nothing itself (docs/GAMIFICATION.md, chapter 4).
 //
 // Known steps: base, discovery (the first check-in at a bin, +5 chips) and
-// streak. A step of another kind is kept with its label and total and plays as
-// a generic step, so a new kind of bonus needs no app update.
+// streak. A step of another kind is kept with its label, total, chips and
+// combined multiplier, and plays as a generic step: a change of the multiplier
+// goes into MULT, a change of the chips into PUNTEN. So a new kind of bonus
+// (the bounty of phase 8, ×2) needs no app update.
 
 export interface StreakStage {
   /** The combined multiplier after this stage, rounded for display (1.21). */
@@ -18,7 +20,7 @@ export type ScoreStep =
   /** The chips after the discovery (base + add) and the running total. */
   | { kind: 'discovery'; label: string; chips: number; add: number; mult: number; total: number }
   | { kind: 'streak'; label: string; weeks: number; perWeek: number; stages: StreakStage[] }
-  | { kind: 'other'; name: string; label: string; total: number | null };
+  | { kind: 'other'; name: string; label: string; total: number | null; chips: number | null; mult: number | null };
 
 export interface Score {
   steps: ScoreStep[];
@@ -51,7 +53,14 @@ function parseStep(value: unknown): ScoreStep | null {
     if (stages.length !== v.stages.length) return null;
     return { kind: 'streak', label: v.label, weeks: v.weeks, perWeek: v.per_week, stages };
   }
-  return { kind: 'other', name: v.kind, label: v.label, total: isNumber(v.total) ? v.total : null };
+  return {
+    kind: 'other',
+    name: v.kind,
+    label: v.label,
+    total: isNumber(v.total) ? v.total : null,
+    chips: isNumber(v.chips) ? v.chips : null,
+    mult: isNumber(v.mult) ? v.mult : null,
+  };
 }
 
 /** The `score` of a submit-checkin response, or null when it is missing or malformed. */

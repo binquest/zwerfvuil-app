@@ -9,7 +9,8 @@ import { confettiPiece } from '@/feedback/reveal/motion';
 import { playColors } from '@/theme';
 
 const DURATION_MS = 2400;
-const COLORS = [...playColors.particles, playColors.gold, playColors.bonus, playColors.chips];
+// A milestone is new: gold, with the PUNTEN blue, the MULT scale and white.
+const COLORS = [playColors.gold, playColors.chips, playColors.multRamp[0], playColors.multRamp[2], '#FFFFFF'];
 
 function Piece({ index, progress }: { index: number; progress: SharedValue<number> }) {
   const { width, height } = useWindowDimensions();

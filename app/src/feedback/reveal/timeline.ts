@@ -7,12 +7,24 @@
 // AUDIO_LEAD_MS later. The timing comes from tuning.ts, every number shown
 // from the score the server sent (score.steps): the timeline lands on its total.
 import { countSteps } from '../../lib/reveal';
-import { streakStep, type Score } from '../../lib/score';
+import type { Score } from '../../lib/score';
 import type { HapticKind } from '../haptics';
 import type { SfxId } from '../sfx/sources';
 import * as T from './tuning';
 
 export type { HapticKind, SfxId };
+
+/** The temporary pop-ups of the reveal; each is on screen from the start, invisible. */
+export type PopupId = 'discovery' | 'discoveryAdd' | 'flame' | 'bonus' | 'step0' | 'step1' | 'step2';
+/** Where a pop-up goes when it leaves: into a bin, the total, or the context line. */
+export type PopupTarget = 'chips' | 'mult' | 'total' | 'context';
+/** Steps of an unknown kind beyond this share the last pop-up. */
+export const MAX_STEP_POPUPS = 3;
+
+/** The pop-up of the `index`-th step of an unknown kind (0-based). */
+export function stepPopup(index: number): PopupId {
+  return `step${Math.min(Math.max(0, index), MAX_STEP_POPUPS - 1)}` as PopupId;
+}
 
 export type Event =
   // Sound and haptics.
@@ -22,12 +34,15 @@ export type Event =
   // The big number.
   | { atMs: number; type: 'chipIn' }
   | { atMs: number; type: 'count'; value: number }
-  // A discovery: the banner falls in (`sparkles` is 0 with Reduce Motion) and
-  // the chips get `add` more; the POINTS chip pops when they land.
-  | { atMs: number; type: 'discovery'; add: number; sparkles: number }
-  | { atMs: number; type: 'chipPop'; scale: number }
-  // A step of a kind the app does not know: its label, and its running total.
-  | { atMs: number; type: 'step'; label: string; total: number | null }
+  // A pop-up comes in (`sparkles` only for the discovery, 0 with Reduce
+  // Motion), and leaves for its target: flying there, or with Reduce Motion
+  // fading where it is.
+  | { atMs: number; type: 'popupIn'; popup: PopupId; sparkles: number }
+  | { atMs: number; type: 'popupOut'; popup: PopupId; to: PopupTarget; ms: number; fly: boolean }
+  // What landed in the bins: new chips (PUNTEN) or a new multiplier (MULT)
+  // when not null, the running total, and the chips a discovery added.
+  | { atMs: number; type: 'bins'; chips: number | null; multiplier: number | null; total: number; discovery: number }
+  | { atMs: number; type: 'binPop'; bin: 'chips' | 'mult'; scale: number }
   // One streak multiplier lands: the badge, the number, the heat layer.
   | { atMs: number; type: 'mult'; stage: number; multiplier: number; total: number; max: boolean; peakScale: number; heat: number }
   | { atMs: number; type: 'shake'; px: number; ms: number; rotationDeg: number }
@@ -48,11 +63,9 @@ export type Event =
       spring: { damping: number; stiffness: number };
       particles: number;
     }
-  // The first check-in of the week: the streak flame grows (stands still with Reduce Motion).
-  | { atMs: number; type: 'flame'; weeks: number; grow: boolean }
   | { atMs: number; type: 'showBonusQuestion' }
-  // The +5.
-  | { atMs: number; type: 'bonusChip'; durationMs: number; value: number }
+  // The +5: its pop-up drops into the total (fades with Reduce Motion).
+  | { atMs: number; type: 'bonusChip'; durationMs: number; value: number; fly: boolean }
   | { atMs: number; type: 'punch'; scale: number }
   | { atMs: number; type: 'ring' }
   | { atMs: number; type: 'badge'; value: number }
@@ -122,21 +135,27 @@ function jitter(index: number): number {
 
 /**
  * The reveal of `score`, step by step in the server's order: the base counted
- * up, the discovery (banner, +5 chips), one hit per streak stage, a step of an
- * unknown kind with its label and the chip sound; then the total slams in, and
- * on the first check-in of the week the streak flame grows.
+ * up into PUNTEN; a discovery pops up, its +5 flies into PUNTEN and it shrinks
+ * into the context line; on the first check-in of the week the streak flame
+ * beats at MULT; one hit per streak stage; a step of an unknown kind pops up
+ * and flies into MULT (×), PUNTEN (+) or the total. Then the total slams in.
  */
 export function buildRevealTimeline(input: RevealTimelineInput): Event[] {
   const { score } = input;
   const reduce = input.reduceMotion;
   const { add, visual, done } = collector();
+  const popScale = reduce ? T.REDUCED_MOTION_MAX_SCALE : T.BIN_POP_SCALE;
 
   visual(0, { type: 'chipIn' });
 
-  // `cursor` is when the next step starts, `shown` the running total on screen.
+  // `cursor` is when the next step starts, `shown` the running total on
+  // screen; `chips` and `multiplier` what the bins show.
   let cursor = T.LEAD_IN_MS;
   let shown = 0;
+  let chips = 0;
+  let multiplier = 1;
   let stageCount = 0;
+  let others = 0;
   for (const step of score.steps) {
     switch (step.kind) {
       case 'base': {
@@ -156,25 +175,50 @@ export function buildRevealTimeline(input: RevealTimelineInput): Event[] {
           visual(at, { type: 'count', value });
         });
         shown = base;
+        chips = base;
         cursor = at + T.TICK_INTERVAL_END_MS;
         break;
       }
       case 'discovery': {
-        // The banner with its fanfare, then the chips get their +5.
+        // The banner pops up with its fanfare, its +5 flies into PUNTEN, then
+        // it shrinks into the context line while the next step starts.
         const bannerAt = cursor + T.DISCOVERY_LEAD_MS;
         add(bannerAt, { type: 'sound', id: 'discover_fanfare', volume: T.VOLUME.fanfare });
         add(bannerAt, { type: 'haptic', kind: 'medium' });
-        visual(bannerAt, { type: 'discovery', add: step.add, sparkles: reduce ? 0 : T.DISCOVERY_SPARKLES });
-        const addAt = bannerAt + T.DISCOVERY_ADD_MS;
-        add(addAt, { type: 'sound', id: 'chip_add', volume: T.VOLUME.chipAdd });
-        add(addAt, { type: 'haptic', kind: 'selection' });
-        visual(addAt, { type: 'count', value: step.total });
-        visual(addAt, { type: 'chipPop', scale: reduce ? T.REDUCED_MOTION_MAX_SCALE : T.CHIP_POP_SCALE });
+        visual(bannerAt, { type: 'popupIn', popup: 'discovery', sparkles: reduce ? 0 : T.DISCOVERY_SPARKLES });
+        const leaveAt = bannerAt + T.DISCOVERY_ADD_MS;
+        visual(leaveAt, { type: 'popupIn', popup: 'discoveryAdd', sparkles: 0 });
+        visual(leaveAt, { type: 'popupOut', popup: 'discoveryAdd', to: 'chips', ms: T.POPUP_FLY_MS, fly: !reduce });
+        const landAt = leaveAt + T.POPUP_FLY_MS;
+        add(landAt, { type: 'sound', id: 'chip_add', volume: T.VOLUME.chipAdd });
+        add(landAt, { type: 'haptic', kind: 'selection' });
+        visual(landAt, { type: 'bins', chips: step.chips, multiplier: null, total: step.total, discovery: step.add });
+        visual(landAt, { type: 'binPop', bin: 'chips', scale: popScale });
+        visual(landAt + T.DISCOVERY_SHRINK_DELAY_MS, {
+          type: 'popupOut',
+          popup: 'discovery',
+          to: 'context',
+          ms: T.DISCOVERY_SHRINK_MS,
+          fly: !reduce,
+        });
         shown = step.total;
-        cursor = addAt + T.DISCOVERY_HOLD_MS;
+        chips = step.chips;
+        cursor = landAt + T.DISCOVERY_HOLD_MS;
         break;
       }
       case 'streak': {
+        if (score.streakExtended) {
+          // The first check-in of the week: a short beat at MULT (the streak is
+          // the multiplier), then the stages.
+          const flameAt = cursor + T.FLAME_LEAD_MS;
+          add(flameAt, { type: 'sound', id: 'flame_whoosh', volume: T.VOLUME.flame });
+          add(flameAt, { type: 'haptic', kind: 'light' });
+          visual(flameAt, { type: 'popupIn', popup: 'flame', sparkles: 0 });
+          visual(flameAt, { type: 'binPop', bin: 'mult', scale: popScale });
+          const outAt = flameAt + T.FLAME_SHOW_MS;
+          visual(outAt, { type: 'popupOut', popup: 'flame', to: 'mult', ms: T.POPUP_FLY_MS, fly: !reduce });
+          cursor = outAt + T.FLAME_HOLD_MS;
+        }
         // Anticipation, then one hit per streak week.
         add(cursor, { type: 'sound', id: 'riser', volume: T.VOLUME.riser });
         let at = cursor + T.ANTICIPATION_MS;
@@ -209,19 +253,40 @@ export function buildRevealTimeline(input: RevealTimelineInput): Event[] {
             visual(at, { type: 'flash', opacity: T.STAGE_FLASH.base + T.STAGE_FLASH.step * level });
           }
           shown = total;
+          multiplier = mult;
           at += stageIntervalMs(stage, reduce);
         }
         cursor = at;
         break;
       }
       case 'other': {
-        // A kind the app does not know yet: its label and total, the chip sound.
-        const stepAt = cursor + T.STEP_LEAD_MS;
-        add(stepAt, { type: 'sound', id: 'chip_add', volume: T.VOLUME.chipAdd });
-        add(stepAt, { type: 'haptic', kind: 'medium' });
-        visual(stepAt, { type: 'step', label: step.label, total: step.total });
+        // A kind the app does not know yet: its label pops up with the chip
+        // sound, then it flies into MULT (a new multiplier), PUNTEN (new chips)
+        // or, with neither, the total.
+        const popup = stepPopup(others++);
+        const to: PopupTarget =
+          step.mult !== null && step.mult !== multiplier ? 'mult' : step.chips !== null && step.chips !== chips ? 'chips' : 'total';
+        const inAt = cursor + T.STEP_LEAD_MS;
+        add(inAt, { type: 'sound', id: 'chip_add', volume: T.VOLUME.chipAdd });
+        add(inAt, { type: 'haptic', kind: 'medium' });
+        visual(inAt, { type: 'popupIn', popup, sparkles: 0 });
+        const outAt = inAt + T.STEP_SHOW_MS;
+        visual(outAt, { type: 'popupOut', popup, to, ms: T.POPUP_FLY_MS, fly: !reduce });
+        const landAt = outAt + T.POPUP_FLY_MS;
+        add(landAt, { type: 'sound', id: 'transient', volume: T.VOLUME.transient });
+        add(landAt, { type: 'haptic', kind: to === 'mult' ? 'heavy' : 'selection' });
         if (step.total !== null) shown = step.total;
-        cursor = stepAt + T.STEP_HOLD_MS;
+        if (to === 'mult') multiplier = step.mult ?? multiplier;
+        if (to === 'chips') chips = step.chips ?? chips;
+        visual(landAt, {
+          type: 'bins',
+          chips: to === 'chips' ? chips : null,
+          multiplier: to === 'mult' ? multiplier : null,
+          total: shown,
+          discovery: 0,
+        });
+        if (to !== 'total') visual(landAt, { type: 'binPop', bin: to, scale: popScale });
+        cursor = landAt + T.STEP_HOLD_MS;
         break;
       }
     }
@@ -248,17 +313,7 @@ export function buildRevealTimeline(input: RevealTimelineInput): Event[] {
     particles: reduce ? 0 : Math.min(T.SLAM_PARTICLES_MAX, T.SLAM_PARTICLES_MIN + stageCount),
   });
   if (!reduce) visual(at, { type: 'flash', opacity: T.SLAM_FLASH });
-
-  // The first check-in of the week: the streak flame, then the bonus question.
-  let settleAt = at + T.SETTLE_MS;
-  if (score.streakExtended) {
-    const flameAt = at + T.FLAME_DELAY_MS;
-    add(flameAt, { type: 'sound', id: 'flame_whoosh', volume: T.VOLUME.flame });
-    add(flameAt, { type: 'haptic', kind: 'light' });
-    visual(flameAt, { type: 'flame', weeks: streakStep(score)?.weeks ?? 0, grow: !reduce });
-    settleAt = flameAt + T.FLAME_HOLD_MS;
-  }
-  if (input.bonus) visual(settleAt, { type: 'showBonusQuestion' });
+  if (input.bonus) visual(at + T.SETTLE_MS, { type: 'showBonusQuestion' });
 
   return done();
 }
@@ -275,7 +330,8 @@ export function buildBonusTimeline(input: BonusTimelineInput): Event[] {
   }
 
   add(0, { type: 'sound', id: 'whoosh_up', volume: T.VOLUME.whoosh });
-  if (!reduce) visual(0, { type: 'bonusChip', durationMs: T.BONUS_CHIP_ARC_MS, value: points });
+  // "+5 bonusvraag" drops into the total; with Reduce Motion it fades where it is.
+  visual(0, { type: 'bonusChip', durationMs: T.BONUS_CHIP_ARC_MS, value: points, fly: !reduce });
   let at = T.BONUS_CHIP_ARC_MS;
   if (!reduce) {
     visual(at, { type: 'hitStop', ms: T.BONUS_HIT_STOP_MS });

@@ -33,21 +33,21 @@ describe('endState: skipping lands where playing out lands', () => {
           multiplier: stages.at(-1)?.mult ?? 1,
           max: weeks > stages.length,
           landed: true,
+          chips: null,
           discovery: 0,
-          step: null,
-          flame: false,
         },
       ]);
     }
   });
 
-  it('ends with the discovery banner, the flame and an unknown step shown, whenever it was skipped', () => {
+  it('ends with PUNTEN of the discovery and MULT of an unknown × step, whenever it was skipped', () => {
     const score = previewScore(DEFAULT_CONFIG, 4, undefined, { discovery: true, streakExtended: true });
-    const withStep = { ...score, steps: [...score.steps, { kind: 'other' as const, name: 'bounty', label: 'PREMIE ×2', total: 44 }], total: 44 };
+    const bounty = { kind: 'other' as const, name: 'bounty', label: 'PREMIE ×2', total: 44, chips: 15, mult: 2.9282 };
+    const withStep = { ...score, steps: [...score.steps, bounty], total: 44 };
     for (const reduceMotion of [false, true]) {
       const events = buildRevealTimeline({ score: withStep, reduceMotion, bonus: true });
       const end = endState(events);
-      expect(end).toMatchObject({ value: 44, discovery: 5, step: 'PREMIE ×2', flame: true, landed: true, stage: 4 });
+      expect(end).toMatchObject({ value: 44, chips: 15, multiplier: 2.9282, discovery: 5, landed: true, stage: 4 });
       for (const cut of [0, ...batchEnds(events)]) {
         expect(endState(events.slice(cut), play(events.slice(0, cut)))).toEqual(end);
       }

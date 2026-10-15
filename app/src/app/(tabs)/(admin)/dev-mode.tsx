@@ -20,7 +20,7 @@ import { adminErrorMessage } from '@/lib/errors';
 import { formatPoints, formatWeeks } from '@/lib/format';
 import type { BonusQuestion } from '@/lib/points';
 import { setPendingReveal } from '@/lib/reveal';
-import type { Score } from '@/lib/score';
+import { baseStep, discoveryStep, streakStep, type Score } from '@/lib/score';
 import { useDevMode } from '@/providers/DevModeProvider';
 import { useLocation } from '@/providers/LocationProvider';
 import { useToast } from '@/providers/ToastProvider';
@@ -28,13 +28,22 @@ import { useToast } from '@/providers/ToastProvider';
 /** The preview's discovery: bin #58, the 12th of 120 (made-up numbers, nothing is read or written). */
 const PREVIEW_DISCOVERY = { binId: 58, ordinal: 12, discovered: 12, totalBins: 120, status: 'pending' as const };
 
-/** The score of the preview: base, discovery, streak, and optionally a step the app does not know ("PREMIE ×2"). */
+/**
+ * The score of the preview: base, discovery, streak, and optionally a step the
+ * app does not know: "PREMIE ×2" doubles the multiplier, as the bounty of
+ * phase 8 will (×1,77 → ×3,54 after six weeks).
+ */
 function previewRevealScore(config: GameConfig, weeks: number, base: number, discovery: boolean, extended: boolean, unknownStep: boolean): Score {
   const score = previewScore(config, weeks, base, { discovery, streakExtended: extended });
   if (!unknownStep) return score;
-  const total = score.total * 2;
-  return { ...score, steps: [...score.steps, { kind: 'other', name: 'bounty', label: 'PREMIE ×2', total }], total };
+  const chips = discoveryStep(score)?.chips ?? baseStep(score)?.chips ?? base;
+  const mult = Math.round((streakStep(score)?.stages.at(-1)?.mult ?? 1) * 2 * 1e12) / 1e12;
+  const total = Math.round(chips * mult);
+  return { ...score, steps: [...score.steps, { kind: 'other', name: 'bounty', label: 'PREMIE ×2', total, chips, mult }], total };
 }
+
+/** The heaviest reveal there is today: a discovery, six weeks with the flame, a bounty and the bonus question. */
+const HEAVY_PREVIEW = { weeks: 6, discovery: true, extended: true, unknownStep: true, bonus: true };
 
 /** Shown in the preview, with the points from the config; the real questions come from the server. */
 function previewQuestion(points: number): BonusQuestion {
@@ -114,20 +123,20 @@ export default function DevModeScreen() {
     }
   };
 
-  const playPreview = () => {
+  const playPreview = (options = { weeks: previewWeeks, discovery: previewDiscovery, extended: previewExtended, unknownStep: previewUnknownStep, bonus: previewBonus }) => {
     if (!config) return;
-    const score = previewRevealScore(config, previewWeeks, previewBase, previewDiscovery, previewExtended, previewUnknownStep);
+    const score = previewRevealScore(config, options.weeks, previewBase, options.discovery, options.extended, options.unknownStep);
     // The reveal waits for the sounds; start loading them now.
     if (!previewNoSound) warmUpSounds(buildRevealTimeline({ score, reduceMotion: previewReduceMotion }));
     const game: CheckinGame = {
-      discovery: previewDiscovery ? PREVIEW_DISCOVERY : null,
+      discovery: options.discovery ? PREVIEW_DISCOVERY : null,
       milestone: previewMilestone && chosenMilestone ? { ...chosenMilestone, status: 'pending' } : null,
       asOf: null,
     };
     setPendingReveal({
       score,
       game,
-      question: previewBonus ? previewQuestion(config.bonusQuestionPoints) : null,
+      question: options.bonus ? previewQuestion(config.bonusQuestionPoints) : null,
       checkinId: null,
       isTest: true,
       preview: true,
@@ -136,6 +145,16 @@ export default function DevModeScreen() {
       forceReduceMotion: previewReduceMotion,
     });
     router.push('/reveal');
+  };
+
+  /** The heavy preview, with the switches set to it (base, sound and Reduce Motion as chosen). */
+  const playHeavyPreview = () => {
+    setPreviewWeeks(HEAVY_PREVIEW.weeks);
+    setPreviewDiscovery(HEAVY_PREVIEW.discovery);
+    setPreviewExtended(HEAVY_PREVIEW.extended);
+    setPreviewUnknownStep(HEAVY_PREVIEW.unknownStep);
+    setPreviewBonus(HEAVY_PREVIEW.bonus);
+    playPreview(HEAVY_PREVIEW);
   };
 
   /** The milestone celebration on its own, as after a reveal. */
@@ -255,7 +274,13 @@ export default function DevModeScreen() {
           />
           <Toggle label="Reduce Motion forceren" isOn={previewReduceMotion} onIsOnChange={setPreviewReduceMotion} />
           <Toggle label="Zonder geluid (diagnose)" isOn={previewNoSound} onIsOnChange={setPreviewNoSound} />
-          <Button label={config ? 'Speel af' : 'Config laden…'} systemImage="play.fill" onPress={playPreview} modifiers={[disabled(!config)]} />
+          <Button label={config ? 'Speel af' : 'Config laden…'} systemImage="play.fill" onPress={() => playPreview()} modifiers={[disabled(!config)]} />
+          <Button
+            label="Zware preview (ontdekking, 6 weken, premie, bonusvraag)"
+            systemImage="gauge.with.dots.needle.67percent"
+            onPress={playHeavyPreview}
+            modifiers={[disabled(!config)]}
+          />
         </Section>
 
         <Section

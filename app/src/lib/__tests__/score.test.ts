@@ -39,7 +39,16 @@ describe('parseScore', () => {
 
   it('keeps a step of a kind it does not know, with its label and total', () => {
     const score = parseScore({ steps: [{ kind: 'bounty', label: 'PREMIE ×2', chips: 15, mult: 2.93, total: 44, factor: 2 }], total: 44 });
-    expect(score?.steps).toEqual([{ kind: 'other', name: 'bounty', label: 'PREMIE ×2', total: 44 }]);
+    expect(score?.steps).toEqual([{ kind: 'other', name: 'bounty', label: 'PREMIE ×2', total: 44, chips: 15, mult: 2.93 }]);
+    // Without chips or a multiplier it only has its total.
+    expect(parseScore({ steps: [{ kind: 'comet', label: 'KOMEET', chips: '15' }], total: 1 })?.steps[0]).toEqual({
+      kind: 'other',
+      name: 'comet',
+      label: 'KOMEET',
+      total: null,
+      chips: null,
+      mult: null,
+    });
   });
 
   it('refuses a malformed score', () => {

@@ -67,23 +67,34 @@ export const SLAM_SUCCESS_DELAY_MS = 60;
 /** After the slam, before the bonus question comes in. */
 export const SETTLE_MS = 400;
 
-// The discovery (a new bin): after the base the banner falls in with its
-// fanfare, then the chips get their +5, then the streak.
-export const DISCOVERY_LEAD_MS = 120;
-export const DISCOVERY_ADD_MS = 260;
-export const DISCOVERY_HOLD_MS = 420;
-export const DISCOVERY_SPARKLES = 10;
-export const CHIP_POP_SCALE = 1.25;
+// Pop-ups (the discovery, the streak flame, a step the app does not know, the
+// bonus question) are temporary: they pop up above the bins, fly into PUNTEN,
+// MULT or the total, and are gone. With Reduce Motion they only fade.
+export const POPUP_FLY_MS = 240;
+/** A bin pops when something lands in it. */
+export const BIN_POP_SCALE = 1.2;
 
-// A step the app does not know yet: its label and running total, with the
-// chip sound (a new kind of bonus needs no app update).
+// The discovery (a new bin): after the base its banner pops up with the
+// fanfare, its +5 flies into PUNTEN, then it shrinks into the context line
+// while the next step starts.
+export const DISCOVERY_LEAD_MS = 100;
+export const DISCOVERY_ADD_MS = 300;
+export const DISCOVERY_SHRINK_DELAY_MS = 160;
+export const DISCOVERY_SHRINK_MS = 280;
+export const DISCOVERY_HOLD_MS = 220;
+export const DISCOVERY_SPARKLES = 8;
+
+// The streak flame (the first check-in of the week): a short beat at MULT
+// before the streak stages; the riser starts while it flies into MULT.
+export const FLAME_LEAD_MS = 80;
+export const FLAME_SHOW_MS = 420;
+export const FLAME_HOLD_MS = 160;
+
+// A step the app does not know yet (a bounty, ×2): its label pops up with the
+// chip sound, then it flies into MULT, PUNTEN or the total.
 export const STEP_LEAD_MS = 120;
-export const STEP_HOLD_MS = 380;
-
-// The streak flame (the first check-in of the week), after the slam and
-// before the bonus question.
-export const FLAME_DELAY_MS = 450;
-export const FLAME_HOLD_MS = 650;
+export const STEP_SHOW_MS = 320;
+export const STEP_HOLD_MS = 260;
 
 // The +5 of the bonus question.
 export const BONUS_CHIP_ARC_MS = 320;

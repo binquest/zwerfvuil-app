@@ -1112,6 +1112,31 @@ staging en als EAS Update op `dev`; nog niet gemerged.
   service role), de nieuwe RPC's voor aangemelde gebruikers, RLS op de nieuwe tabellen. `deploy`,
   `check-supabase`, `check-auth` en `check-fake-location` geslaagd. EAS Update op `dev` (runtime 1):
   update-groep `dbecea12-cb73-411d-aa12-36fbec0d3a6c` (commit 7e7cf98).
+- Visuele herziening van de onthulling (na de eerste iPhone-check, 15 oktober): de eindstand met
+  ontdekking was rommelig (zes accentkleuren, vier soorten kaders, vijf tekstgroottes) en de zware
+  preview (ontdekking, 6 weken, premie) haalde "UI-thread: blokkade ≤ 31 ms" (criterium ≤ 17 ms).
+  - Twee bakken met een vaste kleur, zoals in Balatro: PUNTEN (blauw, alles wat optelt) × MULT (de
+    oranje → magenta schaal, alles wat vermenigvuldigt). Al het andere is een tijdelijke pop-up boven
+    de bakken die in een bak (of het totaal) vliegt en verdwijnt: de ontdekking (goud) stuurt haar +5
+    naar PUNTEN en krimpt tot de contextregel; de vlam is een korte beat bij MULT vóór de reeks (niet
+    meer na de slam); een onbekende stap vliegt in MULT als zijn `mult` verandert (PREMIE ×2: ×1,77 →
+    ×3,54), in PUNTEN als zijn `chips` veranderen, anders in het totaal; "+5 BONUSVRAAG" valt in het
+    totaal, dat daarna "TOTAAL · MET BONUSVRAAG" heet.
+  - Eindstand: kopje, PUNTEN × MULT, het totaal met "TOTAAL", één neutrale contextregel met kleine
+    iconen ("#58 ONTDEKT · 12/120 · REEKS 6 WEKEN") en de knoppen, op één as met vaste afstanden.
+    Geel alleen voor nieuw (ontdekking, mijlpaal), groen alleen voor Klaar; de achtergrond is neutraal
+    donker. Drie groottes (`playType` in `theme/game.ts`: totaal, waarde, label), alle labels in één
+    kapitaalstijl, één badgevorm (`shapes.badgeHeight`/`badgeRadius`).
+  - Performance: alles wat de onthulling toont (pop-ups, iconen, contextregel, vonkjes) wordt met het
+    scherm gemount en is onzichtbaar tot zijn event; tijdens het afspelen ontstaat geen native view meer
+    (vroeger mountten de vlamrij met `SymbolView` en het label van de onbekende stap tijdens de slam).
+    De deeltjes zijn gememoiseerd. Nog te meten op de iPhone met "Zware preview" in Dev-modus.
+  - Events: `discovery`, `chipPop`, `step` en `flame` zijn vervangen door `popupIn`, `popupOut`, `bins`
+    en `binPop`; `bonusChip` heeft `fly` en staat er nu ook met Reduce Motion (de pop-up vervaagt dan).
+    Basis + reeks zonder ontdekking of vlam is byte-gelijk gebleven (`golden.test.ts` ongewijzigd groen).
+    Onbekende stappen bewaren in de parser ook `chips` en `mult`; de server moet die meesturen (fase 8).
+  - Dev-modus: knop "Zware preview (ontdekking, 6 weken, premie, bonusvraag)"; de premie verdubbelt nu
+    de multiplier zoals in fase 8.
 - Nog te controleren op de iPhone (na `update:dev`): Dev-preview met ontdekking, vlam, onbekende stap
   en mijlpaal, met en zonder Reduce Motion en geluid; "Vieringen bekijken"; een echte eerste inworp
   bij een nieuwe vuilbak (banner, +5 chips, pin wordt groen, teller +1); een tweede inworp daar (geen
