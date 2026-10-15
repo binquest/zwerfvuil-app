@@ -175,7 +175,14 @@ Deno.test("submit-checkin end to end", async (t) => {
       assertEquals(body.status, "pending");
       assertAlmostEquals(body.distance_m, 10, 0.2);
       // A new user: this week is a one-week streak, so one x1.1 stage.
-      assertEquals(body.points, { base: 10, multiplier: 1.1, streak_weeks: 1, stages: [11], total: 11 });
+      assertEquals(body.score, {
+        steps: [
+          { kind: "base", label: "BASIS", chips: 10, mult: 1, total: 10 },
+          { kind: "streak", label: "REEKS", weeks: 1, per_week: 1.1, stages: [{ mult: 1.1, total: 11 }] },
+        ],
+        total: 11,
+      });
+      assertFalse("points" in body);
       assertEquals(body.bonus_question.key, "bin_fullness");
       assertEquals(body.bonus_question.points, 5);
       assertEquals(body.bonus_question.options.map((o: { key: string }) => o.key), ["empty", "half", "full"]);
@@ -199,6 +206,17 @@ Deno.test("submit-checkin end to end", async (t) => {
 
       const own = await client.storage.from("checkin-photos").download(`${userId}/${checkinId}.jpg`);
       assertEquals(own.error, null);
+    });
+
+    await t.step("game_catalog gives signed-in users the numbers of the config", async () => {
+      const { data, error } = await authed.rpc("game_catalog");
+      assertEquals(error, null);
+      assertEquals(data.config, {
+        checkin_base_chips: 10,
+        streak_multiplier: 1.1,
+        streak_max_steps: 8,
+        bonus_question_points: 5,
+      });
     });
 
     await t.step("the bonus question can be answered once, for 5 points", async () => {
@@ -282,7 +300,8 @@ Deno.test("submit-checkin end to end", async (t) => {
       assertEquals([override.error, override.data], [null, 4]);
       const real = await submit(binE, 4);
       assertEquals(real.status, 201, JSON.stringify(real.body));
-      assertEquals([real.body.is_test, real.body.points.streak_weeks, real.body.points.total], [true, 4, 15]);
+      assertEquals([real.body.is_test, real.body.score.steps[1].weeks, real.body.score.total], [true, 4, 15]);
+      assertEquals(real.body.score.steps.map((s: { kind: string }) => s.kind), ["base", "streak"]);
 
       const reset = await authed.rpc("reset_dev_test_data");
       assertEquals(reset.error, null);

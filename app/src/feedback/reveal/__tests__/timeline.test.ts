@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { pointStages } from '../../../lib/points';
+import { parseScore, type Score } from '../../../lib/score';
+import { reveal, scoreFor } from '../__fixtures__/scores';
 import {
   buildBonusTimeline,
   buildRevealTimeline,
@@ -15,6 +16,11 @@ import * as T from '../tuning';
 type Of<K extends Event['type']> = Extract<Event, { type: K }>;
 const only = <K extends Event['type']>(events: Event[], type: K) => events.filter((e): e is Of<K> => e.type === type);
 const sounds = (events: Event[]) => only(events, 'sound').map((e) => e.id);
+/** The steps the server sends for a streak of 3 weeks (11_scoring), as JSON. */
+const SERVER_STEPS_3 = [
+  { kind: 'base', label: 'BASIS', chips: 10, mult: 1, total: 10 },
+  { kind: 'streak', label: 'REEKS', weeks: 3, per_week: 1.1, stages: [{ mult: 1.1, total: 11 }, { mult: 1.21, total: 12 }, { mult: 1.331, total: 13 }] },
+];
 const VISUAL: Event['type'][] = ['shake', 'flash', 'hitStop', 'bonusChip', 'ring'];
 const AUDIO_OR_HAPTIC: Event['type'][] = ['sound', 'soundStop', 'haptic'];
 
@@ -24,42 +30,78 @@ function stripVisual(events: Event[]) {
 
 describe('buildRevealTimeline', () => {
   it('counts the base in 10 ticks, then shows every stage total: 11, 12, 13, 15, 16, 18, 19, 21', () => {
-    const events = buildRevealTimeline({ basePoints: 10, streakWeeks: 8, reduceMotion: false });
+    const events = reveal(8);
     const counts = only(events, 'count').map((e) => e.value);
     expect(counts).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     expect(only(events, 'mult').map((e) => e.total)).toEqual([11, 12, 13, 15, 16, 18, 19, 21]);
     expect(only(events, 'slam')[0]).toMatchObject({ from: 21, to: 21 });
   });
 
-  it('matches the server formula for every streak', () => {
+  it('shows exactly the running totals of the score, stage by stage', () => {
     for (let weeks = 0; weeks <= 10; weeks++) {
-      const totals = only(buildRevealTimeline({ basePoints: 10, streakWeeks: weeks, reduceMotion: false }), 'mult').map((e) => e.total);
-      expect(totals).toEqual(pointStages(10, weeks).stages);
+      const score = scoreFor(weeks);
+      const stages = score.steps[1].kind === 'streak' ? score.steps[1].stages : [];
+      const mults = only(buildRevealTimeline({ score, reduceMotion: false }), 'mult');
+      expect(mults.map((e) => [e.total, e.multiplier])).toEqual(stages.map((s) => [s.total, s.mult]));
     }
   });
 
   it('caps at 8 stages: weeks 9 and 10 show stage 8 with MAX', () => {
     for (const weeks of [9, 10]) {
-      const mults = only(buildRevealTimeline({ basePoints: 10, streakWeeks: weeks, reduceMotion: false }), 'mult');
+      const mults = only(reveal(weeks), 'mult');
       expect(mults).toHaveLength(8);
       expect(mults.at(-1)).toMatchObject({ stage: 8, max: true, total: 21 });
       expect(mults.slice(0, -1).every((e) => !e.max)).toBe(true);
     }
-    expect(only(buildRevealTimeline({ basePoints: 10, streakWeeks: 8, reduceMotion: false }), 'mult').at(-1)?.max).toBe(false);
+    expect(only(reveal(8), 'mult').at(-1)?.max).toBe(false);
   });
 
   it('shows the multiplier 1.1^n per stage, up to ×2.14', () => {
-    const mults = only(buildRevealTimeline({ basePoints: 10, streakWeeks: 8, reduceMotion: false }), 'mult');
+    const mults = only(reveal(8), 'mult');
     expect(mults.map((e) => Math.round(e.multiplier * 100) / 100)).toEqual([1.1, 1.21, 1.33, 1.46, 1.61, 1.77, 1.95, 2.14]);
   });
 
-  it('uses the server totals when it has them', () => {
-    const events = buildRevealTimeline({ basePoints: 10, streakWeeks: 2, reduceMotion: false, stages: [12, 14] });
-    expect(only(events, 'mult').map((e) => e.total)).toEqual([12, 14]);
+  it('plays whatever numbers the server sends, and lands on its total', () => {
+    const score: Score = {
+      steps: [
+        { kind: 'base', label: 'BASIS', chips: 12, mult: 1, total: 12 },
+        { kind: 'streak', label: 'REEKS', weeks: 5, perWeek: 1.2, stages: [{ mult: 1.2, total: 14 }, { mult: 1.44, total: 17 }] },
+      ],
+      total: 17,
+    };
+    const events = buildRevealTimeline({ score, reduceMotion: false });
+    expect(only(events, 'count').at(-1)?.value).toBe(12);
+    expect(only(events, 'mult').map((e) => [e.total, e.multiplier, e.max])).toEqual([
+      [14, 1.2, false],
+      [17, 1.44, true],
+    ]);
+    expect(only(events, 'slam')[0]).toMatchObject({ from: 17, to: 17 });
+  });
+
+  it('lands on the total even with a step it does not know yet', () => {
+    const known = scoreFor(3);
+    const score = parseScore({
+      steps: [...(SERVER_STEPS_3 as object[]), { kind: 'comet', label: 'KOMEET', chips: 20, mult: 1.331, total: 27 }],
+      total: 27,
+    })!;
+    expect(score.steps.at(-1)).toEqual({ kind: 'other', name: 'comet', label: 'KOMEET', total: 27 });
+    const events = buildRevealTimeline({ score, reduceMotion: false });
+    expect(only(events, 'slam')[0]).toMatchObject({ from: 13, to: 27 });
+    const withoutSlam = (list: Event[]) => list.filter((e) => e.type !== 'slam');
+    expect(withoutSlam(events)).toEqual(withoutSlam(buildRevealTimeline({ score: known, reduceMotion: false })));
+  });
+
+  it('stays at the top stage when the maximum is longer than eight weeks', () => {
+    const events = reveal(12, { config: { checkinBaseChips: 10, streakMultiplier: 1.1, streakMaxSteps: 12, bonusQuestionPoints: 5 } });
+    const mults = only(events, 'mult');
+    expect(mults.map((e) => e.stage)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    expect(sounds(events).filter((id) => id.startsWith('mult_')).slice(7)).toEqual(Array(5).fill('mult_8'));
+    expect(mults.slice(7).every((e) => e.heat === 1 && e.peakScale === mults[7].peakScale)).toBe(true);
+    expect(mults.at(-1)?.max).toBe(false);
   });
 
   it('without a streak: ticks, riser, total; no multipliers', () => {
-    const events = buildRevealTimeline({ basePoints: 10, streakWeeks: 0, reduceMotion: false });
+    const events = reveal(0);
     expect(only(events, 'mult')).toHaveLength(0);
     expect(sounds(events).filter((id) => id.startsWith('mult_'))).toHaveLength(0);
     expect(only(events, 'slam')[0]).toMatchObject({ from: 10, to: 10 });
@@ -68,7 +110,7 @@ describe('buildRevealTimeline', () => {
   it('makes the stage intervals non-increasing and never shorter than 200 ms', () => {
     const expected = [420, 357, 303, 258, 219, 200, 200, 200];
     expect([1, 2, 3, 4, 5, 6, 7, 8].map((n) => stageIntervalMs(n))).toEqual(expected);
-    const stageTimes = only(buildRevealTimeline({ basePoints: 10, streakWeeks: 10, reduceMotion: false }), 'mult').map((e) => e.atMs);
+    const stageTimes = only(reveal(10), 'mult').map((e) => e.atMs);
     const gaps = stageTimes.slice(1).map((t, i) => t - stageTimes[i]);
     gaps.forEach((gap, i) => {
       expect(gap).toBeGreaterThanOrEqual(200);
@@ -77,7 +119,7 @@ describe('buildRevealTimeline', () => {
   });
 
   it('eases the tick gaps from 90 to 55 ms', () => {
-    const ticks = only(buildRevealTimeline({ basePoints: 10, streakWeeks: 0, reduceMotion: false }), 'sound').filter((e) => e.id.startsWith('tick_'));
+    const ticks = only(reveal(0), 'sound').filter((e) => e.id.startsWith('tick_'));
     const gaps = ticks.slice(1).map((e, i) => e.atMs - ticks[i].atMs);
     expect(gaps[0]).toBe(90);
     expect(gaps.at(-1)).toBe(55);
@@ -85,21 +127,21 @@ describe('buildRevealTimeline', () => {
   });
 
   it('gives the ticks the pentatonic pitches in pairs, with a little volume jitter', () => {
-    const ticks = only(buildRevealTimeline({ basePoints: 10, streakWeeks: 0, reduceMotion: false }), 'sound').filter((e) => e.id.startsWith('tick_'));
+    const ticks = only(reveal(0), 'sound').filter((e) => e.id.startsWith('tick_'));
     expect(ticks.map((e) => e.id)).toEqual(['tick_0', 'tick_0', 'tick_1', 'tick_1', 'tick_2', 'tick_2', 'tick_3', 'tick_3', 'tick_4', 'tick_4']);
     for (const tick of ticks) expect(Math.abs(tick.volume / T.VOLUME.tick - 1)).toBeLessThanOrEqual(T.TICK_JITTER + 1e-9);
     expect(new Set(ticks.map((e) => e.volume)).size).toBeGreaterThan(1);
   });
 
   it('puts a selection haptic on every second tick', () => {
-    const events = buildRevealTimeline({ basePoints: 10, streakWeeks: 0, reduceMotion: false });
+    const events = reveal(0);
     const tickTimes = only(events, 'sound').filter((e) => e.id.startsWith('tick_')).map((e) => e.atMs);
     const selections = only(events, 'haptic').filter((e) => e.kind === 'selection').map((e) => e.atMs);
     expect(selections).toEqual(tickTimes.filter((_, i) => i % 2 === 0));
   });
 
   it('plays mult_n plus a transient on stage n, with the haptic getting stronger', () => {
-    const events = buildRevealTimeline({ basePoints: 10, streakWeeks: 8, reduceMotion: false });
+    const events = reveal(8);
     const mults = only(events, 'mult');
     for (const mult of mults) {
       const beat = mult.atMs - T.AUDIO_LEAD_MS;
@@ -121,7 +163,7 @@ describe('buildRevealTimeline', () => {
   });
 
   it('grows scale, shake, rotation and flash with every stage; stage 8 shakes 240 ms', () => {
-    const events = buildRevealTimeline({ basePoints: 10, streakWeeks: 8, reduceMotion: false });
+    const events = reveal(8);
     const mults = only(events, 'mult');
     const shakes = only(events, 'shake');
     const flashes = only(events, 'flash');
@@ -136,17 +178,17 @@ describe('buildRevealTimeline', () => {
 
   it('builds the heat layer from stage 5 and stops its loop at the slam', () => {
     expect([1, 2, 3, 4, 5, 6, 7, 8].map(heatOf)).toEqual([0, 0, 0, 0, 0.25, 0.5, 0.75, 1]);
-    const events = buildRevealTimeline({ basePoints: 10, streakWeeks: 8, reduceMotion: false });
+    const events = reveal(8);
     const loops = only(events, 'sound').filter((e) => e.id === 'heat_loop');
     expect(loops.map((e) => [e.loop, e.volume])).toEqual([0.25, 0.5, 0.75, 1].map((h) => [true, T.HEAT_LOOP_VOLUME * h]));
     const stop = only(events, 'soundStop')[0];
     const slam = only(events, 'slam')[0];
     expect(stop).toMatchObject({ id: 'heat_loop', atMs: slam.atMs - T.AUDIO_LEAD_MS });
-    expect(only(buildRevealTimeline({ basePoints: 10, streakWeeks: 4, reduceMotion: false }), 'soundStop')).toHaveLength(0);
+    expect(only(reveal(4), 'soundStop')).toHaveLength(0);
   });
 
   it('holds a 90 ms hit-stop, then slams the total with a chord, heavy + success haptics and 12-20 particles', () => {
-    const events = buildRevealTimeline({ basePoints: 10, streakWeeks: 3, reduceMotion: false });
+    const events = reveal(3);
     const lastStage = only(events, 'mult').at(-1)!;
     const hitStop = only(events, 'hitStop')[0];
     const slam = only(events, 'slam')[0];
@@ -160,20 +202,20 @@ describe('buildRevealTimeline', () => {
       { atMs: beat + T.SLAM_SUCCESS_DELAY_MS, type: 'haptic', kind: 'success' },
     ]);
     expect(slam).toMatchObject({ scaleFrom: 0.6, scalePeak: 1.5, spring: { damping: 9, stiffness: 220 }, countMs: 300, particles: 15 });
-    expect(only(buildRevealTimeline({ basePoints: 10, streakWeeks: 0, reduceMotion: false }), 'slam')[0].particles).toBe(12);
-    expect(only(buildRevealTimeline({ basePoints: 10, streakWeeks: 10, reduceMotion: false }), 'slam')[0].particles).toBe(20);
+    expect(only(reveal(0), 'slam')[0].particles).toBe(12);
+    expect(only(reveal(10), 'slam')[0].particles).toBe(20);
   });
 
   it('asks the bonus question 400 ms after the slam, only when there is one', () => {
-    const withBonus = buildRevealTimeline({ basePoints: 10, streakWeeks: 2, reduceMotion: false, bonus: true });
+    const withBonus = reveal(2, { bonus: true });
     const slam = only(withBonus, 'slam')[0];
     expect(only(withBonus, 'showBonusQuestion')).toEqual([{ atMs: slam.atMs + T.SETTLE_MS, type: 'showBonusQuestion' }]);
     expect(timelineEndMs(withBonus)).toBe(slam.atMs + T.SETTLE_MS);
-    expect(only(buildRevealTimeline({ basePoints: 10, streakWeeks: 2, reduceMotion: false }), 'showBonusQuestion')).toHaveLength(0);
+    expect(only(reveal(2), 'showBonusQuestion')).toHaveLength(0);
   });
 
   it('puts visuals AUDIO_LEAD_MS after their sound', () => {
-    const events = buildRevealTimeline({ basePoints: 10, streakWeeks: 1, reduceMotion: false });
+    const events = reveal(1);
     const firstTick = only(events, 'sound').find((e) => e.id === 'tick_0')!;
     expect(only(events, 'count')[0].atMs).toBe(firstTick.atMs + T.AUDIO_LEAD_MS);
   });
@@ -181,10 +223,10 @@ describe('buildRevealTimeline', () => {
   it('keeps the event times in order', () => {
     for (const reduceMotion of [false, true]) {
       for (let weeks = 0; weeks <= 10; weeks++) {
-        const times = buildRevealTimeline({ basePoints: 10, streakWeeks: weeks, reduceMotion, bonus: true }).map((e) => e.atMs);
+        const times = reveal(weeks, { reduceMotion, bonus: true }).map((e) => e.atMs);
         times.forEach((t, i) => i > 0 && expect(t).toBeGreaterThanOrEqual(times[i - 1]));
         // Every tick, stage and the slam is on a beat of its own.
-        const beats = buildRevealTimeline({ basePoints: 10, streakWeeks: weeks, reduceMotion })
+        const beats = reveal(weeks, { reduceMotion })
           .filter((e) => e.type === 'count' || e.type === 'mult' || e.type === 'slam')
           .map((e) => e.atMs);
         beats.forEach((t, i) => i > 0 && expect(t).toBeGreaterThan(beats[i - 1]));
@@ -193,8 +235,8 @@ describe('buildRevealTimeline', () => {
   });
 
   it('with Reduce Motion: the same sounds and haptics, flat 250 ms stages, no shake, flash or particles, scale at most 1.05', () => {
-    const full = buildRevealTimeline({ basePoints: 10, streakWeeks: 8, reduceMotion: false });
-    const reduced = buildRevealTimeline({ basePoints: 10, streakWeeks: 8, reduceMotion: true });
+    const full = reveal(8);
+    const reduced = reveal(8, { reduceMotion: true });
     expect(stripVisual(reduced).map((e) => [e.type, 'id' in e ? e.id : 'kind' in e ? e.kind : ''])).toEqual(
       stripVisual(full).map((e) => [e.type, 'id' in e ? e.id : 'kind' in e ? e.kind : '']),
     );

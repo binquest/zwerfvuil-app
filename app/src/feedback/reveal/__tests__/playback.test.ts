@@ -8,7 +8,7 @@ const mockWarmUp = jest.fn(() => Promise.resolve(true));
 const mockPrepare = jest.fn(() => Promise.resolve({ uri: 'file:///mix.wav', durationMs: 3000, mixMs: 12, cached: false }));
 
 jest.mock('../../sfx/soundtrack', () => ({
-  warmUpSounds: () => mockWarmUp(),
+  samplesReady: () => mockWarmUp(),
   prepareSoundtrack: () => mockPrepare(),
 }));
 jest.mock('../../sfx/engine', () => ({ READY_TIMEOUT_MS: 800 }));

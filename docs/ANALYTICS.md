@@ -93,7 +93,7 @@ Deno-integratietest de app met de database.
 | `checkin_submitted` | inworp verstuurd | `bin_id`, `upload_kb` |
 | `checkin_result` | antwoord op de inworp | `ok`, `reason` (bv. `too_far`, `cooldown`, `network`), `duration_ms` |
 | `reveal_shown` | onthulling start | `total`, `discovery`, `streak_weeks`, `preview` |
-| `reveal_skipped` | onthulling overgeslagen | `step` (`base`, `streak_3`, …) |
+| `reveal_skipped` | onthulling overgeslagen met een tik | `step` (`base`, `streak_3`, …) |
 | `bonus_question_answered` | bonusvraag beantwoord of overgeslagen | `question_key`, `answered`, `response_ms` (op 100 ms) |
 | `leaderboard_viewed` | ranglijst geopend of andere periode | `period` week/all |
 | `report_flow_start` | melding van een ontbrekende vuilbak gestart ("Foto nemen") | — |
@@ -101,6 +101,8 @@ Deno-integratietest de app met de database.
 
 Opmerkingen:
 - `discovery` in `reveal_shown` is tot fase 3 altijd `false`.
+- Een onthulling die eindigt doordat de app naar de achtergrond gaat, of die met VoiceOver meteen op
+  de eindstand begint, geeft geen `reveal_skipped` (wel `reveal_shown`).
 - Previews in Dev-modus (onthulling, bonusvraag) gaan als `is_test` mee.
 - `checkin_submitted` en `checkin_result` komen uit `submitCheckin` (`app/src/lib/api.ts`), waar
   grootte en duur bekend zijn. Lukt het lezen van de foto niet, dan is er geen `checkin_submitted`.

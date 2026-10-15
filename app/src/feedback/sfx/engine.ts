@@ -12,7 +12,8 @@
 // - A sound can have more than one voice: a voice still ringing is not cut off
 //   by the next trigger; only when all are busy is the oldest one restarted.
 // - initSfx() plays each voice once at volume 0, so the first real sound does
-//   not pay for starting the decoder and the hardware.
+//   not pay for starting the decoder and the hardware. When a voice does not
+//   load in time, the next initSfx() starts over.
 // - The voices are created once and kept. Every AVPlayer start costs main-thread
 //   time (measured on the phone: up to 150 ms stalls with two dozen of them per
 //   reveal), and expo-audio's remove() only unregisters a player: the native
@@ -289,8 +290,15 @@ export function initSfx(voiceCounts: Partial<Record<SfxId, number>> = ONE_SHOT_V
     releaseSfx();
     return Promise.resolve(false);
   }
-  readyPromise = prepare(voices, gen).catch(() => false);
-  return readyPromise;
+  const promise = prepare(voices, gen)
+    .catch(() => false)
+    .then((ready) => {
+      // Not ready: drop these voices, so the next call tries again.
+      if (!ready && gen === generation) disposeVoices();
+      return ready;
+    });
+  readyPromise = promise;
+  return promise;
 }
 
 /** When (performance.now()) every voice was loaded and primed; null until then. */
@@ -298,11 +306,8 @@ export function sfxReadySince(): number | null {
   return readySince;
 }
 
-/**
- * Removes every player and lets the audio session go. initSfx can start again
- * afterwards. Not for every reveal: see the notes at the top.
- */
-export function releaseSfx(): void {
+/** Removes every voice; initSfx can start again afterwards. */
+function disposeVoices(): void {
   generation++;
   readySince = null;
   for (const timer of fades) clearInterval(timer);
@@ -319,5 +324,13 @@ export function releaseSfx(): void {
   }
   pools.clear();
   readyPromise = null;
+}
+
+/**
+ * Removes every player and lets the audio session go. initSfx can start again
+ * afterwards. Not for every reveal: see the notes at the top.
+ */
+export function releaseSfx(): void {
+  disposeVoices();
   setIsAudioActiveAsync(false).catch(() => {});
 }

@@ -13,7 +13,6 @@ import {
   HTTP_STATUS,
   MAX_PHOTO_BYTES,
   type RejectCode,
-  STREAK_MULTIPLIER,
   validateCheckinFields,
   validatePhotoSize,
 } from "./rules.ts";
@@ -50,16 +49,31 @@ export interface BonusQuestion {
   points: number;
 }
 
+/**
+ * One step of the reveal (docs/GAMIFICATION.md, 2.7): base and streak, later
+ * discovery and bounty. Passed on as the database made it.
+ */
+export interface ScoreStep {
+  kind: string;
+  label: string;
+  [field: string]: unknown;
+}
+
+/** The score of a check-in: its steps with their running totals, and the total. */
+export interface Score {
+  steps: ScoreStep[];
+  total: number;
+}
+
 export interface RecordCheckinResult {
   ok: boolean;
   reason: string | null;
   checkin_id: string | null;
   distance_m: number | null;
   retry_after_s: number | null;
-  /** Only when ok: the streak and the point stages (base first, total last). */
+  /** Only when ok: the streak and the score (private.checkin_score). */
   streak_weeks: number | null;
-  point_stages: number[] | null;
-  points_total: number | null;
+  score: Score | null;
   bonus_question: BonusQuestion | null;
   /** Dev mode (fake location or streak override): kept apart from real data. */
   is_test: boolean | null;
@@ -90,6 +104,16 @@ function json(status: number, body: unknown): Response {
     status,
     headers: { ...CORS_HEADERS, "Content-Type": "application/json; charset=utf-8" },
   });
+}
+
+/** A score the app can play: at least one step, each with a kind and a label, and a total. */
+export function isScore(value: unknown): value is Score {
+  if (!value || typeof value !== "object") return false;
+  const { steps, total } = value as Record<string, unknown>;
+  return typeof total === "number" && Number.isFinite(total) && Array.isArray(steps) && steps.length > 0 &&
+    steps.every((step) =>
+      !!step && typeof step === "object" && typeof step.kind === "string" && typeof step.label === "string"
+    );
 }
 
 export function reject(code: RejectCode, details: Details = {}): Response {
@@ -192,28 +216,19 @@ async function handle(deps: CheckinDeps, req: Request): Promise<Response> {
     return reject(reason, details);
   }
 
-  // The check-in is stored either way; without points the app shows a plain
+  // The check-in is stored either way; without a score the app shows a plain
   // confirmation instead of the reveal.
-  const stages = result.point_stages ?? [];
-  const hasPoints = stages.length > 0 && result.points_total !== null && result.streak_weeks !== null;
-  if (!hasPoints) deps.logError("record_checkin returned no points", result);
+  const score = isScore(result.score) ? result.score : null;
+  if (!score) deps.logError("record_checkin returned no score", result);
 
   return json(201, {
     checkin_id: result.checkin_id,
     status: "pending",
     distance_m: result.distance_m === null ? null : Math.round(result.distance_m * 10) / 10,
     message: SUCCESS_MESSAGE,
-    // The app animates exactly these numbers: the base, then one stage per
-    // streak multiplier. Granted when an admin approves the check-in.
-    points: hasPoints
-      ? {
-        base: stages[0],
-        multiplier: STREAK_MULTIPLIER,
-        streak_weeks: result.streak_weeks,
-        stages: stages.slice(1),
-        total: result.points_total,
-      }
-      : null,
+    // The app plays exactly these steps and running totals and lands on the
+    // total. Granted when an admin approves the check-in.
+    score,
     bonus_question: result.bonus_question,
     is_test: result.is_test === true,
   });

@@ -2,19 +2,25 @@
 // the MULT badge climbs with every streak week (bigger, faster, hotter), the
 // total slams in, then an optional bonus question with its +5. Tap to skip.
 // Respects the silent switch (sounds) and Reduce Motion (same sounds and
-// haptics, no movement). The numbers come from the server; the Dev mode
-// preview computes them locally and sends nothing.
+// haptics, no movement). Every number comes from the server's score
+// (score.steps); the Dev mode preview builds its own and sends nothing.
 //
 // The beats are a timeline (src/feedback/reveal/timeline.ts). playTimeline
 // plays its mixed soundtrack and runs the visual and haptic events on the
 // audio clock; this screen turns visual events into Reanimated motion
-// (useRevealMotion) and the numbers into state.
+// (useRevealMotion) and the numbers into a small store (state.ts). The number,
+// the chips and the MULT badge are memoised components that read only their
+// part of that store, so a tick re-renders the number and nothing else.
+//
+// A skip, the app going to the background and VoiceOver all end on the
+// timeline's own end state (endState): the background silently, VoiceOver
+// with one spoken summary instead of the animation.
 import { Host } from '@expo/ui';
 import { Button, Label, Text as SwiftText } from '@expo/ui/swift-ui';
 import { buttonStyle, controlSize, disabled, font, frame, tint } from '@expo/ui/swift-ui/modifiers';
 import { router } from 'expo-router';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, Pressable, Text, View } from 'react-native';
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { AccessibilityInfo, AppState, Pressable, Text, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -25,8 +31,9 @@ import { fireHaptic, setHapticProbe } from '@/feedback/haptics';
 import { createDiagnostics, describeMeasurements, type RevealMeasurements } from '@/feedback/reveal/diagnostics';
 import { playFeedback } from '@/feedback/reveal/feedback';
 import { FrameProbe } from '@/feedback/reveal/FrameProbe';
-import { BADGE_OFFSET, multiplierLabel } from '@/feedback/reveal/motion';
+import { BADGE_OFFSET } from '@/feedback/reveal/motion';
 import { playTimeline, preloadTimeline, type Playback, type PlaybackStart } from '@/feedback/reveal/playback';
+import { applyRevealEvent, endState, INITIAL_REVEAL_STATE, multiplierLabel, type RevealState } from '@/feedback/reveal/state';
 import { buildBonusTimeline, buildRevealTimeline, type Event } from '@/feedback/reveal/timeline';
 import { VOLUME } from '@/feedback/reveal/tuning';
 import { MAX_PARTICLES, useParticleStyle, useRevealMotion } from '@/feedback/reveal/useRevealMotion';
@@ -34,27 +41,21 @@ import { play, stopAll } from '@/feedback/sfx/engine';
 import { bonusSoundtrack, revealSoundtrack, warmUpSounds } from '@/feedback/sfx/soundtrack';
 import { answerBonus, markBonusShown } from '@/lib/api';
 import { formatWeeks } from '@/lib/format';
-import { MAX_STAGES, type BonusOption } from '@/lib/points';
-import { setPendingReveal, takePendingReveal, type RevealData } from '@/lib/reveal';
-import { useSyncState } from '@/lib/useSyncState';
-import { colors, spacing, type } from '@/theme';
+import { formatMultiplier, type BonusOption } from '@/lib/points';
+import { revealSummary, setPendingReveal, takePendingReveal, type RevealData } from '@/lib/reveal';
+import { baseStep, streakStep, type StreakStep } from '@/lib/score';
+import { useReduceMotion, useScreenReader } from '@/lib/useAccessibility';
+import { ToastViewport } from '@/providers/ToastProvider';
+import { createStore, useSyncState, type Store } from '@/lib/useSyncState';
+import { colors, numberStyle, playColors, spacing, type } from '@/theme';
 
 // total: the total has landed and the bonus question is about to appear.
 type Phase = 'loading' | 'playing' | 'total' | 'question' | 'answering' | 'answered' | 'done';
 
-const CHIP_BLUE = '#2E7CF6';
-const BONUS_GREEN = '#30D158';
-const PARTICLE_COLORS = ['#FFD60A', '#FF9F0A', '#FFFFFF'];
+/** How a reveal ends early: a tap, the app leaving the screen, or VoiceOver from the start. */
+type EndedBy = 'skip' | 'background' | 'voiceover';
 
-function useReduceMotion(): boolean | null {
-  const [reduce, setReduce] = useState<boolean | null>(null);
-  useEffect(() => {
-    AccessibilityInfo.isReduceMotionEnabled().then(setReduce, () => setReduce(false));
-    const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduce);
-    return () => subscription.remove();
-  }, []);
-  return reduce;
-}
+type RevealStore = Store<RevealState>;
 
 function bonusErrorMessage(error: { code?: string } | null): string {
   if (error?.code === '55000') return 'Deze vraag is verlopen of al beantwoord.';
@@ -67,9 +68,57 @@ function totalFontSize(value: number): number {
   return value >= 1000 ? 84 : value >= 100 ? 104 : 120;
 }
 
+/** One part of the reveal's state; re-renders only when that part changes (and in the same task, see useSyncState). */
+function useRevealPart<T>(store: RevealStore, select: (state: RevealState) => T): T {
+  return useSyncExternalStore(store.subscribe, () => select(store.get()));
+}
+
+const chipText = { color: 'white', fontSize: 34, ...numberStyle } as const;
+
+const ChipsValue = memo(function ChipsValue({ store, base }: { store: RevealStore; base: number }) {
+  const value = useRevealPart(store, (state) => Math.min(state.value, base));
+  return <Text style={chipText}>{value}</Text>;
+});
+
+const MultBadgeText = memo(function MultBadgeText({ store }: { store: RevealStore }) {
+  const max = useRevealPart(store, (state) => state.max);
+  const multiplier = useRevealPart(store, (state) => state.multiplier);
+  return (
+    <>
+      <Text style={[type.footnote, { color: 'rgba(255,255,255,0.9)', fontWeight: '800', letterSpacing: 1 }]}>{max ? 'MULT · MAX' : 'MULT'}</Text>
+      <Text style={chipText}>{multiplierLabel(multiplier)}</Text>
+    </>
+  );
+});
+
+const TotalNumber = memo(function TotalNumber({ store, onCommit }: { store: RevealStore; onCommit?: (value: number) => void }) {
+  const value = useRevealPart(store, (state) => state.value);
+  // Diagnostics: when React has committed the number an event set.
+  useLayoutEffect(() => {
+    onCommit?.(value);
+  }, [onCommit, value]);
+  return (
+    <Text numberOfLines={1} style={{ color: 'white', fontSize: totalFontSize(value), lineHeight: 132, ...numberStyle }}>
+      {value}
+    </Text>
+  );
+});
+
+const StreakLine = memo(function StreakLine({ store, streak }: { store: RevealStore; streak: StreakStep | null }) {
+  const max = useRevealPart(store, (state) => state.max);
+  const weeks = streak?.weeks ?? 0;
+  return (
+    <Text style={[type.subheadline, { color: 'rgba(255,255,255,0.8)', textAlign: 'center' }]}>
+      {streak && streak.stages.length > 0
+        ? `Reeks van ${formatWeeks(weeks)}${max ? ' · maximum' : ''}`
+        : `Check volgende week opnieuw in voor een reeks${streak ? `: ${formatMultiplier(streak.perWeek)} per week` : ''}.`}
+    </Text>
+  );
+});
+
 function BonusPill({ points }: { points: number }) {
   return (
-    <View style={{ backgroundColor: BONUS_GREEN, borderRadius: 14, borderCurve: 'continuous', paddingHorizontal: 12, paddingVertical: 5 }}>
+    <View style={{ backgroundColor: playColors.bonus, borderRadius: 14, borderCurve: 'continuous', paddingHorizontal: 12, paddingVertical: 5 }}>
       <Text style={{ color: 'white', fontSize: 20, fontWeight: '900', fontFamily: 'ui-rounded' }}>{`+${points}`}</Text>
     </View>
   );
@@ -81,7 +130,15 @@ function Particle({ index, motion }: { index: number; motion: ReturnType<typeof 
     <Animated.View
       pointerEvents="none"
       style={[
-        { position: 'absolute', width: 10, height: 10, marginLeft: -5, marginTop: -5, borderRadius: 5, backgroundColor: PARTICLE_COLORS[index % 3] },
+        {
+          position: 'absolute',
+          width: 10,
+          height: 10,
+          marginLeft: -5,
+          marginTop: -5,
+          borderRadius: 5,
+          backgroundColor: playColors.particles[index % playColors.particles.length],
+        },
         style,
       ]}
     />
@@ -96,16 +153,15 @@ function trackBonusAnswer(questionKey: string, answered: boolean, shownAt: numbe
 export default function RevealScreen() {
   const [data] = useState<RevealData | null>(() => takePendingReveal());
   const systemReduceMotion = useReduceMotion();
+  const screenReader = useScreenReader();
   // The Dev mode preview can force Reduce Motion, whatever the system setting.
   const forceReduceMotion = data?.forceReduceMotion ?? false;
   const reduceMotion = forceReduceMotion || systemReduceMotion;
   const motion = useRevealMotion(forceReduceMotion);
-  // Everything the timeline changes renders in the same JS task as its event
-  // (see useSyncState); with plain useState the screen lagged behind the sounds.
+  // What the timeline shows (number, MULT) lives in a store the memoised parts
+  // read; the rest of the screen changes a few times per reveal.
+  const [store] = useState(() => createStore<RevealState>(INITIAL_REVEAL_STATE));
   const [phase, setPhase] = useSyncState<Phase>('loading');
-  const [value, setValue] = useSyncState(0);
-  const [stage, setStage] = useSyncState(0);
-  const [maxShown, setMaxShown] = useSyncState(false);
   const [bonusShown, setBonusShown] = useSyncState(false);
   const [message, setMessage] = useState<string | null>(null);
   const noSound = data?.noSound ?? false;
@@ -120,9 +176,16 @@ export default function RevealScreen() {
   const answering = useRef(false);
   const mounted = useRef(true);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  // The reveal's own timeline: its end state is where a skip lands.
+  const timeline = useRef<Event[] | null>(null);
+  const phaseNow = useRef<Phase>('loading');
+  useEffect(() => {
+    phaseNow.current = phase;
+  }, [phase]);
 
-  const points = data?.points ?? null;
+  const score = data?.score ?? null;
   const question = data?.question ?? null;
+  const base = score ? (baseStep(score)?.total ?? 0) : 0;
   // Analytics: when the question appeared (previews are test events).
   const questionShownAt = useRef<number | null>(null);
 
@@ -151,10 +214,7 @@ export default function RevealScreen() {
     };
   }, [noSound, diagnostics]);
 
-  // Diagnostics: when React has committed the number an event set.
-  useLayoutEffect(() => {
-    diagnostics?.committed(value);
-  }, [diagnostics, value]);
+  const onNumberCommit = useCallback((value: number) => diagnostics?.committed(value), [diagnostics]);
 
   const startDiagnostics = useCallback(
     (start: PlaybackStart) => {
@@ -178,9 +238,21 @@ export default function RevealScreen() {
     timers.current.push(setTimeout(fn, ms));
   }, []);
 
+  /** Applies a batch of events to the number and the badge in one store update (one render). */
+  const show = useCallback(
+    (events: readonly Event[]) => {
+      const next = events.reduce(applyRevealEvent, store.get());
+      for (const event of events) {
+        if (event.type === 'count' || event.type === 'mult' || event.type === 'slam') diagnostics?.expect(next.value);
+      }
+      store.set(next);
+    },
+    [store, diagnostics],
+  );
+
   const bonusTimeline = useCallback(
-    (bonus: number) => buildBonusTimeline({ awarded: bonus > 0, points: bonus, fromTotal: points?.total ?? 0, reduceMotion: !!reduceMotion }),
-    [points, reduceMotion],
+    (bonus: number) => buildBonusTimeline({ awarded: bonus > 0, points: bonus, fromTotal: score?.total ?? 0, reduceMotion: !!reduceMotion }),
+    [score, reduceMotion],
   );
 
   const showQuestion = useCallback(() => {
@@ -194,66 +266,75 @@ export default function RevealScreen() {
     if (!noSound) preloadTimeline(bonusTimeline(question.points), bonusSoundtrack);
   }, [question, motion, data, setPhase, noSound, bonusTimeline]);
 
-  // Tap to skip: stop the timeline, fade out the soundtrack, stand still on the
-  // end state with only the chord and the success haptic.
-  const finish = useCallback(() => {
-    if (!points) return;
-    track('reveal_skipped', { step: stage > 0 ? `streak_${stage}` : 'base' }, { isTest: data?.preview ?? false });
-    playbacks.current.forEach((playback) => playback.cancel(30));
-    playbacks.current = [];
-    timers.current.forEach(clearTimeout);
-    timers.current = [];
-    motion.settle(points.stages.length);
-    setValue(points.total);
-    setStage(points.stages.length);
-    setMaxShown(points.streakWeeks > MAX_STAGES);
-    setPhase(question ? 'total' : 'done');
-    if (withSound.current) play('total_chord', VOLUME.total);
-    fireHaptic('success');
-    stopDiagnostics();
-    schedule(reduceMotion ? 0 : 500, showQuestion);
-  }, [points, question, motion, schedule, reduceMotion, showQuestion, stopDiagnostics, setPhase, setStage, setMaxShown, setValue, data, stage]);
+  // Stop the timeline and stand still on its end state. A skip fades out the
+  // soundtrack and plays only the chord and the success haptic; the background
+  // ends silently; VoiceOver gets the success haptic and a summary.
+  const finish = useCallback(
+    (endedBy: EndedBy) => {
+      const events = timeline.current;
+      if (!score || !events) return;
+      if (endedBy === 'skip') {
+        const { stage } = store.get();
+        track('reveal_skipped', { step: stage > 0 ? `streak_${stage}` : 'base' }, { isTest: data?.preview ?? false });
+      }
+      playbacks.current.forEach((playback) => playback.cancel(endedBy === 'background' ? 0 : 30));
+      playbacks.current = [];
+      timers.current.forEach(clearTimeout);
+      timers.current = [];
+      const end = endState(events);
+      motion.settle(end.stage);
+      store.set(end);
+      setPhase(question ? 'total' : 'done');
+      if (endedBy === 'skip' && withSound.current) play('total_chord', VOLUME.total);
+      if (endedBy !== 'background') fireHaptic('success');
+      if (endedBy === 'voiceover') AccessibilityInfo.announceForAccessibilityWithOptions(revealSummary(score, data?.preview), { queue: true });
+      stopDiagnostics();
+      schedule(endedBy === 'skip' && !reduceMotion ? 500 : 0, showQuestion);
+    },
+    [score, question, motion, store, schedule, reduceMotion, showQuestion, stopDiagnostics, setPhase, data],
+  );
 
-  // Play the timeline once, as soon as the Reduce Motion setting is known (a
-  // later change of the setting does not restart the reveal): with its mixed
+  // Going to the background mid-reveal ends it silently on its end state: the
+  // audio clock would run on and everything would fire at once on return.
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'background' && (phaseNow.current === 'loading' || phaseNow.current === 'playing')) finish('background');
+    });
+    return () => subscription.remove();
+  }, [finish]);
+
+  // Play the timeline once, as soon as Reduce Motion and VoiceOver are known
+  // (a later change of either does not restart the reveal): with its mixed
   // soundtrack, or without sound when that is not ready in time. A skip and
-  // leaving the screen cancel it.
+  // leaving the screen cancel it. With VoiceOver it starts on the end state.
   const started = useRef(false);
   useEffect(() => {
-    if (!points || reduceMotion === null || started.current) return;
+    if (!score || reduceMotion === null || screenReader === null || started.current) return;
     started.current = true;
     track(
       'reveal_shown',
-      { total: points.total, discovery: false, streak_weeks: points.streakWeeks, preview: data?.preview ?? false },
+      { total: score.total, discovery: false, streak_weeks: streakStep(score)?.weeks ?? 0, preview: data?.preview ?? false },
       { isTest: data?.preview ?? false },
     );
-    const timeline = buildRevealTimeline({
-      basePoints: points.base,
-      streakWeeks: points.streakWeeks,
-      stages: points.stages,
-      reduceMotion,
-      bonus: !!question,
-    });
-    const showNumber = (shown: number) => {
-      diagnostics?.expect(shown);
-      setValue(shown);
-    };
+    timeline.current = buildRevealTimeline({ score, reduceMotion, bonus: !!question });
+    if (screenReader) {
+      finish('voiceover');
+      return;
+    }
     const onEvents = (batch: Event[], lateMs: number) => {
       diagnostics?.late(lateMs);
+      const shown: Event[] = [];
       for (const event of batch) {
         if (playFeedback(event)) continue;
         // Motion first (UI thread), then the numbers (one sync render per batch).
         motion.apply(event);
+        shown.push(event);
+      }
+      show(shown);
+      for (const event of shown) {
         if (event.type === 'chipIn') {
           setPhase('playing');
-        } else if (event.type === 'count') {
-          showNumber(event.value);
-        } else if (event.type === 'mult') {
-          setStage(event.stage);
-          if (event.max) setMaxShown(true);
-          showNumber(event.total);
         } else if (event.type === 'slam') {
-          showNumber(event.to);
           setPhase(question ? 'total' : 'done');
           schedule(600, stopDiagnostics);
         } else if (event.type === 'showBonusQuestion') {
@@ -261,7 +342,7 @@ export default function RevealScreen() {
         }
       }
     };
-    const playback = playTimeline(timeline, noSound ? null : revealSoundtrack, onEvents, {
+    const playback = playTimeline(timeline.current, noSound ? null : revealSoundtrack, onEvents, {
       onStarted: (start) => {
         if (!mounted.current) return;
         withSound.current = start.sound === 'on';
@@ -271,37 +352,39 @@ export default function RevealScreen() {
     });
     playbacks.current.push(playback);
   }, [
-    points,
+    score,
     question,
     reduceMotion,
+    screenReader,
     noSound,
     diagnostics,
     motion,
     schedule,
+    show,
+    finish,
     showQuestion,
     startDiagnostics,
     stopDiagnostics,
     setPhase,
-    setStage,
-    setMaxShown,
-    setValue,
     data,
   ]);
 
   /** The +5 with its own soundtrack, or one quiet tock when there are no points. */
   const playBonus = (bonus: number) => {
-    if (!points) return;
+    if (!score) return;
     if (bonus <= 0) {
       if (!noSound) play('neutral_tock', VOLUME.tock);
       return;
     }
     const onEvents = (batch: Event[]) => {
+      const shown: Event[] = [];
       for (const event of batch) {
         if (playFeedback(event)) continue;
         motion.apply(event);
-        if (event.type === 'count') setValue(event.value);
-        else if (event.type === 'badge') setBonusShown(true);
+        shown.push(event);
+        if (event.type === 'badge') setBonusShown(true);
       }
+      show(shown);
     };
     playbacks.current.push(playTimeline(bonusTimeline(bonus), noSound ? null : bonusSoundtrack, onEvents));
   };
@@ -311,7 +394,7 @@ export default function RevealScreen() {
   };
 
   const answer = async (option: BonusOption) => {
-    if (!points || !question || answering.current) return;
+    if (!score || !question || answering.current) return;
     answering.current = true;
     trackAnswer(true);
     setPhase('answering');
@@ -345,17 +428,16 @@ export default function RevealScreen() {
     router.replace('/reveal');
   };
 
-  if (!data || !points) return <View style={{ flex: 1, backgroundColor: 'black' }} />;
+  if (!data || !score) return <View style={{ flex: 1, backgroundColor: playColors.backdrop }} />;
 
   const playing = phase === 'playing';
   const showDone = phase === 'done' || phase === 'answered';
-  const chipValue = Math.min(value, points.base);
   const { styles } = motion;
 
   return (
     <Pressable
-      style={{ flex: 1, experimental_backgroundImage: 'linear-gradient(180deg, #0E3A24 0%, #050806 65%)' }}
-      onPress={playing ? finish : undefined}
+      style={{ flex: 1, experimental_backgroundImage: playColors.background }}
+      onPress={playing ? () => finish('skip') : undefined}
       // Not one big VoiceOver element: the answers and buttons inside stay reachable.
       accessible={false}
       onAccessibilityEscape={() => router.back()}>
@@ -372,31 +454,24 @@ export default function RevealScreen() {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
             <Animated.View
               style={[
-                { backgroundColor: CHIP_BLUE, borderRadius: 18, borderCurve: 'continuous', paddingHorizontal: 18, paddingVertical: 10, alignItems: 'center', minWidth: 112 },
+                { backgroundColor: playColors.chips, borderRadius: 18, borderCurve: 'continuous', paddingHorizontal: 18, paddingVertical: 10, alignItems: 'center', minWidth: 112 },
                 styles.chipStyle,
               ]}>
               <Text style={[type.footnote, { color: 'rgba(255,255,255,0.85)', fontWeight: '800', letterSpacing: 1 }]}>PUNTEN</Text>
-              <Text style={{ color: 'white', fontSize: 34, fontWeight: '900', fontFamily: 'ui-rounded', fontVariant: ['tabular-nums'] }}>
-                {chipValue}
-              </Text>
+              <ChipsValue store={store} base={base} />
             </Animated.View>
             <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 28, fontWeight: '800' }}>×</Text>
             <View>
               <Animated.View
                 pointerEvents="none"
                 style={[
-                  { position: 'absolute', top: -10, right: -10, bottom: -10, left: -10, borderRadius: 28, backgroundColor: '#FF2D95', boxShadow: '0 0 24px #FF2D95' },
+                  { position: 'absolute', top: -10, right: -10, bottom: -10, left: -10, borderRadius: 28, backgroundColor: playColors.heat, boxShadow: `0 0 24px ${playColors.heat}` },
                   styles.glowStyle,
                 ]}
               />
               <Animated.View
                 style={[{ borderRadius: 18, borderCurve: 'continuous', paddingHorizontal: 18, paddingVertical: 10, alignItems: 'center', minWidth: 112 }, styles.multStyle]}>
-                <Text style={[type.footnote, { color: 'rgba(255,255,255,0.9)', fontWeight: '800', letterSpacing: 1 }]}>
-                  {maxShown ? 'MULT · MAX' : 'MULT'}
-                </Text>
-                <Text style={{ color: 'white', fontSize: 34, fontWeight: '900', fontFamily: 'ui-rounded', fontVariant: ['tabular-nums'] }}>
-                  {multiplierLabel(stage, points.multiplier)}
-                </Text>
+                <MultBadgeText store={store} />
               </Animated.View>
             </View>
           </View>
@@ -409,14 +484,10 @@ export default function RevealScreen() {
               style={{ alignItems: 'center', justifyContent: 'center' }}>
               <Animated.View
                 pointerEvents="none"
-                style={[{ position: 'absolute', width: 180, height: 180, borderRadius: 90, borderWidth: 4, borderColor: BONUS_GREEN }, styles.ringStyle]}
+                style={[{ position: 'absolute', width: 180, height: 180, borderRadius: 90, borderWidth: 4, borderColor: playColors.bonus }, styles.ringStyle]}
               />
               <Animated.View style={styles.totalStyle}>
-                <Text
-                  numberOfLines={1}
-                  style={{ color: 'white', fontSize: totalFontSize(value), lineHeight: 132, fontWeight: '900', fontFamily: 'ui-rounded', fontVariant: ['tabular-nums'] }}>
-                  {value}
-                </Text>
+                <TotalNumber store={store} onCommit={diagnostics ? onNumberCommit : undefined} />
               </Animated.View>
               <View pointerEvents="none" style={{ position: 'absolute', top: '50%', left: '50%' }}>
                 {Array.from({ length: MAX_PARTICLES }, (_, i) => (
@@ -433,16 +504,12 @@ export default function RevealScreen() {
             <Text style={[type.title3, { color: 'rgba(255,255,255,0.75)' }]}>{bonusShown ? 'punten met bonus' : 'punten'}</Text>
           </View>
 
-          <Text style={[type.subheadline, { color: 'rgba(255,255,255,0.8)', textAlign: 'center' }]}>
-            {points.stages.length > 0
-              ? `Reeks van ${formatWeeks(points.streakWeeks)}${maxShown ? ' · maximum' : ''}`
-              : 'Check volgende week opnieuw in voor een reeks: ×1,1 per week.'}
-          </Text>
+          <StreakLine store={store} streak={streakStep(score)} />
         </Animated.View>
 
         {playing ? (
           <Text
-            onPress={finish}
+            onPress={() => finish('skip')}
             accessibilityRole="button"
             accessibilityLabel="Overslaan"
             style={[type.footnote, { color: 'rgba(255,255,255,0.5)', textAlign: 'center' }]}>
@@ -502,10 +569,12 @@ export default function RevealScreen() {
           </View>
         ) : null}
       </SafeAreaView>
+      {/* No general toasts during the reveal: they wait until it closes. */}
+      <ToastViewport hold />
       {/* The flash covers everything, on top. */}
       <Animated.View
         pointerEvents="none"
-        style={[{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'white' }, styles.flashStyle]}
+        style={[{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: playColors.flash }, styles.flashStyle]}
       />
     </Pressable>
   );

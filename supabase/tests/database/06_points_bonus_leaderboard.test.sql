@@ -5,7 +5,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(54);
+select plan(48);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as postgres)
@@ -28,13 +28,23 @@ create function pg_temp.bin(osm bigint) returns bigint language sql as $$
   select id from public.bins where osm_id = osm;
 $$;
 
+-- The running totals of a score: the base, then every streak stage (what
+-- record_checkin returned as point_stages before phase 2).
+create function pg_temp.score_stages(s jsonb) returns integer[] language sql as $$
+  select array[(s #>> '{steps,0,total}')::integer] || array(
+    select (x.stage->>'total')::integer
+    from jsonb_array_elements(s->'steps') st(step),
+      lateral jsonb_array_elements(st.step->'stages') with ordinality x(stage, i)
+    where st.step->>'kind' = 'streak' order by x.i);
+$$;
+
 -- record_checkin for `who`, 5 m north of the bin.
 create function pg_temp.checkin(who uuid, osm bigint)
 returns table (ok boolean, reason text, checkin_id uuid, distance_m double precision, retry_after_s integer,
                streak_weeks integer, point_stages integer[], points_total integer, bonus_question jsonb)
 language sql as $$
-  select r.ok, r.reason, r.checkin_id, r.distance_m, r.retry_after_s, r.streak_weeks, r.point_stages,
-         r.points_total, r.bonus_question
+  select r.ok, r.reason, r.checkin_id, r.distance_m, r.retry_after_s, r.streak_weeks, pg_temp.score_stages(r.score),
+         (r.score->>'total')::integer, r.bonus_question
   from public.bins b,
     lateral public.record_checkin(gen_random_uuid(), who, b.id,
       st_y(st_project(b.geom, 5, 0)::geometry), st_x(st_project(b.geom, 5, 0)::geometry),
@@ -66,18 +76,6 @@ insert into checkins (user_id, bin_id, photo_path, user_geom, accuracy_m, distan
 select '44444444-4444-4444-4444-444444444444', pg_temp.bin(900000000000601), '44444444-4444-4444-4444-444444444444/c.jpg',
        'SRID=4326;POINT(0 0)', 5, 1
 from generate_series(1, 3);
-
--- ---------------------------------------------------------------------------
--- Point stages
--- ---------------------------------------------------------------------------
-
-select is(checkin_point_stages(0), array[10], 'no streak: only the base of 10 points');
-select is(checkin_point_stages(1), array[10, 11], 'one streak week: one x1.1 stage');
-select is(checkin_point_stages(2), array[10, 11, 12], 'two streak weeks: x1.1 and x1.1 again');
-select is(checkin_point_stages(8), array[10, 11, 12, 13, 15, 16, 18, 19, 21],
-  'eight weeks: round(10 * 1.1^k) for k = 0..8');
-select is(checkin_point_stages(30), checkin_point_stages(8), 'the multiplier is capped at 8 stages');
-select is(checkin_point_stages(-1), array[10], 'a negative streak counts as none');
 
 -- ---------------------------------------------------------------------------
 -- Streaks

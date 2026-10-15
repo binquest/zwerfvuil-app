@@ -20,9 +20,10 @@ import {
   withTiming,
 } from 'react-native-reanimated';
 
-import { MAX_STAGES } from '../../lib/points';
+import { playColors } from '../../theme/game';
 import { badgeCentre, bonusArc, particle, shakeOffset } from './motion';
 import type { Event } from './timeline';
+import { TOP_STAGE } from './tuning';
 
 /** The animation helpers, all with the same Reduce Motion behaviour. */
 function animations(reduceMotion: ReduceMotion) {
@@ -34,8 +35,10 @@ function animations(reduceMotion: ReduceMotion) {
   };
 }
 
-/** The MULT badge ramps orange → red → magenta over the stages. */
-export const MULT_COLORS = ['#FF9F0A', '#FF3B30', '#FF2D95'];
+/** The MULT badge ramps orange → red → magenta up to the top stage. */
+const MULT_COLORS = [...playColors.multRamp];
+/** Where the MULT ramp is after `stage` stages, 0..1. */
+const rampOf = (stage: number) => Math.min(1, stage / TOP_STAGE);
 /** Where the flying +5 starts: below the number, at the question (relative to the number's centre). */
 export const BONUS_FROM = { x: 0, y: 320 };
 export const MAX_PARTICLES = 20;
@@ -70,7 +73,7 @@ export function useRevealMotion(forceReduceMotion = false) {
         return true;
       case 'mult':
         multPop.set(withSequence(timing(1.22, 70), spring(1, 10, 300)));
-        multRamp.set(timing(event.stage / MAX_STAGES, 160));
+        multRamp.set(timing(rampOf(event.stage), 160));
         heat.set(timing(event.heat, 200));
         totalScale.set(withSequence(timing(event.peakScale, 70), spring(1, 11, 280)));
         return true;
@@ -122,7 +125,7 @@ export function useRevealMotion(forceReduceMotion = false) {
       flash.set(0);
       chips.set(1);
       multPop.set(1);
-      multRamp.set(stages / MAX_STAGES);
+      multRamp.set(rampOf(stages));
       heat.set(0);
       totalScale.set(1);
       burst.set(0);

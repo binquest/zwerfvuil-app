@@ -22,6 +22,12 @@ export const TICK_JITTER = 0.015;
 export const TICK_PITCHES = 5;
 
 // The streak multipliers.
+/**
+ * The stage where the reveal is at its peak: the MULT colour ramp ends here,
+ * there are this many mult_N sounds, and this stage shakes longest. Later
+ * stages (a longer maximum in game_config) stay at the peak.
+ */
+export const TOP_STAGE = 8;
 export const ANTICIPATION_MS = 150;
 /** Stage n takes max(MIN, FIRST * DECAY^(n-1)) before stage n + 1 lands. */
 export const STAGE_INTERVAL_FIRST_MS = 420;

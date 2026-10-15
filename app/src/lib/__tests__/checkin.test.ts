@@ -16,28 +16,45 @@ describe('parseCheckinResponse', () => {
       checkinId: 'abc',
       distanceM: 12.3,
       message: 'Bedankt! Je inworp wacht op goedkeuring.',
-      points: null,
+      score: null,
       question: null,
       isTest: false,
     });
   });
 
-  it('reads the points, the bonus question and the test flag', () => {
+  it('reads the score, the bonus question and the test flag', () => {
     const body = json({
       checkin_id: 'abc',
       status: 'pending',
       distance_m: 4,
       message: 'Bedankt!',
-      points: { base: 10, multiplier: 1.1, streak_weeks: 2, stages: [11, 12], total: 12 },
+      score: {
+        steps: [
+          { kind: 'base', label: 'BASIS', chips: 10, mult: 1, total: 10 },
+          { kind: 'streak', label: 'REEKS', weeks: 2, per_week: 1.1, stages: [{ mult: 1.1, total: 11 }, { mult: 1.21, total: 12 }] },
+        ],
+        total: 12,
+      },
       bonus_question: { key: 'find_ease', prompt: 'Hoe makkelijk?', options: [{ key: 'easy', label: 'Meteen' }, { key: 'hard', label: 'Moeilijk' }], points: 5 },
       is_test: true,
     });
     expect(parseCheckinResponse(201, body)).toMatchObject({
       ok: true,
-      points: { base: 10, stages: [11, 12], total: 12, streakWeeks: 2 },
+      score: {
+        steps: [
+          { kind: 'base', chips: 10, total: 10 },
+          { kind: 'streak', weeks: 2, perWeek: 1.1, stages: [{ mult: 1.1, total: 11 }, { mult: 1.21, total: 12 }] },
+        ],
+        total: 12,
+      },
       question: { key: 'find_ease', points: 5 },
       isTest: true,
     });
+  });
+
+  it('has no score (a plain confirmation) when the server sent the old points object', () => {
+    const body = json({ checkin_id: 'abc', points: { base: 10, multiplier: 1.1, streak_weeks: 2, stages: [11, 12], total: 12 } });
+    expect(parseCheckinResponse(201, body)).toMatchObject({ ok: true, score: null });
   });
 
   it('shows the server message of a refusal as "rejected"', () => {

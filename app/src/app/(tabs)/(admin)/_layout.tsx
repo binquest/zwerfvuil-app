@@ -18,6 +18,8 @@ export default function AdminStack() {
         name="dev-mode"
         options={{ title: 'Dev-modus', headerStyle: { backgroundColor: colors.groupedBackground as string } }}
       />
+      {/* A React Native scroll view of the game components. */}
+      <Stack.Screen name="dev-components" options={{ title: 'Componenten' }} />
     </Stack>
   );
 }

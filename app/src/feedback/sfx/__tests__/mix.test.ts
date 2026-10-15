@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { buildRevealTimeline, type Event } from '../../reveal/timeline';
+import { reveal } from '../../reveal/__fixtures__/scores';
+import type { Event } from '../../reveal/timeline';
 import { LOOP_FADE_MS, LOOP_RAMP_MS, MIX_CEILING, mixKey, mixTimeline } from '../mix';
 import { decodeWav, encodeWav } from '../wav';
 
@@ -61,7 +62,7 @@ describe('mixTimeline', () => {
   });
 
   it('mixes a whole reveal: as long as its last sound or the fade of the heat loop', () => {
-    const events = buildRevealTimeline({ basePoints: 10, streakWeeks: 8, reduceMotion: false });
+    const events = reveal(8);
     const sources = Object.fromEntries(
       events.filter((e): e is Extract<Event, { type: 'sound' }> => e.type === 'sound').map((e) => [e.id, new Float32Array(50).fill(0.1)]),
     );
@@ -75,10 +76,10 @@ describe('mixTimeline', () => {
 
 describe('mixKey', () => {
   it('is the same for the same sounds and differs when a sound changes', () => {
-    const a = buildRevealTimeline({ basePoints: 10, streakWeeks: 3, reduceMotion: false });
-    const b = buildRevealTimeline({ basePoints: 10, streakWeeks: 3, reduceMotion: false, bonus: true });
-    const c = buildRevealTimeline({ basePoints: 10, streakWeeks: 4, reduceMotion: false });
-    const d = buildRevealTimeline({ basePoints: 10, streakWeeks: 3, reduceMotion: true });
+    const a = reveal(3);
+    const b = reveal(3, { bonus: true });
+    const c = reveal(4);
+    const d = reveal(3, { reduceMotion: true });
     expect(mixKey(a)).toBe(mixKey(b)); // the question changes no sound
     expect(mixKey(a)).not.toBe(mixKey(c));
     expect(mixKey(a)).not.toBe(mixKey(d));

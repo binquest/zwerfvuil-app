@@ -154,6 +154,11 @@ describe('initSfx', () => {
     // The loaded voices are primed all the same.
     expect(mockPlayers[1].calls).toEqual(['play', 'pause', 'seek']);
     expect(mockPlayers[0].calls).toEqual([]);
+    // Then all of them go, so the next call starts over instead of staying not ready.
+    expect(mockPlayers.every((p) => p.removed)).toBe(true);
+    const count = mockPlayers.length;
+    expect(await initSfx(TEST_VOICES)).toBe(true);
+    expect(mockPlayers.length).toBe(count * 2);
   });
 });
 

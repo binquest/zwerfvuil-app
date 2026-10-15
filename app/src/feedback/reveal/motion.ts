@@ -64,8 +64,3 @@ export function particle(index: number, count: number, t: number): { x: number; 
     scale: 1 - 0.6 * t,
   };
 }
-
-/** "×1,00" .. "×2,14": the combined multiplier after `stage` stages, in Dutch notation. */
-export function multiplierLabel(stage: number, multiplier = 1.1): string {
-  return `×${(multiplier ** stage).toFixed(2).replace('.', ',')}`;
-}

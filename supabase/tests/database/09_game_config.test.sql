@@ -21,12 +21,23 @@ insert into bins (osm_type, osm_id, geom, status, eligible) values
   ('node', 900000000000902, st_project('SRID=4326;POINT(0 0)'::geography, 200, radians(90)), 'active', true),
   ('node', 900000000000903, st_project('SRID=4326;POINT(0 0)'::geography, 400, radians(90)), 'active', true);
 
+-- The running totals of a score: the base, then every streak stage (what
+-- record_checkin returned as point_stages before phase 2).
+create function pg_temp.score_stages(s jsonb) returns integer[] language sql as $$
+  select array[(s #>> '{steps,0,total}')::integer] || array(
+    select (x.stage->>'total')::integer
+    from jsonb_array_elements(s->'steps') st(step),
+      lateral jsonb_array_elements(st.step->'stages') with ordinality x(stage, i)
+    where st.step->>'kind' = 'streak' order by x.i);
+$$;
+
 -- record_checkin for `who`, 5 m north of the bin, real or fake location.
 create function pg_temp.checkin(who uuid, osm bigint, fake boolean default false)
 returns table (ok boolean, checkin_id uuid, point_stages integer[], points_total integer, bonus_question jsonb,
                is_test boolean)
 language sql as $$
-  select r.ok, r.checkin_id, r.point_stages, r.points_total, r.bonus_question, r.is_test
+  select r.ok, r.checkin_id, pg_temp.score_stages(r.score), (r.score->>'total')::integer, r.bonus_question,
+         r.is_test
   from public.bins b,
     lateral public.record_checkin(gen_random_uuid(), who, b.id,
       st_y(st_project(b.geom, 5, 0)::geometry), st_x(st_project(b.geom, 5, 0)::geometry),
@@ -54,9 +65,9 @@ select is_empty($$ select r.key from private.game_config_rules r where not exist
   select 1 from game_config c where c.key = r.key) $$, 'every rule has a value');
 select is(private.cfg('streak_multiplier'), '1.1'::jsonb, 'private.cfg reads a value');
 select throws_ok($$ select private.cfg('no_such_key') $$, 'P0002', null, 'private.cfg refuses a missing key');
-select is(checkin_point_stages(8), array[10, 11, 12, 13, 15, 16, 18, 19, 21],
+select is(pg_temp.score_stages(private.checkin_score(8)), array[10, 11, 12, 13, 15, 16, 18, 19, 21],
   'the point stages are the same as with the old constants');
-select is(checkin_point_stages(30), checkin_point_stages(8), 'still capped at 8 stages');
+select is(pg_temp.score_stages(private.checkin_score(30)), pg_temp.score_stages(private.checkin_score(8)), 'still capped at 8 stages');
 
 -- ---------------------------------------------------------------------------
 -- 2. Validation: a wrong value never gets in
@@ -93,7 +104,7 @@ select lives_ok($$ update game_config set value = '1.15' where key = 'streak_mul
 select is((select updated_at from game_config where key = 'streak_multiplier'), now(), 'updated_at follows the change');
 select lives_ok($$ update game_config set value = '1.10' where key = 'streak_multiplier' $$,
   'and back (1.10 is the same number as 1.1)');
-select is(checkin_point_stages(8), array[10, 11, 12, 13, 15, 16, 18, 19, 21], 'same stages again');
+select is(pg_temp.score_stages(private.checkin_score(8)), array[10, 11, 12, 13, 15, 16, 18, 19, 21], 'same stages again');
 
 -- ---------------------------------------------------------------------------
 -- 3. The points follow the config; amounts already made stay frozen
@@ -104,7 +115,7 @@ update game_config set value = '1.2' where key = 'streak_multiplier';
 update game_config set value = '2' where key = 'streak_max_steps';
 update game_config set value = '7' where key = 'bonus_question_points';
 
-select is(checkin_point_stages(5), array[12, 14, 17], 'the stages use base, multiplier and maximum from the config');
+select is(pg_temp.score_stages(private.checkin_score(5)), array[12, 14, 17], 'the stages use base, multiplier and maximum from the config');
 
 create temp table c1 as select * from pg_temp.checkin('91000000-0000-0000-0000-000000000001', 900000000000901);
 create temp table c2 as select * from pg_temp.checkin('91000000-0000-0000-0000-000000000001', 900000000000902);

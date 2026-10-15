@@ -195,8 +195,16 @@ echte gebruikersdata vraagt meer.
 - [ ] **Puntenschaal.** Basis 10 en ×1,1 per week geven kleine sprongen (10 → max.
   21). Een grotere basis (bv. 100) maakt de onthulling sterker. Sinds fase 1b staan
   de getallen in `game_config` (aan te passen in Studio, binnen de grenzen van
-  `private.game_config_rules`); de app rekent tot fase 2 nog met de constanten in
-  `app/src/lib/points.ts` voor de labels van de onthulling (×1,1).
+  `private.game_config_rules`); sinds fase 2 speelt de app de stappen van de server
+  (`score.steps`) en leest ze haar labels uit `game_catalog()`.
+- [ ] **`game_catalog()` toont elke aangemelde gebruiker alle getallen van
+  `game_config`.** Nu zijn dat alleen spelgetallen; kies bewust wat publiek mag zijn
+  voor er gevoeliger sleutels bij komen (bv. hoe premies gekozen worden).
+- [ ] **De app spiegelt de formule van `private.checkin_score`** in `previewScore`
+  (`app/src/game/catalog.ts`), voor de Dev-preview en de onthulling die de camera
+  tijdens het uploaden al mixt. Verandert de formule op de server (ontdekking in
+  fase 3, premie in fase 8), pas `previewScore` mee aan: anders klopt de preview niet
+  en wordt de vooraf gemixte soundtrack niet hergebruikt (geen fout, wel trager).
 - [ ] **Wijzigingen aan `game_config` laten geen spoor na** (alleen `updated_at`).
   Voor echte gebruikers: een auditlog (wie, wanneer, oud → nieuw) of alleen nog
   wijzigen via migraties. Een wijziging van `bonus_question_points` geldt voor elk
@@ -212,12 +220,13 @@ echte gebruikersdata vraagt meer.
   `production` gemarkeerd is (zie "Infrastructuur en configuratie"). Controleer dat
   bij het opzetten, en kijk `dev_audit_log` na.
 - [ ] **Geluid van de onthulling draait op expo-audio** (`app/src/feedback/sfx/`):
-  de app mixt alle geluiden van een onthulling in JS tot één WAV in de cache
-  (maximaal 12 bestanden, ~0,3 MB per seconde geluid) en speelt die met één
-  AVPlayer; beeld en haptiek volgen die op een audioklok. Losse AVPlayers per
-  geluid blokkeerden de hoofdthread tot 150 ms. De spelers blijven geladen zodra
-  de camera opent (met een actieve, mengende audiosessie). Dat is geen echte
-  low-latency-audio-engine.
+  de app decodeert alleen de geluiden die een onthulling nodig heeft, mixt ze in JS
+  tot één WAV in de cache (maximaal 12 bestanden, ~0,3 MB per seconde geluid, de
+  naam met een hash van de geluidsbestanden) en speelt die met één AVPlayer; beeld
+  en haptiek volgen die op een audioklok. Losse AVPlayers per geluid blokkeerden de
+  hoofdthread tot 150 ms. De spelers blijven geladen zodra de camera opent (met een
+  actieve, mengende audiosessie), en de camera mixt de verwachte onthulling al
+  tijdens het uploaden. Dat is geen echte low-latency-audio-engine.
 - [ ] **Reanimated staat vast op de versies van de IPA, niet op die van SDK 57.**
   `react-native-reanimated` 4.7.1, `react-native-worklets` 0.13.0 en
   `react-native-gesture-handler` 3.3.0 staan exact in `app/package.json` en in
