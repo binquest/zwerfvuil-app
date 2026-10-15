@@ -3,6 +3,9 @@
 // on the channel "dev", with the staging configuration:
 //   npm run update:dev -- "Profiel: ranglijst toegevoegd"
 //
+// 0. Refuses when the installed native packages differ from the ones in the
+//    IPA of this runtime version (native-versions.json, see
+//    scripts/native-versions.mjs): such JavaScript could crash that IPA.
 // 1. Exports the iOS bundle with the staging profile (values from
 //    staging.env.local, no .env files) and APP_VARIANT=development, into
 //    dist-update/.
@@ -17,6 +20,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { checkApp } from './native-versions.mjs';
 import { parseEnv, stagingEnv, validate } from './staging.mjs';
 
 const APP_DIR = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -29,6 +33,14 @@ const message = process.argv.slice(2).join(' ').trim();
 if (!message) {
   console.error('usage: npm run update:dev -- "<what changed>"');
   process.exit(2);
+}
+
+const nativeProblems = checkApp(APP_DIR);
+if (nativeProblems.length) {
+  console.error('refusing to publish: the native packages differ from the IPA of this runtime version:');
+  for (const problem of nativeProblems) console.error(`  ${problem}`);
+  console.error('build a new IPA (bump DEV_RUNTIME_VERSION, npm run native:record) or restore the versions');
+  process.exit(1);
 }
 
 let values;

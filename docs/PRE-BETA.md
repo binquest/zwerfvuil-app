@@ -8,10 +8,22 @@ voor echte gebruikers. Wordt aangevuld telkens zo'n keuze gemaakt wordt.
 - [ ] **Admins mogen hun eigen check-ins niet goedkeuren.** `review_checkin` laat
   nu toe dat een admin zijn eigen check-in goedkeurt (handig om alleen te testen).
   Weiger in `review_checkin` als `checkin.user_id = auth.uid()`, en hetzelfde in
-  `review_bin_report` voor eigen meldingen.
-- [ ] **Goedkeuringen kunnen niet teruggedraaid worden.** Een fraude die later
-  ontdekt wordt, kan geen punten meer kosten. Voorzie een admin-actie die een
-  goedgekeurde check-in herroept en de punten aftrekt, met reden.
+  `review_bin_report` voor eigen meldingen, `revoke_checkin` en `adjust_points`
+  (een admin kan nu zijn eigen punten corrigeren; alleen `details.by` in de ledger
+  legt vast wie).
+- [x] **Goedkeuringen kunnen niet teruggedraaid worden.** Opgelost in gamification
+  fase 1a: `revoke_checkin(id, reason)` en de tab "Goedgekeurd" in Beheer. Nog open:
+  herroepen kan zonder termijn, en een herroeping ongedaan maken kan alleen in Studio
+  (status en `revoked_*` terugzetten; de ledger volgt vanzelf).
+- [ ] **Redenen zijn vrije tekst die de gebruiker ziet.** Afwijzen en herroepen
+  gebruiken in de app drie vaste redenen of een eigen tekst (max. 200 tekens); de
+  gebruiker ziet die in de historiek, net als de reden van een correctie. Voor echte
+  gebruikers: een vaste lijst met nette, vriendelijke teksten (en geen interne
+  notities in die tekst).
+- [ ] **Punten kunnen negatief worden.** De controle `points >= 0` is weg (de ledger
+  is de waarheid, en een herroeping mag nooit falen). Een negatieve correctie of een
+  herroeping na een correctie kan een profiel onder 0 brengen; de ranglijst laat
+  wie op 0 of lager staat weg, het profiel toont het getal.
 - [ ] **Audit log.** Alleen `reviewed_by`/`reviewed_at` worden bewaard. Wijzigingen
   aan `eligible_override` (uitsluiten/toelaten) laten geen spoor na.
 - [ ] **Admins beheren.** Admin worden of af gaat nu via `scripts/seed-admin`
@@ -167,7 +179,7 @@ echte gebruikersdata vraagt meer.
   Jetpack Compose- of universele varianten van login, profiel, ranglijst,
   Dev-modus, bin-sheet en de knoppen.
 - [ ] **Reeksen tellen inworpen die nog wachten.** Wordt een eerdere inworp later
-  afgewezen, dan worden de reeksen (en punten) van latere inworpen niet herrekend.
+  afgewezen of herroepen, dan worden de reeksen (en punten) van latere inworpen niet herrekend.
 - [ ] **Een verdacht snel bonusantwoord krijgt toch +5** (alleen gemarkeerd, de
   admin ziet het). Beslis of dat zo blijft. `bin_need_answers` bevat verdachte
   antwoorden, met de vlag; filter ze in de analyse.
@@ -190,15 +202,21 @@ echte gebruikersdata vraagt meer.
   geluid blokkeerden de hoofdthread tot 150 ms. De spelers blijven geladen zodra
   de camera opent (met een actieve, mengende audiosessie). Dat is geen echte
   low-latency-audio-engine.
-- [ ] **Reanimated staat niet in `app/package.json`.** De onthulling importeert
-  `react-native-reanimated` (4.7.1, met worklets 0.13), dat via expo-router
-  geïnstalleerd en in de IPA gelinkt is. Een directe dependency toevoegen
-  verandert de lockfile; doe dat samen met de volgende native build, en kijk dan
-  ook naar de versies die SDK 57 verwacht (4.5.x / 0.10.x, zie
-  `expo.install.exclude`). Is er op toestellen nog hoorbare jitter of
+- [ ] **Reanimated staat vast op de versies van de IPA, niet op die van SDK 57.**
+  `react-native-reanimated` 4.7.1, `react-native-worklets` 0.13.0 en
+  `react-native-gesture-handler` 3.3.0 staan exact in `app/package.json` en in
+  `expo.install.exclude` (fase 1a; de lockfile veranderde alleen van "peer" naar
+  "dependency"). SDK 57 verwacht 4.5.x / 0.10.x: kijk daarnaar bij de volgende
+  native build. `update:dev` weigert te publiceren als een native pakket afwijkt van
+  `app/native-versions.json`. Is er op toestellen nog hoorbare jitter of
   vertraging, dan stap je over op `react-native-audio-api` (native: nieuwe IPA en
   runtimeversie). Meet ook het geheugen en de starttijd van de 35 players op een
   oudere iPhone.
+- [ ] **`app/native-versions.json` wordt met de hand vastgelegd** (`npm run
+  native:record`, in de commit van een nieuwe IPA, na het ophogen van
+  `DEV_RUNTIME_VERSION`). De workflow `ios-dev.yml` controleert niet dat de IPA bij
+  die lijst past. Laat de workflow de lijst zelf controleren (`npm run native:check`)
+  voor hij bouwt.
 
 ## Licentie (ODbL)
 

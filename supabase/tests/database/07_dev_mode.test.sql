@@ -5,7 +5,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(59);
+select plan(63);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as postgres): alice (user), admin A (me), admin B (another admin)
@@ -110,9 +110,13 @@ select is(pg_temp.answer(current_setting('test.ta1')::uuid), 5, 'the bonus quest
 
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"33333333-3333-3333-3333-333333333333","role":"authenticated"}', true);
-select is((select r.points_awarded from review_checkin(current_setting('test.ta1')::uuid, true) r), 18,
-  'approving a test check-in awards its points (13 + 5)');
+select is((select r.status from review_checkin(current_setting('test.ta1')::uuid, true) r), 'approved',
+  'an admin approves a test check-in');
 reset role;
+select is(
+  (select string_agg(source || ':' || amount || ':' || status || ':' || is_test, ',' order by source)
+   from point_transactions where checkin_id = current_setting('test.ta1')::uuid),
+  'bonus:5:granted:true,checkin:13:granted:true', 'its points (13 + 5) are granted as test rows in the ledger');
 select is((select row(points, test_points)::text from profiles where id = pg_temp.me()), '(0,18)',
   'test points go to test_points, never to points');
 
@@ -131,7 +135,7 @@ select is(pg_temp.answer(current_setting('test.ra1')::uuid), 5, 'and its bonus q
 
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"33333333-3333-3333-3333-333333333333","role":"authenticated"}', true);
-select is((select r.points_awarded from review_checkin(current_setting('test.ra1')::uuid, true) r), 16,
+select is((select r.status from review_checkin(current_setting('test.ra1')::uuid, true) r), 'approved',
   'the real check-in is approved (11 + 5)');
 reset role;
 select is((select row(points, test_points)::text from profiles where id = pg_temp.me()), '(16,18)',
@@ -214,6 +218,8 @@ select is((select count(*)::int from bonus_answers where checkin_id = current_se
   'the bonus answer of my real check-in remains');
 select is((select row(points, test_points)::text from profiles where id = pg_temp.me()), '(16,0)',
   'my test points are 0, my real points are untouched');
+select is((select count(*)::int from point_transactions where user_id = pg_temp.me() and is_test), 0,
+  'my test rows are gone from the ledger');
 select is((select count(*)::int from dev_settings where user_id = pg_temp.me()), 0, 'my override is cleared');
 select is((select count(*)::int from checkins where user_id = pg_temp.other_admin() and is_test), (select b_test::int from before_reset),
   'admin B''s test check-ins remain');
@@ -250,6 +256,10 @@ select throws_ok($$ insert into dev_audit_log (user_id, action) values (auth.uid
 select throws_ok($$ update profiles set test_points = 100 where id = auth.uid() $$, '42501', null,
   'test points cannot be set directly');
 reset role;
+
+select throws_ok($$ update profiles set test_points = 100 where id = pg_temp.me() $$, '42501', null,
+  'not even by the database owner: points follow the ledger');
+select is_empty($$ select * from private.check_points_invariant() $$, 'every profile equals its ledger');
 
 select * from finish();
 rollback;

@@ -5,7 +5,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(35);
+select plan(37);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as postgres)
@@ -88,7 +88,8 @@ select ok(has_function_privilege('service_role',
 select is((select row(ok, reason) from pg_temp.checkin(900000000000201, 24))::text, '(t,)',
   'a check-in 24 m from an eligible bin is accepted');
 select ok(
-  (select abs(c.distance_m - 24) < 0.01 and c.status = 'pending' and c.points_awarded = 0
+  (select abs(c.distance_m - 24) < 0.01 and c.status = 'pending'
+          and not exists (select 1 from point_transactions t where t.checkin_id = c.id and t.status = 'granted')
           and not c.is_fake_location and not c.is_mocked
    from checkins c where c.bin_id = pg_temp.bin(900000000000201)),
   'the check-in is stored as pending, without points, with the server-side distance');
@@ -175,15 +176,20 @@ reset role;
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"33333333-3333-3333-3333-333333333333","role":"authenticated"}', true);
 select is(
-  (select row(r.status, r.points_awarded, r.reviewed_by)::text from review_checkin(current_setting('test.first')::uuid, true) r),
-  '(approved,11,33333333-3333-3333-3333-333333333333)',
-  'admins can approve a check-in, which awards its points (10 x1.1 for a one-week streak)');
+  (select row(r.status, r.reviewed_by)::text from review_checkin(current_setting('test.first')::uuid, true) r),
+  '(approved,33333333-3333-3333-3333-333333333333)',
+  'admins can approve a check-in');
+select is(
+  (select sum(t.amount)::int from point_transactions t
+   where t.checkin_id = current_setting('test.first')::uuid and t.status = 'granted'),
+  11, 'approval grants its points in the ledger (10 x1.1 for a one-week streak)');
 select throws_ok($$ select review_checkin(current_setting('test.first')::uuid, false) $$, '55000', null,
   'a check-in can only be reviewed once');
+select is((select r.status from review_checkin(current_setting('test.second')::uuid, false) r), 'rejected',
+  'admins can reject a check-in');
 select is(
-  (select row(r.status, r.points_awarded)::text from review_checkin(current_setting('test.second')::uuid, false) r),
-  '(rejected,0)',
-  'admins can reject a check-in, which awards no points');
+  (select string_agg(t.status, ',') from point_transactions t where t.checkin_id = current_setting('test.second')::uuid),
+  'revoked', 'a rejection revokes its points');
 select throws_ok($$ select review_checkin(gen_random_uuid(), true) $$, 'P0002', null,
   'reviewing an unknown check-in fails');
 select throws_ok($$ select review_checkin(current_setting('test.first')::uuid, null) $$, '22023', null,
@@ -203,11 +209,10 @@ select is(
 reset role;
 
 select throws_ok(
-  $$ update checkins set points_awarded = 10 where status = 'pending' $$,
-  '23514', null, 'pending check-ins cannot carry points');
-select throws_ok(
   $$ update checkins set status = 'approved' where photo_path = 'f.jpg' $$,
   '23514', null, 'decided check-ins must have reviewed_at');
+
+select is_empty($$ select * from private.check_points_invariant() $$, 'every profile equals its ledger');
 
 select * from finish();
 rollback;

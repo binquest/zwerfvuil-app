@@ -200,6 +200,7 @@ role heeft geen rechten op `private`.
 | `review_checkin(id, approve, reason default null)` | admin | ledger + refresh. Opnieuw aangemaakt i.p.v. overladen (PostgREST kan anders niet kiezen) |
 | `revoke_checkin(id, reason)` | admin | goedgekeurde check-in alsnog afwijzen; alles erachter valt terug (PRE-BETA-punt) |
 | `adjust_points(user, amount, reason)`, `repair_game_state(user)` | admin | correctie; volledige refresh |
+| `approved_checkins(max_rows)` | admin | de laatst goedgekeurde inworpen met hun punten, voor Herroepen (fase 1a) |
 | `answer_bonus_question` | gebruiker | rij `bonus` + refresh; geeft nog altijd een getal terug |
 | `game_catalog()` | aangemeld | config, levels, badges, avatars, quests, mijlpalen, kistkansen |
 | `my_game_state()` | aangemeld | punten (granted/pending), level, reeks + dagbolletjes + bevriezers, ontdekt/totaal + volgende mijlpaal, quests, kist, weekuitdaging, aantal ongeziene momenten. `volatile`: maakt lui de quests van vandaag aan |
@@ -866,8 +867,33 @@ vergelijking van de punten en in fase 1b van de eventtellingen in Studio.
 
 ## Overdracht
 
-Stand op 15 oktober 2026: het plan is goedgekeurd en vastgelegd; er is nog niets gebouwd.
+Stand op 15 oktober 2026: fase 1a is gebouwd op `gamification/1a-ledger` en wacht op akkoord.
 
-- Af: dit plan.
-- Nog te doen: fase 1a t/m 7.
-- Volgende stap: fase 1a in een nieuwe sessie, op `gamification/1a-ledger` vanaf `main`.
+- Af: dit plan; fase 1a (puntenledger).
+  - Server (`20261015120000_points_ledger.sql`): `point_transactions` met de projectie vanuit
+    `checkins` en de deltatrigger naar `profiles`; `private.check_points_invariant()`; de migratie
+    van de punten als `private.migrate_points_to_ledger()` (snapshot, projectie, `adjustment`
+    "migratie" voor verschillen, faalt bij een verschil); `points_awarded` en `points >= 0` weg;
+    `review_checkin(id, approve, reason)`, `revoke_checkin`, `adjust_points`, `approved_checkins`;
+    bonusantwoord, reset en ranglijst op de ledger met de lock-volgorde van 2.9; `record_checkin`
+    security definer; `point_transactions` in `check-restore.sh`.
+  - App: historiek uit de ledger (`src/lib/history.ts`) met "Wacht op goedkeuring", reden en
+    "Herroepen"; onder de punten "+N wacht op goedkeuring"; Beheer met afwijsreden en de tab
+    "Goedgekeurd" met Herroepen; Reanimated, worklets en gesture-handler vast in `package.json`;
+    `update:dev` weigert bij een native verschil met `app/native-versions.json`.
+  - Tests: `00_schema_guard`, `08_points_ledger`, aangepaste 02/06/07 (punten uit de ledger, de
+    controle op `points_awarded` bij pending weg, invariant aan het einde); Deno: herroepen en 5
+    rondes beoordeling + inworp tegelijk; Jest `history.test.ts`; `native-versions.test.mjs`.
+- Kleine keuzes buiten het plan:
+  - extra RPC `approved_checkins(max_rows)` voor de tab "Goedgekeurd";
+  - een trigger weigert elke rechtstreekse wijziging van `profiles.points`/`test_points`, ook door
+    `postgres` in Studio: correcties alleen via `adjust_points`;
+  - `set_updated_at()` is niet meer uitvoerbaar voor de API-rollen, zodat `00_schema_guard` geen
+    uitzonderingen nodig heeft;
+  - de historiek filtert op de eigen gebruiker (door RLS zag een admin daar alle inworpen);
+  - redenen: drie vaste redenen, een eigen tekst of (bij afwijzen) geen; de tekst staat in
+    `checkins.review_reason`, de ledger bewaart `checkin_rejected` of `checkin_revoked`;
+  - `granted_at` blijft staan op een herroepen rij (wanneer ze toegekend was).
+- Nog te doen: fase 1b t/m 7.
+- Volgende stap: na akkoord en merge, fase 1b in een nieuwe sessie, op
+  `gamification/1b-config-events` vanaf `main`.

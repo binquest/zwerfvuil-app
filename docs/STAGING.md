@@ -511,6 +511,13 @@ Er zijn twee workflows. Deze sectie gaat over de staging-app ("Zwerfvuil Gent",
 `be.zwerfvuil.app`). Voor "Zwerfvuil Dev" (`be.zwerfvuil.app.dev`, dezelfde server,
 met EAS Update) zie README stap 6 en `.github/workflows/ios-dev.yml`.
 
+**Een staging-IPA van vóór de puntenledger (gamification fase 1a, oktober 2026)
+wordt niet meer ondersteund.** De JavaScript daarin verwacht nog
+`checkins.points_awarded` en de oude `review_checkin`; historiek en Beheer werken er
+niet meer mee. Een nieuwe staging-IPA uit `main` werkt wel. Getest wordt in Zwerfvuil
+Dev, ook door de cofounder; server en app rollen per fase samen uit (eerst de
+migratie, meteen daarna `update:dev`).
+
 `.github/workflows/ios-staging.yml` bouwt een **ongesigneerde** `.ipa` van de app
 met het staging-profiel, op een macOS-runner van GitHub (`macos-26`). Iedereen
 signeert die IPA zelf op de eigen iPhone, met het eigen certificaat in een

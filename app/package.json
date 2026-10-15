@@ -32,9 +32,12 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.3",
+    "react-native-gesture-handler": "3.3.0",
     "react-native-maps": "1.27.2",
+    "react-native-reanimated": "4.7.1",
     "react-native-safe-area-context": "~5.7.0",
-    "react-native-screens": "~4.26.0"
+    "react-native-screens": "~4.26.0",
+    "react-native-worklets": "0.13.0"
   },
   "devDependencies": {
     "@jest/globals": "29.7.0",
@@ -55,17 +58,22 @@
     "doctor": "npx --yes expo-doctor@1.20.4",
     "export:staging": "node scripts/staging.mjs npx --yes expo export --platform ios --output-dir dist-staging --clear",
     "check:staging-bundle": "node scripts/staging.mjs npx --yes expo export --platform ios --output-dir dist-staging --clear --no-bytecode && node scripts/check-staging-bundle.mjs dist-staging",
-    "test:scripts": "node --test scripts/staging.test.mjs scripts/icons.test.mjs scripts/generate-sfx.test.mjs",
+    "test:scripts": "node --test scripts/staging.test.mjs scripts/icons.test.mjs scripts/generate-sfx.test.mjs scripts/native-versions.test.mjs",
     "update:dev": "node scripts/update-dev.mjs",
+    "native:check": "node scripts/native-versions.mjs",
+    "native:record": "node scripts/native-versions.mjs --record",
     "sfx:generate": "node scripts/generate-sfx.mjs"
   },
   "private": true,
   "expo": {
     "install": {
-      "//": "Excluded from expo install --check and expo-doctor: expo 57.0.28 and jest-expo 57.0.6 bring expo-modules-core 57.0.22, which does not accept react-native-worklets 0.13 (from expo-router); npm then nests expo-modules-core and Jest cannot find it. Retry with the next Expo patch (docs/PRE-BETA.md).",
+      "//": "Excluded from expo install --check and expo-doctor: expo 57.0.28 and jest-expo 57.0.6 bring expo-modules-core 57.0.22, which does not accept react-native-worklets 0.13 (from expo-router); npm then nests expo-modules-core and Jest cannot find it. Retry with the next Expo patch (docs/PRE-BETA.md). Reanimated, worklets and gesture-handler are pinned to the versions in the runtime 1 IPA (native-versions.json); change them only with a new IPA.",
       "exclude": [
         "expo",
-        "jest-expo"
+        "jest-expo",
+        "react-native-gesture-handler",
+        "react-native-reanimated",
+        "react-native-worklets"
       ]
     }
   },

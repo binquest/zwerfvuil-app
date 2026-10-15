@@ -5,7 +5,7 @@ import { File } from 'expo-file-system';
 import { CHECKIN_TIMEOUT_MS, localFailure, parseCheckinResponse, type CheckinOutcome } from './checkin';
 import { describeError, devLog } from './devlog';
 import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from './env';
-import type { ReviewStatus } from './format';
+import type { HistoryCheckin, LedgerEntry } from './history';
 import { buildMultipart } from './multipart';
 import { REGION_CENTER, REGION_RADIUS_M } from './region';
 import { supabase } from './supabase';
@@ -27,20 +27,6 @@ export interface Profile {
   isAdmin: boolean;
 }
 
-export interface MyCheckin {
-  id: string;
-  created_at: string;
-  status: ReviewStatus;
-  points_awarded: number;
-  /** What the check-in earns on approval (base and streak), without the bonus. */
-  points_earned: number;
-  bonus_points: number;
-  streak_weeks: number;
-  distance_m: number;
-  bin_id: number;
-  is_test: boolean;
-}
-
 export interface PendingCheckin {
   id: string;
   created_at: string;
@@ -55,6 +41,23 @@ export interface PendingCheckin {
   points_earned: number;
   bonus_points: number;
   bonus_suspicious: boolean;
+  is_test: boolean;
+}
+
+export interface ApprovedCheckin {
+  id: string;
+  created_at: string;
+  reviewed_at: string;
+  display_name: string | null;
+  bin_id: number;
+  distance_m: number;
+  accuracy_m: number;
+  is_mocked: boolean;
+  is_fake_location: boolean;
+  photo_path: string;
+  streak_weeks: number;
+  /** Granted points of the check-in (with the bonus). */
+  points: number;
   is_test: boolean;
 }
 
@@ -138,14 +141,32 @@ export async function answerBonus(checkinId: string, answer: string): Promise<nu
   return data as number;
 }
 
-export async function fetchMyCheckins(): Promise<MyCheckin[]> {
-  const { data, error } = await supabase
-    .from('checkins')
-    .select('id, created_at, status, points_awarded, points_earned, bonus_points, streak_weeks, distance_m, bin_id, is_test')
-    .order('created_at', { ascending: false })
-    .limit(50);
-  if (error) throw error;
-  return data as MyCheckin[];
+/**
+ * My last check-ins with their ledger rows, and my ledger rows without a
+ * check-in (adjustments). Filtered on my id: admins may read everyone's rows.
+ */
+export async function fetchMyHistory(userId: string): Promise<{ checkins: HistoryCheckin[]; entries: LedgerEntry[] }> {
+  const [checkins, entries] = await Promise.all([
+    supabase
+      .from('checkins')
+      .select(
+        'id, created_at, status, review_reason, revoked_at, distance_m, bin_id, is_test, ' +
+          'points:point_transactions!point_transactions_checkin_id_fkey(source, amount, status)',
+      )
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(50),
+    supabase
+      .from('point_transactions')
+      .select('id, source, amount, status, earned_at, is_test, details')
+      .eq('user_id', userId)
+      .is('checkin_id', null)
+      .order('earned_at', { ascending: false })
+      .limit(50),
+  ]);
+  if (checkins.error) throw checkins.error;
+  if (entries.error) throw entries.error;
+  return { checkins: checkins.data as unknown as HistoryCheckin[], entries: entries.data as LedgerEntry[] };
 }
 
 export interface CheckinInput {
@@ -278,8 +299,22 @@ export async function fetchPendingReports(): Promise<PendingReport[]> {
   return (data ?? []) as PendingReport[];
 }
 
-export async function reviewCheckin(id: string, approve: boolean): Promise<void> {
-  const { error } = await supabase.rpc('review_checkin', { id, approve });
+/** The 50 most recently approved check-ins, newest decision first (for revoking). */
+export async function fetchApprovedCheckins(): Promise<ApprovedCheckin[]> {
+  const { data, error } = await supabase.rpc('approved_checkins', { max_rows: 50 });
+  if (error) throw error;
+  return (data ?? []) as ApprovedCheckin[];
+}
+
+/** reason only for a rejection (optional, at most 200 characters). */
+export async function reviewCheckin(id: string, approve: boolean, reason?: string): Promise<void> {
+  const { error } = await supabase.rpc('review_checkin', { id, approve, reason: approve ? null : (reason ?? null) });
+  if (error) throw error;
+}
+
+/** Rejects an approved check-in after all; its points are taken back. The reason is required. */
+export async function revokeCheckin(id: string, reason: string): Promise<void> {
+  const { error } = await supabase.rpc('revoke_checkin', { id, reason });
   if (error) throw error;
 }
 

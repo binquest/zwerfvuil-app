@@ -28,5 +28,6 @@ describe('error messages', () => {
     expect(adminErrorMessage({ code: '55000' })).toBe('Dit werd intussen al beoordeeld.');
     expect(adminErrorMessage({ code: '42501' })).toBe('Alleen admins kunnen dit doen.');
     expect(adminErrorMessage({ code: 'P0002' })).toBe('Dit item bestaat niet meer.');
+    expect(adminErrorMessage({ code: '22023' })).toBe('Geef een reden van 1 tot 200 tekens.');
   });
 });

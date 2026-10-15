@@ -5,7 +5,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set search_path = public, extensions;
 
-select plan(51);
+select plan(54);
 
 -- ---------------------------------------------------------------------------
 -- Fixtures (as postgres)
@@ -124,10 +124,12 @@ select set_config('test.rb', (select checkin_id::text from rb), true);
 select is((select row(ok, streak_weeks, point_stages, points_total)::text from r1), '(t,1,"{10,11}",11)',
   'a first check-in: streak of 1 week, 11 points');
 select is(
-  (select row(c.streak_weeks, c.points_earned, c.bonus_points, c.points_awarded, c.status)::text
+  (select row(c.streak_weeks, c.points_earned, c.bonus_points, c.status,
+              (select string_agg(t.source || ':' || t.amount || ':' || t.status, ',')
+               from point_transactions t where t.checkin_id = c.id))::text
    from checkins c join r1 on r1.checkin_id = c.id),
-  '(1,11,0,0,pending)',
-  'the check-in stores its streak and earned points, nothing awarded yet');
+  '(1,11,0,pending,checkin:11:pending)',
+  'the check-in stores its streak and earned points; the ledger has them pending');
 select is((select bonus_question->>'key' from r1), 'bin_fullness', 'the first bonus question is the first in order');
 select is((select bonus_question->>'prompt' from r1), 'Hoe vol zat de vuilbak?', 'the question comes with its prompt');
 select is((select jsonb_array_length(bonus_question->'options') from r1), 3, 'and its three options');
@@ -205,23 +207,29 @@ select is((select is_suspicious from bonus_answers a join r2 using (checkin_id))
 
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"33333333-3333-3333-3333-333333333333","role":"authenticated"}', true);
-select is((select r.points_awarded from review_checkin(current_setting('test.r1')::uuid, true) r), 16,
-  'approval awards the earned points plus the bonus (11 + 5)');
-select is((select r.points_awarded from review_checkin(current_setting('test.r3')::uuid, true) r), 11,
-  'approval before the answer awards the earned points');
+select is((select r.status from review_checkin(current_setting('test.r1')::uuid, true) r), 'approved',
+  'admins approve a check-in with an answered bonus question');
+select is((select r.status from review_checkin(current_setting('test.r3')::uuid, true) r), 'approved',
+  'and one whose question is still open');
 select is((select status from review_checkin(current_setting('test.rb')::uuid, false)), 'rejected', 'bob''s check-in is rejected');
 select is(
   (select row(p.points_earned, p.bonus_points, p.bonus_suspicious)::text from pending_checkins() p
    where p.id = current_setting('test.r2')::uuid),
   '(11,5,t)', 'the admin queue shows the points and the suspicious flag');
+select is((select sum(amount)::int from point_transactions
+           where checkin_id = current_setting('test.r1')::uuid and status = 'granted'), 16,
+  'approval grants the earned points plus the bonus (11 + 5)');
+select is((select sum(amount)::int from point_transactions
+           where checkin_id = current_setting('test.r3')::uuid and status = 'granted'), 11,
+  'approval before the answer grants the earned points');
 reset role;
 
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}', true);
 select is(answer_bonus_question(current_setting('test.r3')::uuid, 'lt50'), 5, 'a question can be answered after approval');
 reset role;
-select is((select points_awarded from checkins c join r3 on r3.checkin_id = c.id), 16,
-  'answering after approval adds the bonus to the awarded points');
+select is((select sum(t.amount)::int from point_transactions t join r3 using (checkin_id) where t.status = 'granted'), 16,
+  'answering after approval grants the bonus right away');
 select is((select is_suspicious from bonus_answers a join r3 using (checkin_id)), true,
   'an answer never marked shown is flagged');
 select is((select points from profiles where id = '11111111-1111-1111-1111-111111111111'), 32,
@@ -261,6 +269,8 @@ reset role;
 set local role anon;
 select throws_ok($$ select * from leaderboard('all') $$, '42501', null, 'anon cannot see the leaderboard');
 reset role;
+
+select is_empty($$ select * from private.check_points_invariant() $$, 'every profile equals its ledger');
 
 select * from finish();
 rollback;
