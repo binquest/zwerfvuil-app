@@ -868,8 +868,8 @@ vergelijking van de punten en in fase 1b van de eventtellingen in Studio.
 ## Overdracht
 
 Stand op 15 oktober 2026: fase 1a, 1b en 2 zijn af en gemerged in `main` (PR #2, #3 en #4); fase 2 staat
-op staging en als EAS Update op `dev`. Fase 3 is gebouwd en lokaal getest op `gamification/3-ontdekken`,
-nog niet op staging (wacht op akkoord).
+op staging en als EAS Update op `dev`. Fase 3 (`gamification/3-ontdekken`) is goedgekeurd en staat op
+staging en als EAS Update op `dev`; nog niet gemerged.
 
 - Af: dit plan; fase 1a (puntenledger); fase 1b (config en eventlog), lokaal.
   - Server (`20261015120000_points_ledger.sql`): `point_transactions` met de projectie vanuit
@@ -1103,11 +1103,20 @@ nog niet op staging (wacht op akkoord).
     is `false` zolang de collectie niet geladen is;
   - nog niet gebouwd uit hoofdstuk 5: de vlaggen NIEUW en "mijlpaal hangt hiervan af" in Beheer, en de
     trigger op meldingen (die heeft pas zin met quests en badges).
+- Staging (15 oktober): backup `postgres-20261015-192553.dump`; `20261015180000_discoveries.sql`
+  toegepast. Telling voor en na identiek: 2 profielen, 0 echte en 64 testpunten, dezelfde hash over
+  (id, punten, testpunten), check-ins 4 goedgekeurd en 3 afgewezen (allemaal test), ledger 8 toegekende
+  testrijen (64), invariant leeg. Geen echte inworpen, dus 0 ontdekkingen en 0 mijlpalen na de migratie.
+  `discovery_chips` 5 en de regio in `game_config`, 15 mijlpalen (10–150), 20 actieve events,
+  `checkin_score(4, true, true)` = 22 met delen 15 + 7; `record_checkin` met `game` (alleen voor de
+  service role), de nieuwe RPC's voor aangemelde gebruikers, RLS op de nieuwe tabellen. `deploy`,
+  `check-supabase`, `check-auth` en `check-fake-location` geslaagd. EAS Update op `dev` (runtime 1):
+  update-groep `dbecea12-cb73-411d-aa12-36fbec0d3a6c` (commit 7e7cf98).
 - Nog te controleren op de iPhone (na `update:dev`): Dev-preview met ontdekking, vlam, onbekende stap
   en mijlpaal, met en zonder Reduce Motion en geluid; "Vieringen bekijken"; een echte eerste inworp
   bij een nieuwe vuilbak (banner, +5 chips, pin wordt groen, teller +1); een tweede inworp daar (geen
   banner); na afwijzen in Beheer klopt de collectie; de app sluiten tijdens een onthulling met
   ontdekking en opnieuw openen (gemist moment); de 10e ontdekking toont "+50 · wacht op goedkeuring".
-- Nog te doen: staging-uitrol van fase 3 (na akkoord), dan fase 4 t/m 7.
-- Volgende stap: akkoord op fase 3, dan de staging-uitrol (backup, telling, dry-run, `migrate --apply`
-  door de gebruiker, `deploy`, de drie checks, `update:dev`).
+- Nog te doen: de iPhone-punten hierboven, de PR van fase 3 mergen, dan fase 4 t/m 7.
+- Volgende stap: de iPhone-test van fase 3; daarna fase 4 in een nieuwe sessie, op
+  `gamification/4-identiteit` vanaf `main`.
