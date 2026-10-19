@@ -17,25 +17,46 @@ export function resolveColor(pair: ColorPair, scheme: Scheme): string {
   return scheme === 'dark' ? pair.dark : pair.light;
 }
 
-/** The dark play surfaces (the reveal and the celebrations). */
+/**
+ * The dark play surfaces (the reveal and the celebrations). Colour is a label,
+ * as in Balatro: blue is PUNTEN (everything that adds up), the MULT scale is
+ * everything that multiplies, gold is only for what is new (a discovery, a
+ * milestone); the rest is neutral. Green is kept for the Klaar button.
+ */
 export const playColors = {
-  /** The reveal's background: a deep green glow fading to black. */
-  background: 'linear-gradient(180deg, #0E3A24 0%, #050806 65%)',
+  /** The reveal's background: a neutral dark glow fading to black. */
+  background: 'linear-gradient(180deg, #1B1E26 0%, #050608 65%)',
   /** Behind the reveal while it has nothing to show. */
   backdrop: '#000000',
-  /** The CHIPS (points) chip. */
+  /** The PUNTEN bin, and every pop-up that adds points. */
   chips: '#2E7CF6',
-  /** The +5 of the bonus question. */
-  bonus: '#30D158',
-  /** The MULT badge ramps orange → red → magenta over the streak stages. */
+  /** The MULT bin ramps orange → red → magenta over the streak stages; pop-ups that multiply use its top. */
   multRamp: ['#FF9F0A', '#FF3B30', '#FF2D95'],
-  /** The glow behind MULT as the streak heats up. */
+  /** The glow behind MULT as the streak heats up, and the streak flame. */
   heat: '#FF2D95',
-  /** The particles of the slam. */
-  particles: ['#FFD60A', '#FF9F0A', '#FFFFFF'],
+  /** The particles of the slam: neutral, PUNTEN and MULT. */
+  particles: ['#FFFFFF', '#2E7CF6', '#FF9F0A'],
+  /** Only for what is new: the discovery pop-up, a milestone. */
   gold: '#FFD60A',
+  /** Text on gold. */
+  onGold: '#1C1C1E',
   flash: '#FFFFFF',
   text: '#FFFFFF',
+  /** Labels and the context line. */
+  label: 'rgba(255,255,255,0.72)',
+  /** Hints and explanations. */
+  muted: 'rgba(255,255,255,0.55)',
+} as const;
+
+/**
+ * The type scale of the play surfaces: three sizes only. The total (smaller
+ * for long numbers, see the reveal), the values in the bins, and the labels;
+ * every label in one style (capitals, one weight, one spacing).
+ */
+export const playType = {
+  total: { fontSize: 120, lineHeight: 132 },
+  value: { fontSize: 34, lineHeight: 40 },
+  label: { fontSize: 13, lineHeight: 16, fontWeight: '800', letterSpacing: 1.2, textTransform: 'uppercase' },
 } as const;
 
 /** Rarity of badges, avatars and chest rewards: common grey · rare blue · epic purple · legendary gold. */
@@ -76,13 +97,19 @@ export const numberStyle: { fontFamily: string; fontWeight: '900'; fontVariant: 
 };
 export const NUMBER_MAX_FONT_SCALE = 1.3;
 
-/** Thick rounded corners and the "lip" under a chunky button. */
+/** Thick rounded corners and the "lip" under a chunky button; the bins and badges of the reveal. */
 export const shapes = {
   chunkyRadius: 16,
   chunkyLip: 4,
   pillRadius: 999,
   chipRadius: 18,
   barHeight: 10,
+  /** The PUNTEN and MULT bins. */
+  binRadius: 18,
+  binMinWidth: 120,
+  /** Every badge and pop-up: one height, one radius. */
+  badgeHeight: 30,
+  badgeRadius: 15,
 };
 
 /** Springs and timings of game motion (Reanimated config objects). */

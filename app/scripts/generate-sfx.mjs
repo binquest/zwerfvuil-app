@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Generates the sound effects of the points reveal into assets/sfx/ (npm run sfx:generate).
+// Generates the sound effects of the points reveal and the celebrations into
+// assets/sfx/ (npm run sfx:generate).
 // Everything is synthesised here, from sine partials and filtered noise: our own
 // work, no samples. Pure Node, no dependencies.
 //
@@ -19,6 +20,10 @@
 //   bonus_land         the +5 has landed: bell at C7 and C6
 //   neutral_tock       the bonus question was skipped: soft, unpitched
 //   heat_loop          1 s seamless low crackle that fades in from stage 5
+//   discover_fanfare   a new bin: bells up the C major arpeggio, C5 to C6, with sparkle
+//   chip_add           the +5 discovery chips (and a step the app does not know): bright plink at G6
+//   flame_whoosh       the streak flame grows: a warm noise sweep over a low E3
+//   milestone_fanfare  a milestone: arpeggio C5 E5 G5, then the full C major chord over C4
 //
 // Deterministic: the same script writes the same samples (seeded noise).
 // generate-sfx.test.mjs checks the committed files against it.
@@ -224,6 +229,67 @@ function neutralTock() {
   return buf;
 }
 
+function discoverFanfare() {
+  const buf = buffer(1.0);
+  // Four bells, 70 ms apart, each a little louder; a high sparkle on the last.
+  [0, 4, 7, 12].forEach((semitones, k) => {
+    addTone(buf, { at: k * 0.07, freq: note(semitones), partials: BELL, decay: 0.16, gain: 0.55 + 0.1 * k });
+  });
+  for (const detune of [1.003, 0.997]) {
+    addTone(buf, { at: 0.21, freq: note(36) * detune, decay: 0.12, gain: 0.08, fadeIn: 0.01 });
+  }
+  fadeOut(buf, 0.03);
+  return buf;
+}
+
+function chipAdd() {
+  const buf = buffer(0.14);
+  addTone(buf, { freq: note(19), partials: [[1, 1, 1], [2, 0.3, 0.5], [3.01, 0.12, 0.3]], decay: 0.035, gain: 0.8, drop: 0.03 });
+  addNoise(buf, { length: 0.002, gain: 0.15, decay: 0.0008, rng: mulberry32(19), lowpass: 0.7 });
+  fadeOut(buf, 0.01);
+  return buf;
+}
+
+function flameWhoosh() {
+  const buf = sweptNoise(0.45, {
+    from: 200,
+    to: 2500,
+    q: 0.7,
+    // Swells to 60 % of the sound, then dies down.
+    envelope: (p) => (p < 0.6 ? 0.35 + 0.65 * (p / 0.6) : (1 - (p - 0.6) / 0.4) ** 2),
+    rng: mulberry32(23),
+  });
+  addTone(buf, { at: 0.02, freq: note(-8) / 2, partials: [[1, 1, 1], [2, 0.25, 0.5]], decay: 0.12, gain: 0.25, fadeIn: 0.04 });
+  fadeOut(buf, 0.02);
+  return buf;
+}
+
+function milestoneFanfare() {
+  const buf = buffer(1.7);
+  // The arpeggio up, then the whole chord with a low C and a thump.
+  [0, 4, 7].forEach((semitones, k) => {
+    addTone(buf, { at: k * 0.11, freq: note(semitones), partials: BELL, decay: 0.12, gain: 0.6 });
+  });
+  const chordAt = 0.36;
+  [[0, 0.8], [4, 0.7], [7, 0.7], [12, 0.6], [-12, 0.5]].forEach(([semitones, gain]) => {
+    for (const detune of [1.002, 0.998]) {
+      addTone(buf, {
+        at: chordAt,
+        freq: note(semitones) * detune,
+        partials: [[1, 1, 1], [2, 0.3, 0.6], [3, 0.12, 0.4]],
+        decay: 0.42,
+        gain: gain * 0.45,
+      });
+    }
+  });
+  addTone(buf, { at: chordAt, freq: 60, decay: 0.12, gain: 0.8, drop: 0.5, dropTime: 0.03 });
+  for (const detune of [1.004, 0.996]) {
+    addTone(buf, { at: chordAt + 0.05, freq: note(24) * detune, decay: 0.25, gain: 0.08, fadeIn: 0.02 });
+  }
+  fadeOut(buf, 0.04);
+  return buf;
+}
+
 function heatLoop() {
   const n = SAMPLE_RATE;
   const rng = mulberry32(2026);
@@ -275,6 +341,10 @@ export function renderAll() {
   sounds.bonus_land = bonusLand();
   sounds.neutral_tock = neutralTock();
   sounds.heat_loop = heatLoop();
+  sounds.discover_fanfare = discoverFanfare();
+  sounds.chip_add = chipAdd();
+  sounds.flame_whoosh = flameWhoosh();
+  sounds.milestone_fanfare = milestoneFanfare();
   return sounds;
 }
 

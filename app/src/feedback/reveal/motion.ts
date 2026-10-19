@@ -64,3 +64,36 @@ export function particle(index: number, count: number, t: number): { x: number; 
     scale: 1 - 0.6 * t,
   };
 }
+
+/** A fixed pseudo-random number in [0, 1) for piece `index`, salt `k`. */
+function seeded(index: number, k: number): number {
+  'worklet';
+  const x = Math.sin((index + 1) * 12.9898 + k * 78.233) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+/**
+ * Confetti piece `index` at progress `t` (0..1) on a `width` x `height`
+ * screen: it starts above the top edge, falls with gravity past the bottom,
+ * drifts sideways and spins. Hidden before and after.
+ */
+export function confettiPiece(
+  index: number,
+  t: number,
+  width: number,
+  height: number,
+): { x: number; y: number; rotation: number; opacity: number } {
+  'worklet';
+  if (t <= 0 || t >= 1) return { x: 0, y: -100, rotation: 0, opacity: 0 };
+  // Each piece leaves a little later and falls at its own speed.
+  const delay = seeded(index, 1) * 0.25;
+  const u = Math.max(0, (t - delay) / (1 - delay));
+  const speed = 0.8 + seeded(index, 2) * 0.4;
+  const startY = -30 - seeded(index, 3) * 120;
+  return {
+    x: seeded(index, 4) * width + Math.sin(u * Math.PI * (2 + seeded(index, 5) * 2)) * 30,
+    y: startY + (height + 200) * Math.min(1, u * u * speed + u * 0.3),
+    rotation: (seeded(index, 6) - 0.5) * 1440 * u,
+    opacity: u <= 0 ? 0 : 1,
+  };
+}

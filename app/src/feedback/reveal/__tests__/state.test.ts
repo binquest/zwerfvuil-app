@@ -1,9 +1,10 @@
 import { describe, expect, it } from '@jest/globals';
 
+import { previewScore } from '../../../game/catalog';
 import { streakStep } from '../../../lib/score';
-import { reveal, scoreFor } from '../__fixtures__/scores';
+import { DEFAULT_CONFIG, reveal, scoreFor } from '../__fixtures__/scores';
 import { applyRevealEvent, endState, INITIAL_REVEAL_STATE, multiplierLabel, type RevealState } from '../state';
-import type { Event } from '../timeline';
+import { buildRevealTimeline, type Event } from '../timeline';
 
 const play = (events: readonly Event[], from: RevealState = INITIAL_REVEAL_STATE) => events.reduce(applyRevealEvent, from);
 
@@ -26,8 +27,30 @@ describe('endState: skipping lands where playing out lands', () => {
       const end = endState(reveal(weeks, { base, reduceMotion, bonus }));
       expect([weeks, end]).toEqual([
         weeks,
-        { value: score.total, stage: stages.length, multiplier: stages.at(-1)?.mult ?? 1, max: weeks > stages.length, landed: true },
+        {
+          value: score.total,
+          stage: stages.length,
+          multiplier: stages.at(-1)?.mult ?? 1,
+          max: weeks > stages.length,
+          landed: true,
+          chips: null,
+          discovery: 0,
+        },
       ]);
+    }
+  });
+
+  it('ends with PUNTEN of the discovery and MULT of an unknown × step, whenever it was skipped', () => {
+    const score = previewScore(DEFAULT_CONFIG, 4, undefined, { discovery: true, streakExtended: true });
+    const bounty = { kind: 'other' as const, name: 'bounty', label: 'PREMIE ×2', total: 44, chips: 15, mult: 2.9282 };
+    const withStep = { ...score, steps: [...score.steps, bounty], total: 44 };
+    for (const reduceMotion of [false, true]) {
+      const events = buildRevealTimeline({ score: withStep, reduceMotion, bonus: true });
+      const end = endState(events);
+      expect(end).toMatchObject({ value: 44, chips: 15, multiplier: 2.9282, discovery: 5, landed: true, stage: 4 });
+      for (const cut of [0, ...batchEnds(events)]) {
+        expect(endState(events.slice(cut), play(events.slice(0, cut)))).toEqual(end);
+      }
     }
   });
 

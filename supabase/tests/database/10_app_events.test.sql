@@ -242,10 +242,10 @@ reset role;
 select is(
   (select array_agg(name order by name) from event_names where active),
   array['app_background', 'app_open', 'bonus_question_answered', 'camera_opened', 'checkin_flow_start',
-        'checkin_result', 'checkin_submitted', 'leaderboard_viewed', 'map_bin_tap', 'photo_taken',
-        'report_flow_start', 'report_submitted', 'reveal_shown', 'reveal_skipped', 'screen_view',
-        'session_end', 'session_start'],
-  'the whitelist holds the events of phase 1b (docs/ANALYTICS.md)');
+        'checkin_result', 'checkin_submitted', 'collection_viewed', 'discovery_shown', 'leaderboard_viewed',
+        'map_bin_tap', 'milestone_shown', 'photo_taken', 'report_flow_start', 'report_submitted',
+        'reveal_shown', 'reveal_skipped', 'screen_view', 'session_end', 'session_start'],
+  'the whitelist holds the events of phase 1b and 3 (docs/ANALYTICS.md)');
 select throws_ok($$ insert into app_events (id, user_id, session_id, name, client_ts)
                     values (gen_random_uuid(), 'a1000000-0000-0000-0000-000000000001', gen_random_uuid(), 'made_up', now()) $$,
   '23503', null, 'every stored event has a whitelisted name (foreign key)');

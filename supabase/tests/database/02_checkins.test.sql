@@ -7,6 +7,10 @@ set search_path = public, extensions;
 
 select plan(37);
 
+-- The economy before phase 3: no discovery chips, so the points below stay
+-- as they were (12_discoveries covers discoveries).
+update game_config set value = '0' where key = 'discovery_chips';
+
 -- ---------------------------------------------------------------------------
 -- Fixtures (as postgres)
 -- ---------------------------------------------------------------------------

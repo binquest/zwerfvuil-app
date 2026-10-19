@@ -18,6 +18,11 @@ export function formatDateTime(iso: string): string {
   });
 }
 
+/** "12 okt.": a day without the time. */
+export function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('nl-BE', { timeZone: 'Europe/Brussels', day: 'numeric', month: 'short' });
+}
+
 export function formatPoints(points: number): string {
   return `${points} ${points === 1 ? 'punt' : 'punten'}`;
 }

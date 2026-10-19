@@ -30,11 +30,15 @@ export const colors = {
   green: pick(() => Color.ios.systemGreen, '#34c759'),
 };
 
-/** Map pins: eligible bins in the app green, the nearest in blue, excluded (admins only) in gray. */
+/**
+ * Map pins: discovered bins in the app green, bins not discovered yet dimmed
+ * with a "?", the nearest in blue, excluded (admins only) in gray.
+ */
 export const pinColors = {
   eligible: colors.tint,
   nearest: colors.blue,
   excluded: colors.gray,
+  undiscovered: colors.gray,
   test: colors.purple,
 };
 

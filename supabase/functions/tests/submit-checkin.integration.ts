@@ -174,15 +174,25 @@ Deno.test("submit-checkin end to end", async (t) => {
       assertEquals(status, 201, JSON.stringify(body));
       assertEquals(body.status, "pending");
       assertAlmostEquals(body.distance_m, 10, 0.2);
-      // A new user: this week is a one-week streak, so one x1.1 stage.
+      // A new user at a new bin: a discovery (+5 chips), then a one-week
+      // streak, so one x1.1 stage on 15 chips.
       assertEquals(body.score, {
         steps: [
           { kind: "base", label: "BASIS", chips: 10, mult: 1, total: 10 },
-          { kind: "streak", label: "REEKS", weeks: 1, per_week: 1.1, stages: [{ mult: 1.1, total: 11 }] },
+          { kind: "discovery", label: "NIEUW", chips: 15, mult: 1, total: 15, add: 5 },
+          { kind: "streak", label: "REEKS", weeks: 1, per_week: 1.1, stages: [{ mult: 1.1, total: 17 }] },
         ],
-        total: 11,
+        total: 17,
+        streak_extended: true,
+        parts: { checkin: 11, discovery: 6 },
       });
       assertFalse("points" in body);
+      assertEquals(
+        [body.game.discovery.bin_id, body.game.discovery.ordinal, body.game.discovery.discovered, body.game.milestone],
+        [binA, 1, 1, null],
+      );
+      assert(body.game.discovery.total_bins >= 1, `total_bins ${body.game.discovery.total_bins}`);
+      assert(typeof body.game.as_of === "string", "as_of for mark_seen");
       assertEquals(body.bonus_question.key, "bin_fullness");
       assertEquals(body.bonus_question.points, 5);
       assertEquals(body.bonus_question.options.map((o: { key: string }) => o.key), ["empty", "half", "full"]);
@@ -191,8 +201,20 @@ Deno.test("submit-checkin end to end", async (t) => {
       const { data: row } = await admin.from("checkins").select("*").eq("id", checkinId).single();
       assertEquals(row.user_id, userId);
       assertEquals(row.status, "pending");
-      assertEquals([row.streak_weeks, row.points_earned, row.bonus_points], [1, 11, 0]);
-      assertEquals(await ledgerOf(checkinId), ["checkin:11:pending"]);
+      assertEquals([row.streak_weeks, row.points_earned, row.bonus_points], [1, 17, 0]);
+      assertEquals(row.score, body.score);
+      assertEquals(await ledgerOf(checkinId), ["checkin:11:pending", "discovery:6:pending"]);
+
+      // The discovery is a moment until the app marks it seen after the reveal.
+      const unseen = await authed.rpc("my_unseen");
+      assertEquals(unseen.error, null);
+      assertEquals(
+        unseen.data.moments.map((m: { kind: string; bin_id: number }) => [m.kind, m.bin_id]),
+        [["discovery", binA]],
+      );
+      const seen = await authed.rpc("mark_seen", { kind: "moments", until: body.game.as_of });
+      assertEquals(seen.error, null);
+      assertEquals((await authed.rpc("my_unseen")).data.moments_total, 0);
       assertEquals(row.is_fake_location, false);
       assertEquals(row.photo_path, `${userId}/${checkinId}.jpg`);
     });
@@ -211,12 +233,13 @@ Deno.test("submit-checkin end to end", async (t) => {
     await t.step("game_catalog gives signed-in users the numbers of the config", async () => {
       const { data, error } = await authed.rpc("game_catalog");
       assertEquals(error, null);
-      assertEquals(data.config, {
-        checkin_base_chips: 10,
-        streak_multiplier: 1.1,
-        streak_max_steps: 8,
-        bonus_question_points: 5,
-      });
+      const { checkin_base_chips, streak_multiplier, streak_max_steps, bonus_question_points, discovery_chips } =
+        data.config;
+      assertEquals(
+        [checkin_base_chips, streak_multiplier, streak_max_steps, bonus_question_points, discovery_chips],
+        [10, 1.1, 8, 5, 5],
+      );
+      assertEquals(data.milestones[0], { threshold: 10, points: 50 });
     });
 
     await t.step("the bonus question can be answered once, for 5 points", async () => {
@@ -233,7 +256,7 @@ Deno.test("submit-checkin end to end", async (t) => {
       assert(answer.response_ms >= 1300, `response_ms ${answer.response_ms}`);
       const { data: row } = await admin.from("checkins").select("bonus_points").eq("id", checkinId).single();
       assertEquals(row?.bonus_points, 5);
-      assertEquals(await ledgerOf(checkinId), ["bonus:5:pending", "checkin:11:pending"]);
+      assertEquals(await ledgerOf(checkinId), ["bonus:5:pending", "checkin:11:pending", "discovery:6:pending"]);
     });
 
     await t.step("a second check-in at the same bin is refused by the cooldown", async () => {
@@ -241,6 +264,19 @@ Deno.test("submit-checkin end to end", async (t) => {
       assertEquals(status, 429);
       assertEquals(body.error.code, "cooldown");
       assert(body.error.retry_after_s > 500);
+    });
+
+    let secondId = "";
+    await t.step("after the cooldown a second check-in at the same bin is no discovery", async () => {
+      const earlier = new Date(Date.now() - 11 * 60 * 1000).toISOString();
+      const aged = await admin.from("checkins").update({ created_at: earlier }).eq("id", checkinId);
+      assertEquals(aged.error, null);
+      const { status, body } = await submit(binA, 5);
+      assertEquals(status, 201, JSON.stringify(body));
+      assertEquals(body.score.steps.map((s: { kind: string }) => s.kind), ["base", "streak"]);
+      assertEquals([body.score.total, body.score.streak_extended, body.game.discovery], [11, false, null]);
+      secondId = body.checkin_id;
+      assertEquals(await ledgerOf(secondId), ["checkin:11:pending"]);
     });
 
     let largeCheckinId = "";
@@ -275,7 +311,7 @@ Deno.test("submit-checkin end to end", async (t) => {
     await t.step("rejected check-ins leave no photos behind", async () => {
       assertEquals(
         (await photosInStorage()).sort(),
-        [`${userId}/${checkinId}.jpg`, `${userId}/${largeCheckinId}.jpg`].sort(),
+        [`${userId}/${checkinId}.jpg`, `${userId}/${secondId}.jpg`, `${userId}/${largeCheckinId}.jpg`].sort(),
       );
     });
 
@@ -320,11 +356,14 @@ Deno.test("submit-checkin end to end", async (t) => {
       assertEquals(kept.data?.length ?? 0, 0);
       assertEquals(
         (await photosInStorage()).sort(),
-        [`${userId}/${checkinId}.jpg`, `${userId}/${largeCheckinId}.jpg`].sort(),
+        [`${userId}/${checkinId}.jpg`, `${userId}/${secondId}.jpg`, `${userId}/${largeCheckinId}.jpg`].sort(),
       );
       const { count: testLeft } = await admin.from("checkins").select("id", { count: "exact", head: true })
         .eq("user_id", userId).eq("is_test", true);
       assertEquals(testLeft, 0);
+      // Test check-ins made no discoveries.
+      const { data: found } = await admin.from("discoveries").select("bin_id").eq("user_id", userId);
+      assertEquals(found?.map((d) => d.bin_id).sort(), [binA, binD].sort());
       await admin.from("profiles").update({ is_admin: false }).eq("id", userId);
     });
 
@@ -362,8 +401,8 @@ Deno.test("submit-checkin end to end", async (t) => {
     await t.step("approval grants the points, revoking takes them back (with a reason)", async () => {
       const approved = await adminClient.rpc("review_checkin", { id: checkinId, approve: true });
       assertEquals([approved.error, approved.data?.status], [null, "approved"]);
-      assertEquals(await ledgerOf(checkinId), ["bonus:5:granted", "checkin:11:granted"]);
-      assertEquals(await pointsAndLedger(), [16, 16]);
+      assertEquals(await ledgerOf(checkinId), ["bonus:5:granted", "checkin:11:granted", "discovery:6:granted"]);
+      assertEquals(await pointsAndLedger(), [22, 22]);
 
       const noReason = await adminClient.rpc("revoke_checkin", { id: checkinId, reason: " " });
       assertEquals(noReason.error?.code, "22023");
@@ -374,7 +413,7 @@ Deno.test("submit-checkin end to end", async (t) => {
       assertEquals(revoked.error, null);
       assertEquals([revoked.data.status, revoked.data.review_reason], ["rejected", "Dubbel of misbruik"]);
       assert(revoked.data.revoked_at && revoked.data.reviewed_at, "revoked_at and reviewed_at are set");
-      assertEquals(await ledgerOf(checkinId), ["bonus:5:revoked", "checkin:11:revoked"]);
+      assertEquals(await ledgerOf(checkinId), ["bonus:5:revoked", "checkin:11:revoked", "discovery:6:revoked"]);
       assertEquals(await pointsAndLedger(), [0, 0]);
 
       // The user sees the outcome and the reason of their own check-in.
@@ -382,6 +421,25 @@ Deno.test("submit-checkin end to end", async (t) => {
         .eq("id", checkinId).single();
       assertEquals([own?.status, own?.review_reason], ["rejected", "Dubbel of misbruik"]);
       assert(own?.revoked_at, "the user sees that it was revoked");
+    });
+
+    await t.step("rejecting moves the discovery to the next check-in, then takes it away", async () => {
+      const discoveryOfA = async () => {
+        const { data, error } = await authed.rpc("my_collection");
+        assertEquals(error, null);
+        return data.find((b: { bin_id: number }) => b.bin_id === binA);
+      };
+      // After the revocation above the second check-in at bin A holds the discovery.
+      assertEquals((await discoveryOfA())?.status, "pending");
+      assertEquals(await ledgerOf(secondId), ["checkin:11:pending"]);
+
+      const rejected = await adminClient.rpc("review_checkin", { id: secondId, approve: false });
+      assertEquals(rejected.error, null);
+      assertEquals((await discoveryOfA())?.status ?? null, null);
+      const state = await authed.rpc("my_game_state");
+      assertEquals(state.error, null);
+      assertEquals(state.data.discoveries.discovered, 1); // bin D only
+      assertEquals(state.data.discoveries.next_milestone, { threshold: 10, points: 50, previous: 0 });
     });
 
     await t.step("a review and a check-in of the same user at the same time do not deadlock", async () => {

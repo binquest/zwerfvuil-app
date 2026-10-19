@@ -13,6 +13,9 @@ interface BinsState {
   setSelectedId: (id: number | null) => void;
   /** Admins: exclude (false) or re-admit (true); reloads the bins. */
   setEligibility: (id: number, eligible: boolean) => Promise<void>;
+  /** A request to show a bin on the map (from the collection); the map moves there and selects it. */
+  focus: { id: number; seq: number } | null;
+  showOnMap: (id: number) => void;
 }
 
 const BinsContext = createContext<BinsState | null>(null);
@@ -21,6 +24,7 @@ export function BinsProvider({ enabled, children }: { enabled: boolean; children
   const [bins, setBins] = useState<Bin[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [focus, setFocus] = useState<{ id: number; seq: number } | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -54,9 +58,14 @@ export function BinsProvider({ enabled, children }: { enabled: boolean; children
     [reload],
   );
 
+  const showOnMap = useCallback((id: number) => {
+    setSelectedId(id);
+    setFocus((previous) => ({ id, seq: (previous?.seq ?? 0) + 1 }));
+  }, []);
+
   const value = useMemo(
-    () => ({ bins, loadError, reload, selectedId, setSelectedId, setEligibility }),
-    [bins, loadError, reload, selectedId, setEligibility],
+    () => ({ bins, loadError, reload, selectedId, setSelectedId, setEligibility, focus, showOnMap }),
+    [bins, loadError, reload, selectedId, setEligibility, focus, showOnMap],
   );
   return <BinsContext.Provider value={value}>{children}</BinsContext.Provider>;
 }

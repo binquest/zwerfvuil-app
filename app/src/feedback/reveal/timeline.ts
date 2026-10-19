@@ -7,12 +7,24 @@
 // AUDIO_LEAD_MS later. The timing comes from tuning.ts, every number shown
 // from the score the server sent (score.steps): the timeline lands on its total.
 import { countSteps } from '../../lib/reveal';
-import { baseStep, streakStep, type Score } from '../../lib/score';
+import type { Score } from '../../lib/score';
 import type { HapticKind } from '../haptics';
 import type { SfxId } from '../sfx/sources';
 import * as T from './tuning';
 
 export type { HapticKind, SfxId };
+
+/** The temporary pop-ups of the reveal; each is on screen from the start, invisible. */
+export type PopupId = 'discovery' | 'discoveryAdd' | 'flame' | 'bonus' | 'step0' | 'step1' | 'step2';
+/** Where a pop-up goes when it leaves: into a bin, the total, or the context line. */
+export type PopupTarget = 'chips' | 'mult' | 'total' | 'context';
+/** Steps of an unknown kind beyond this share the last pop-up. */
+export const MAX_STEP_POPUPS = 3;
+
+/** The pop-up of the `index`-th step of an unknown kind (0-based). */
+export function stepPopup(index: number): PopupId {
+  return `step${Math.min(Math.max(0, index), MAX_STEP_POPUPS - 1)}` as PopupId;
+}
 
 export type Event =
   // Sound and haptics.
@@ -22,6 +34,15 @@ export type Event =
   // The big number.
   | { atMs: number; type: 'chipIn' }
   | { atMs: number; type: 'count'; value: number }
+  // A pop-up comes in (`sparkles` only for the discovery, 0 with Reduce
+  // Motion), and leaves for its target: flying there, or with Reduce Motion
+  // fading where it is.
+  | { atMs: number; type: 'popupIn'; popup: PopupId; sparkles: number }
+  | { atMs: number; type: 'popupOut'; popup: PopupId; to: PopupTarget; ms: number; fly: boolean }
+  // What landed in the bins: new chips (PUNTEN) or a new multiplier (MULT)
+  // when not null, the running total, and the chips a discovery added.
+  | { atMs: number; type: 'bins'; chips: number | null; multiplier: number | null; total: number; discovery: number }
+  | { atMs: number; type: 'binPop'; bin: 'chips' | 'mult'; scale: number }
   // One streak multiplier lands: the badge, the number, the heat layer.
   | { atMs: number; type: 'mult'; stage: number; multiplier: number; total: number; max: boolean; peakScale: number; heat: number }
   | { atMs: number; type: 'shake'; px: number; ms: number; rotationDeg: number }
@@ -43,11 +64,14 @@ export type Event =
       particles: number;
     }
   | { atMs: number; type: 'showBonusQuestion' }
-  // The +5.
-  | { atMs: number; type: 'bonusChip'; durationMs: number; value: number }
+  // The +5: its pop-up drops into the total (fades with Reduce Motion).
+  | { atMs: number; type: 'bonusChip'; durationMs: number; value: number; fly: boolean }
   | { atMs: number; type: 'punch'; scale: number }
   | { atMs: number; type: 'ring' }
-  | { atMs: number; type: 'badge'; value: number };
+  | { atMs: number; type: 'badge'; value: number }
+  // A celebration (celebrate.tsx): confetti (0 pieces with Reduce Motion), its reward comes in.
+  | { atMs: number; type: 'confetti'; pieces: number }
+  | { atMs: number; type: 'reward' };
 
 type DistributiveOmit<U, K extends PropertyKey> = U extends unknown ? Omit<U, K> : never;
 /** An event without its time. */
@@ -110,73 +134,164 @@ function jitter(index: number): number {
 }
 
 /**
- * The reveal of `score`: the base counted up, one hit per streak stage, the
- * total. Steps of an unknown kind do not play yet; the slam lands on the total
- * either way.
+ * The reveal of `score`, step by step in the server's order: the base counted
+ * up into PUNTEN; a discovery pops up, its +5 flies into PUNTEN and it shrinks
+ * into the context line; on the first check-in of the week the streak flame
+ * beats at MULT; one hit per streak stage; a step of an unknown kind pops up
+ * and flies into MULT (×), PUNTEN (+) or the total. Then the total slams in.
  */
 export function buildRevealTimeline(input: RevealTimelineInput): Event[] {
   const { score } = input;
-  const base = Math.max(0, Math.round(baseStep(score)?.total ?? 0));
-  const streak = streakStep(score);
-  const weeks = streak?.weeks ?? 0;
-  const stages = streak?.stages ?? [];
   const reduce = input.reduceMotion;
-  const stageCount = stages.length;
   const { add, visual, done } = collector();
+  const popScale = reduce ? T.REDUCED_MOTION_MAX_SCALE : T.BIN_POP_SCALE;
 
   visual(0, { type: 'chipIn' });
 
-  // Counting up to the base points.
-  const steps = base > 0 ? countSteps(0, base, T.BASE_TICKS) : [];
-  let at = T.LEAD_IN_MS;
-  steps.forEach((value, i) => {
-    if (i > 0) {
-      const progress = steps.length > 2 ? (i - 1) / (steps.length - 2) : 0;
-      const eased = progress * progress * (3 - 2 * progress);
-      at += Math.round(T.TICK_INTERVAL_START_MS + (T.TICK_INTERVAL_END_MS - T.TICK_INTERVAL_START_MS) * eased);
+  // `cursor` is when the next step starts, `shown` the running total on
+  // screen; `chips` and `multiplier` what the bins show.
+  let cursor = T.LEAD_IN_MS;
+  let shown = 0;
+  let chips = 0;
+  let multiplier = 1;
+  let stageCount = 0;
+  let others = 0;
+  for (const step of score.steps) {
+    switch (step.kind) {
+      case 'base': {
+        // Counting up to the base points.
+        const base = Math.max(0, Math.round(step.total));
+        const values = base > 0 ? countSteps(0, base, T.BASE_TICKS) : [];
+        let at = cursor;
+        values.forEach((value, i) => {
+          if (i > 0) {
+            const progress = values.length > 2 ? (i - 1) / (values.length - 2) : 0;
+            const eased = progress * progress * (3 - 2 * progress);
+            at += Math.round(T.TICK_INTERVAL_START_MS + (T.TICK_INTERVAL_END_MS - T.TICK_INTERVAL_START_MS) * eased);
+          }
+          const id = `tick_${Math.floor(i / 2) % T.TICK_PITCHES}` as SfxId;
+          add(at, { type: 'sound', id, volume: T.VOLUME.tick * (1 + T.TICK_JITTER * jitter(i)) });
+          if (i % 2 === 0) add(at, { type: 'haptic', kind: 'selection' });
+          visual(at, { type: 'count', value });
+        });
+        shown = base;
+        chips = base;
+        cursor = at + T.TICK_INTERVAL_END_MS;
+        break;
+      }
+      case 'discovery': {
+        // The banner pops up with its fanfare, its +5 flies into PUNTEN, then
+        // it shrinks into the context line while the next step starts.
+        const bannerAt = cursor + T.DISCOVERY_LEAD_MS;
+        add(bannerAt, { type: 'sound', id: 'discover_fanfare', volume: T.VOLUME.fanfare });
+        add(bannerAt, { type: 'haptic', kind: 'medium' });
+        visual(bannerAt, { type: 'popupIn', popup: 'discovery', sparkles: reduce ? 0 : T.DISCOVERY_SPARKLES });
+        const leaveAt = bannerAt + T.DISCOVERY_ADD_MS;
+        visual(leaveAt, { type: 'popupIn', popup: 'discoveryAdd', sparkles: 0 });
+        visual(leaveAt, { type: 'popupOut', popup: 'discoveryAdd', to: 'chips', ms: T.POPUP_FLY_MS, fly: !reduce });
+        const landAt = leaveAt + T.POPUP_FLY_MS;
+        add(landAt, { type: 'sound', id: 'chip_add', volume: T.VOLUME.chipAdd });
+        add(landAt, { type: 'haptic', kind: 'selection' });
+        visual(landAt, { type: 'bins', chips: step.chips, multiplier: null, total: step.total, discovery: step.add });
+        visual(landAt, { type: 'binPop', bin: 'chips', scale: popScale });
+        visual(landAt + T.DISCOVERY_SHRINK_DELAY_MS, {
+          type: 'popupOut',
+          popup: 'discovery',
+          to: 'context',
+          ms: T.DISCOVERY_SHRINK_MS,
+          fly: !reduce,
+        });
+        shown = step.total;
+        chips = step.chips;
+        cursor = landAt + T.DISCOVERY_HOLD_MS;
+        break;
+      }
+      case 'streak': {
+        if (score.streakExtended) {
+          // The first check-in of the week: a short beat at MULT (the streak is
+          // the multiplier), then the stages.
+          const flameAt = cursor + T.FLAME_LEAD_MS;
+          add(flameAt, { type: 'sound', id: 'flame_whoosh', volume: T.VOLUME.flame });
+          add(flameAt, { type: 'haptic', kind: 'light' });
+          visual(flameAt, { type: 'popupIn', popup: 'flame', sparkles: 0 });
+          visual(flameAt, { type: 'binPop', bin: 'mult', scale: popScale });
+          const outAt = flameAt + T.FLAME_SHOW_MS;
+          visual(outAt, { type: 'popupOut', popup: 'flame', to: 'mult', ms: T.POPUP_FLY_MS, fly: !reduce });
+          cursor = outAt + T.FLAME_HOLD_MS;
+        }
+        // Anticipation, then one hit per streak week.
+        add(cursor, { type: 'sound', id: 'riser', volume: T.VOLUME.riser });
+        let at = cursor + T.ANTICIPATION_MS;
+        const { weeks, stages } = step;
+        stageCount = stages.length;
+        for (let stage = 1; stage <= stageCount; stage++) {
+          const { mult, total } = stages[stage - 1];
+          // Sound, haptics and motion grow up to the top stage and stay there.
+          const level = Math.min(stage, T.TOP_STAGE);
+          add(at, { type: 'sound', id: `mult_${level}` as SfxId, volume: T.VOLUME.mult });
+          add(at, { type: 'sound', id: 'transient', volume: T.VOLUME.transient });
+          for (const { kind, delayMs } of stageHaptics(level)) add(at + delayMs, { type: 'haptic', kind });
+          // The low crackle is audio: it stays with Reduce Motion, the glow does not.
+          if (heatOf(level) > 0) add(at, { type: 'sound', id: 'heat_loop', volume: T.HEAT_LOOP_VOLUME * heatOf(level), loop: true });
+          visual(at, {
+            type: 'mult',
+            stage,
+            multiplier: mult,
+            total,
+            max: weeks > stageCount && stage === stageCount,
+            peakScale: Math.min(reduce ? T.REDUCED_MOTION_MAX_SCALE : Infinity, T.STAGE_PEAK_SCALE.base + T.STAGE_PEAK_SCALE.step * level),
+            heat: reduce ? 0 : heatOf(level),
+          });
+          if (!reduce) {
+            const sign = stage % 2 === 1 ? 1 : -1;
+            visual(at, {
+              type: 'shake',
+              px: T.STAGE_SHAKE_PX.base + T.STAGE_SHAKE_PX.step * level,
+              ms: level === T.TOP_STAGE ? T.LAST_STAGE_SHAKE_MS : T.STAGE_SHAKE_MS.base + T.STAGE_SHAKE_MS.step * level,
+              rotationDeg: sign * (T.STAGE_ROTATION_DEG.base + T.STAGE_ROTATION_DEG.step * level),
+            });
+            visual(at, { type: 'flash', opacity: T.STAGE_FLASH.base + T.STAGE_FLASH.step * level });
+          }
+          shown = total;
+          multiplier = mult;
+          at += stageIntervalMs(stage, reduce);
+        }
+        cursor = at;
+        break;
+      }
+      case 'other': {
+        // A kind the app does not know yet: its label pops up with the chip
+        // sound, then it flies into MULT (a new multiplier), PUNTEN (new chips)
+        // or, with neither, the total.
+        const popup = stepPopup(others++);
+        const to: PopupTarget =
+          step.mult !== null && step.mult !== multiplier ? 'mult' : step.chips !== null && step.chips !== chips ? 'chips' : 'total';
+        const inAt = cursor + T.STEP_LEAD_MS;
+        add(inAt, { type: 'sound', id: 'chip_add', volume: T.VOLUME.chipAdd });
+        add(inAt, { type: 'haptic', kind: 'medium' });
+        visual(inAt, { type: 'popupIn', popup, sparkles: 0 });
+        const outAt = inAt + T.STEP_SHOW_MS;
+        visual(outAt, { type: 'popupOut', popup, to, ms: T.POPUP_FLY_MS, fly: !reduce });
+        const landAt = outAt + T.POPUP_FLY_MS;
+        add(landAt, { type: 'sound', id: 'transient', volume: T.VOLUME.transient });
+        add(landAt, { type: 'haptic', kind: to === 'mult' ? 'heavy' : 'selection' });
+        if (step.total !== null) shown = step.total;
+        if (to === 'mult') multiplier = step.mult ?? multiplier;
+        if (to === 'chips') chips = step.chips ?? chips;
+        visual(landAt, {
+          type: 'bins',
+          chips: to === 'chips' ? chips : null,
+          multiplier: to === 'mult' ? multiplier : null,
+          total: shown,
+          discovery: 0,
+        });
+        if (to !== 'total') visual(landAt, { type: 'binPop', bin: to, scale: popScale });
+        cursor = landAt + T.STEP_HOLD_MS;
+        break;
+      }
     }
-    const id = `tick_${Math.floor(i / 2) % T.TICK_PITCHES}` as SfxId;
-    add(at, { type: 'sound', id, volume: T.VOLUME.tick * (1 + T.TICK_JITTER * jitter(i)) });
-    if (i % 2 === 0) add(at, { type: 'haptic', kind: 'selection' });
-    visual(at, { type: 'count', value });
-  });
-
-  // Anticipation, then one hit per streak week.
-  const riserAt = at + T.TICK_INTERVAL_END_MS;
-  add(riserAt, { type: 'sound', id: 'riser', volume: T.VOLUME.riser });
-  at = riserAt + T.ANTICIPATION_MS;
-  let shown = base;
-  for (let stage = 1; stage <= stageCount; stage++) {
-    const { mult, total } = stages[stage - 1];
-    // Sound, haptics and motion grow up to the top stage and stay there.
-    const level = Math.min(stage, T.TOP_STAGE);
-    add(at, { type: 'sound', id: `mult_${level}` as SfxId, volume: T.VOLUME.mult });
-    add(at, { type: 'sound', id: 'transient', volume: T.VOLUME.transient });
-    for (const { kind, delayMs } of stageHaptics(level)) add(at + delayMs, { type: 'haptic', kind });
-    // The low crackle is audio: it stays with Reduce Motion, the glow does not.
-    if (heatOf(level) > 0) add(at, { type: 'sound', id: 'heat_loop', volume: T.HEAT_LOOP_VOLUME * heatOf(level), loop: true });
-    visual(at, {
-      type: 'mult',
-      stage,
-      multiplier: mult,
-      total,
-      max: weeks > stageCount && stage === stageCount,
-      peakScale: Math.min(reduce ? T.REDUCED_MOTION_MAX_SCALE : Infinity, T.STAGE_PEAK_SCALE.base + T.STAGE_PEAK_SCALE.step * level),
-      heat: reduce ? 0 : heatOf(level),
-    });
-    if (!reduce) {
-      const sign = stage % 2 === 1 ? 1 : -1;
-      visual(at, {
-        type: 'shake',
-        px: T.STAGE_SHAKE_PX.base + T.STAGE_SHAKE_PX.step * level,
-        ms: level === T.TOP_STAGE ? T.LAST_STAGE_SHAKE_MS : T.STAGE_SHAKE_MS.base + T.STAGE_SHAKE_MS.step * level,
-        rotationDeg: sign * (T.STAGE_ROTATION_DEG.base + T.STAGE_ROTATION_DEG.step * level),
-      });
-      visual(at, { type: 'flash', opacity: T.STAGE_FLASH.base + T.STAGE_FLASH.step * level });
-    }
-    shown = total;
-    at += stageIntervalMs(stage, reduce);
   }
+  let at = cursor;
 
   // Hit-stop, then the total slams in.
   if (!reduce) {
@@ -215,7 +330,8 @@ export function buildBonusTimeline(input: BonusTimelineInput): Event[] {
   }
 
   add(0, { type: 'sound', id: 'whoosh_up', volume: T.VOLUME.whoosh });
-  if (!reduce) visual(0, { type: 'bonusChip', durationMs: T.BONUS_CHIP_ARC_MS, value: points });
+  // "+5 bonusvraag" drops into the total; with Reduce Motion it fades where it is.
+  visual(0, { type: 'bonusChip', durationMs: T.BONUS_CHIP_ARC_MS, value: points, fly: !reduce });
   let at = T.BONUS_CHIP_ARC_MS;
   if (!reduce) {
     visual(at, { type: 'hitStop', ms: T.BONUS_HIT_STOP_MS });

@@ -82,6 +82,7 @@ Deno.test("submit-checkin accepts the app's request", async () => {
           ],
           total: 11,
         },
+        game: null,
         bonus_question: null,
         is_test: false,
       });

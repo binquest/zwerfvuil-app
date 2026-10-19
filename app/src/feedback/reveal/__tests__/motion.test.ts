@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { BADGE_OFFSET, badgeCentre, bonusArc, particle, shakeOffset } from '../motion';
+import { BADGE_OFFSET, badgeCentre, bonusArc, confettiPiece, particle, shakeOffset } from '../motion';
 
 describe('shakeOffset', () => {
   it('is still at the start and the end', () => {
@@ -60,6 +60,39 @@ describe('badgeCentre', () => {
     // The number is centred on the screen; its widest (four digits at 84 pt) is about 200 pt.
     const { x } = badgeCentre(200, 132);
     expect(375 / 2 + x + 26).toBeLessThan(375);
+  });
+});
+
+describe('confettiPiece', () => {
+  const W = 390;
+  const H = 844;
+
+  it('is hidden before and after the burst', () => {
+    for (const t of [0, 1]) expect(confettiPiece(3, t, W, H).opacity).toBe(0);
+  });
+
+  it('starts above the screen and falls past its bottom', () => {
+    for (let i = 0; i < 40; i++) {
+      expect(confettiPiece(i, 0.001, W, H).y).toBeLessThan(0);
+      expect(confettiPiece(i, 0.999, W, H).y).toBeGreaterThan(H);
+    }
+  });
+
+  it('falls only downwards and stays across the screen', () => {
+    for (let i = 0; i < 40; i++) {
+      let previous = -Infinity;
+      for (let t = 0.01; t < 1; t += 0.05) {
+        const piece = confettiPiece(i, t, W, H);
+        expect(piece.y).toBeGreaterThanOrEqual(previous);
+        expect(piece.x).toBeGreaterThan(-40);
+        expect(piece.x).toBeLessThan(W + 40);
+        previous = piece.y;
+      }
+    }
+  });
+
+  it('is the same every time', () => {
+    expect(confettiPiece(7, 0.4, W, H)).toEqual(confettiPiece(7, 0.4, W, H));
   });
 });
 

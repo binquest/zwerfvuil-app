@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { scoreFor } from '../../feedback/reveal/__fixtures__/scores';
+import { DEFAULT_CONFIG, scoreFor } from '../../feedback/reveal/__fixtures__/scores';
+import { previewScore } from '../../game/catalog';
 import { countSteps, revealSummary, setPendingReveal, takePendingReveal } from '../reveal';
 
 describe('countSteps', () => {
@@ -40,5 +41,13 @@ describe('revealSummary (what VoiceOver says instead of the animation)', () => {
 
   it('leaves out a streak of 0 weeks and says when it is a preview', () => {
     expect(revealSummary(scoreFor(0), true)).toBe('10 punten, voorbeeld.');
+  });
+
+  it('says a new bin was discovered and that the streak was extended', () => {
+    const score = previewScore(DEFAULT_CONFIG, 4, undefined, { discovery: true, streakExtended: true });
+    expect(revealSummary(score)).toBe('22 punten, wacht op goedkeuring. Nieuwe vuilbak ontdekt. Reeks verlengd: 4 weken.');
+    expect(revealSummary(previewScore(DEFAULT_CONFIG, 1, undefined, { streakExtended: true }))).toBe(
+      '11 punten, wacht op goedkeuring. Reeks gestart.',
+    );
   });
 });
