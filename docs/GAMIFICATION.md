@@ -867,9 +867,8 @@ vergelijking van de punten en in fase 1b van de eventtellingen in Studio.
 
 ## Overdracht
 
-Stand op 15 oktober 2026: fase 1a, 1b en 2 zijn af en gemerged in `main` (PR #2, #3 en #4); fase 2 staat
-op staging en als EAS Update op `dev`. Fase 3 (`gamification/3-ontdekken`) is goedgekeurd en staat op
-staging en als EAS Update op `dev`; nog niet gemerged.
+Stand op 19 oktober 2026: fase 1a, 1b, 2 en 3 zijn af en gemerged in `main` (PR #2, #3, #4 en #5); fase 3
+staat op staging en als EAS Update op `dev`, en is op de iPhone gecontroleerd.
 
 - Af: dit plan; fase 1a (puntenledger); fase 1b (config en eventlog), lokaal.
   - Server (`20261015120000_points_ledger.sql`): `point_transactions` met de projectie vanuit
@@ -1139,11 +1138,13 @@ staging en als EAS Update op `dev`; nog niet gemerged.
     de multiplier zoals in fase 8.
   - EAS Update op `dev` (runtime 1): update-groep `2328472f-9e93-496a-a38c-0ddb67f39165` (commit 3c6e524);
     alleen de app veranderde (geen migratie, geen `deploy`).
-- Nog te controleren op de iPhone (na `update:dev`): Dev-preview met ontdekking, vlam, onbekende stap
+- iPhone (19 oktober): alles in orde, ook de herziene onthulling en de zware preview. Gecontroleerd
+  waren de punten hieronder.
+- Op de iPhone gecontroleerd (na `update:dev`): Dev-preview met ontdekking, vlam, onbekende stap
   en mijlpaal, met en zonder Reduce Motion en geluid; "Vieringen bekijken"; een echte eerste inworp
   bij een nieuwe vuilbak (banner, +5 chips, pin wordt groen, teller +1); een tweede inworp daar (geen
   banner); na afwijzen in Beheer klopt de collectie; de app sluiten tijdens een onthulling met
   ontdekking en opnieuw openen (gemist moment); de 10e ontdekking toont "+50 · wacht op goedkeuring".
-- Nog te doen: de iPhone-punten hierboven, de PR van fase 3 mergen, dan fase 4 t/m 7.
-- Volgende stap: de iPhone-test van fase 3; daarna fase 4 in een nieuwe sessie, op
-  `gamification/4-identiteit` vanaf `main`.
+- Gemerged in `main` als PR #5 (19 oktober).
+- Nog te doen: fase 4 t/m 7.
+- Volgende stap: fase 4 in een nieuwe sessie, op `gamification/4-identiteit` vanaf `main`.
