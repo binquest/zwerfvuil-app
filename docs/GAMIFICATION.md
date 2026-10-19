@@ -868,10 +868,8 @@ vergelijking van de punten en in fase 1b van de eventtellingen in Studio.
 
 ## Overdracht
 
-Stand op 19 oktober 2026: fase 1a, 1b, 2 en 3 zijn af en gemerged in `main` (PR #2, #3, #4 en #5); fase 3
-staat op staging en als EAS Update op `dev`, en is op de iPhone gecontroleerd. Fase 4 staat op
-`gamification/4-identiteit`, op staging en als EAS Update op `dev`, en is op de iPhone gecontroleerd;
-de PR wacht op de merge.
+Stand op 19 oktober 2026: fase 1a, 1b, 2, 3 en 4 zijn af en gemerged in `main` (PR #2 t/m #6); fase 3
+en 4 staan op staging en als EAS Update op `dev`, en zijn op de iPhone gecontroleerd.
 
 - Af: dit plan; fase 1a (puntenledger); fase 1b (config en eventlog), lokaal.
   - Server (`20261015120000_points_ledger.sql`): `point_transactions` met de projectie vanuit
@@ -1246,6 +1244,6 @@ de PR wacht op de merge.
   dit?", een andere standaardavatar kiezen → profiel en ranglijst); de ranglijst (avatar, "Lv 1 ·
   Wegwerp-rookie", medailles, "Testdata tonen"); Reduce Motion en donkere modus. De vaste eigen rij
   onderaan is pas te zien met meer spelers dan op één scherm passen.
+- Gemerged in `main` als PR #6 (19 oktober).
 - Nog te doen: fase 5 t/m 7.
-- Volgende stap: de PR van fase 4 mergen; dan fase 5 in een nieuwe sessie, op
-  `gamification/5-progressie` vanaf `main`.
+- Volgende stap: fase 5 in een nieuwe sessie, op `gamification/5-progressie` vanaf `main`.
