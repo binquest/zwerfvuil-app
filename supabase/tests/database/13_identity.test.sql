@@ -31,6 +31,10 @@ on conflict (singleton) do update set name = excluded.name;
 insert into bins (osm_type, osm_id, geom, status, eligible) values
   ('node', 900000000001301, 'SRID=4326;POINT(0 0)', 'active', true);
 
+-- Badges are tested in 14_badges; none here, so the badge avatar stays locked
+-- at every hour of the day (Vroege vogel).
+update badges set active = false;
+
 -- A real check-in of `who` at that bin, 5 m north of it.
 create function pg_temp.checkin(who uuid) returns uuid language sql as $$
   select r.checkin_id

@@ -36,6 +36,11 @@ describe('buildCelebrationTimeline', () => {
     expect(events.some((e) => e.type === 'haptic' && e.kind === 'medium')).toBe(true);
   });
 
+  it('only badges (after a reveal): the chime and a light haptic, no confetti', () => {
+    const events = buildCelebrationTimeline({ milestone: false, discoveries: false, reduceMotion: false });
+    expect(events.map((e) => (e.type === 'sound' ? e.id : e.type === 'haptic' ? e.kind : e.type))).toEqual(['approve_chime', 'light', 'reward']);
+  });
+
   it('changes nothing in the reveal state', () => {
     for (const event of buildCelebrationTimeline({ milestone: true, reduceMotion: false })) {
       expect(applyRevealEvent(INITIAL_REVEAL_STATE, event)).toBe(INITIAL_REVEAL_STATE);

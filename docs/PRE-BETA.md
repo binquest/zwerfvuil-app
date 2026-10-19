@@ -278,12 +278,32 @@ echte gebruikersdata vraagt meer.
   herroepen en zakt iemand daardoor onder het level van zijn avatar (of vervalt een
   mijlpaal), dan zet de refresh hem terug op de standaardavatar, zonder melding.
   Overweeg een uitleg ("Je avatar Bloem komt terug op level 5").
-- [ ] **De badge-hint van de merel staat in SQL** (`private.avatar_hint` noemt
-  "Vroege vogel" zelf). Fase 5 haalt badgenamen uit de tabel `badges`; tot dan staat
-  een nieuwe badge-avatar zonder naam in de hint.
+- [x] **De badge-hint van de merel staat in SQL** (`private.avatar_hint` noemde
+  "Vroege vogel" zelf). Sinds fase 5 komt de naam uit de tabel `badges` (een geheime
+  badge blijft geheim in de hint).
 - [ ] **Ontgrendelen wordt berekend, niet bewaard**: er is geen geschiedenis van
-  wanneer iemand een avatar kreeg, en een avatar via badge, quest of kist is tot
-  fase 5 en 6 altijd vergrendeld.
+  wanneer iemand een avatar kreeg, en een avatar via quest of kist is tot fase 6
+  altijd vergrendeld (via badge sinds fase 5).
+- [ ] **Badges worden afgeleid, ook "Heel de buurt".** De refresh rekent elke badge
+  opnieuw uit; komt er een actieve vuilbak bij in de regio, dan vervalt "Heel de
+  buurt" tot ook die ontdekt is, zonder melding. Overweeg een badge die ooit
+  toegekend was te bewaren, of een melding "Er is een nieuwe vuilbak in je buurt".
+- [ ] **Uurbadges rekenen in de tijd van Gent** (Vroege vogel 5–8 u, Nachtuil
+  22–5 u) op het tijdstip van de inworp op de server, niet in de tijdzone van het
+  toestel.
+- [ ] **De goedkeuringsviering kent alleen inworpen.** Een beoordeelde melding van
+  een ontbrekende vuilbak is geen beslissing in `my_unseen` (alleen de bevestigde
+  badge Kaartmaker verschijnt). Een correctie (`adjust_points`) en een bonusvraag die
+  pas na de goedkeuring beantwoord wordt, tellen mee in het totaal, maar niet in
+  "+N" per bron: hun tijd wordt niet na de gebruikerslock gezet.
+- [ ] **Een viering die niet kan verschijnen, wacht tot de volgende start.** Opent
+  iemand de camera net terwijl de app `my_unseen` vraagt, dan toont de presenter de
+  goedkeuringsviering of de gemiste momenten pas bij de volgende koude of warme
+  start. Beter: het moment in de wachtrij laten tot er weer een tab-scherm is.
+- [ ] **Badges rekenen telkens alles opnieuw**: de refresh en `my_badges` evalueren
+  elke regel over alle inworpen, ontdekkingen en bonusantwoorden van de speler.
+  Bij duizenden inworpen per speler: tellers bijhouden of alleen de badges van de
+  geraakte soort herrekenen.
 - [ ] **`app/native-versions.json` wordt met de hand vastgelegd** (`npm run
   native:record`, in de commit van een nieuwe IPA, na het ophogen van
   `DEV_RUNTIME_VERSION`). De workflow `ios-dev.yml` controleert niet dat de IPA bij

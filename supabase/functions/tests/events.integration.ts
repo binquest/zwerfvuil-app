@@ -47,6 +47,9 @@ const EXAMPLES: { [N in EventName]: EventProps[N] } = {
   leaderboard_viewed: { period: "week" },
   report_flow_start: {},
   report_submitted: { ok: true },
+  approval_shown: { approved: 2, rejected: 1, points: 33 },
+  level_up_shown: { level: 4, previous: 3 },
+  badge_shown: { badge_key: "early_bird", status: "granted", source: "approval" },
 };
 
 Deno.test("event log end to end", async (t) => {

@@ -205,13 +205,17 @@ Deno.test("submit-checkin end to end", async (t) => {
       assertEquals(row.score, body.score);
       assertEquals(await ledgerOf(checkinId), ["checkin:11:pending", "discovery:6:pending"]);
 
-      // The discovery is a moment until the app marks it seen after the reveal.
+      // The discovery and the badge it earned are moments until the app marks
+      // them seen after the reveal (an hour badge may join, by the clock).
       const unseen = await authed.rpc("my_unseen");
       assertEquals(unseen.error, null);
-      assertEquals(
-        unseen.data.moments.map((m: { kind: string; bin_id: number }) => [m.kind, m.bin_id]),
-        [["discovery", binA]],
-      );
+      const moments = unseen.data.moments.map((m: { kind: string; bin_id?: number; key?: string }) => [
+        m.kind,
+        m.bin_id ?? m.key,
+      ]);
+      assertEquals(moments[0], ["discovery", binA]);
+      assert(moments.some(([kind, key]: [string, string]) => kind === "badge" && key === "first_checkin"));
+      assert(body.game.badges.some((b: { key: string; status: string }) => b.key === "first_checkin"));
       const seen = await authed.rpc("mark_seen", { kind: "moments", until: body.game.as_of });
       assertEquals(seen.error, null);
       assertEquals((await authed.rpc("my_unseen")).data.moments_total, 0);
@@ -404,6 +408,22 @@ Deno.test("submit-checkin end to end", async (t) => {
       assertEquals(await ledgerOf(checkinId), ["bonus:5:granted", "checkin:11:granted", "discovery:6:granted"]);
       assertEquals(await pointsAndLedger(), [22, 22]);
 
+      // The approval celebration: the decision stays unseen until mark_seen('results').
+      const unseen = await authed.rpc("my_unseen");
+      assertEquals(unseen.error, null);
+      const results = unseen.data.results;
+      assertEquals(results.approved.map((a: { checkin_id: string }) => a.checkin_id), [checkinId]);
+      assertEquals(
+        [results.gained, results.by_source, results.points_before, results.points_after],
+        [22, { bonus: 5, checkin: 11, discovery: 6 }, 0, 22],
+      );
+      assertEquals([results.level_before, results.level_after, results.level_title], [1, 2, "Blikjesbuddy"]);
+      assert(results.badges.some((b: { key: string }) => b.key === "first_checkin"), "Eerste inworp granted");
+      const marked = await authed.rpc("mark_seen", { kind: "results", until: unseen.data.as_of });
+      assertEquals(marked.error, null);
+      const seen = (await authed.rpc("my_unseen")).data.results;
+      assertEquals([seen.approved_count, seen.level_before, seen.level_after], [0, 2, 2]);
+
       const noReason = await adminClient.rpc("revoke_checkin", { id: checkinId, reason: " " });
       assertEquals(noReason.error?.code, "22023");
       const byUser = await authed.rpc("revoke_checkin", { id: checkinId, reason: "Dubbel" });
@@ -415,6 +435,18 @@ Deno.test("submit-checkin end to end", async (t) => {
       assert(revoked.data.revoked_at && revoked.data.reviewed_at, "revoked_at and reviewed_at are set");
       assertEquals(await ledgerOf(checkinId), ["bonus:5:revoked", "checkin:11:revoked", "discovery:6:revoked"]);
       assertEquals(await pointsAndLedger(), [0, 0]);
+
+      // The revocation is a calm result with its reason; the level drops back.
+      const afterRevoke = (await authed.rpc("my_unseen")).data.results;
+      assertEquals(
+        afterRevoke.rejected.map((r: { checkin_id: string; reason: string; revoked: boolean }) => [
+          r.checkin_id,
+          r.reason,
+          r.revoked,
+        ]),
+        [[checkinId, "Dubbel of misbruik", true]],
+      );
+      assertEquals([afterRevoke.points_before, afterRevoke.points_after, afterRevoke.level_after], [22, 0, 1]);
 
       // The user sees the outcome and the reason of their own check-in.
       const { data: own } = await authed.from("checkins").select("status, review_reason, revoked_at")

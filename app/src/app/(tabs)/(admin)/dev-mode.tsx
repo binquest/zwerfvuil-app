@@ -13,6 +13,8 @@ import { describeStressResult, runSoundStressTest } from '@/feedback/reveal/stre
 import { buildRevealTimeline } from '@/feedback/reveal/timeline';
 import { warmUpSounds } from '@/feedback/sfx/soundtrack';
 import { previewScore, streakMultiplierLabel, type GameConfig } from '@/game/catalog';
+import { previewResults } from '@/game/approval';
+import type { BadgeNews } from '@/game/badges';
 import { setPendingCelebration } from '@/game/celebration';
 import { milestoneTitle, type CheckinGame, type MissedMoment } from '@/game/discoveries';
 import { useGameCatalog } from '@/game/useGameCatalog';
@@ -27,6 +29,16 @@ import { useToast } from '@/providers/ToastProvider';
 
 /** The preview's discovery: bin #58, the 12th of 120 (made-up numbers, nothing is read or written). */
 const PREVIEW_DISCOVERY = { binId: 58, ordinal: 12, discovered: 12, totalBins: 120, status: 'pending' as const };
+
+/** The preview's badge: Vroege vogel, waiting for an approval (as the server names it). */
+const PREVIEW_BADGE: BadgeNews = {
+  key: 'early_bird',
+  name: 'Vroege vogel',
+  description: "Doe een inworp tussen 5 en 8 uur 's ochtends.",
+  symbol: 'sunrise.fill',
+  rarity: 'rare',
+  status: 'pending',
+};
 
 /**
  * The score of the preview: base, discovery, streak, and optionally a step the
@@ -76,10 +88,16 @@ export default function DevModeScreen() {
   const [previewExtended, setPreviewExtended] = useState(true);
   const [previewUnknownStep, setPreviewUnknownStep] = useState(false);
   const [previewMilestone, setPreviewMilestone] = useState(false);
+  const [previewBadge, setPreviewBadge] = useState(false);
   const milestones = useGameCatalog()?.milestones ?? [];
   const [milestoneIndex, setMilestoneIndex] = useState(0);
   const [milestoneGranted, setMilestoneGranted] = useState(false);
   const chosenMilestone = milestones[Math.min(milestoneIndex, Math.max(0, milestones.length - 1))] ?? null;
+  const levels = useGameCatalog()?.levels ?? [];
+  const [approvedCount, setApprovedCount] = useState(2);
+  const [rejectedCount, setRejectedCount] = useState(1);
+  const [approvalLevelUp, setApprovalLevelUp] = useState(true);
+  const [approvalBadge, setApprovalBadge] = useState(true);
   const [stress, setStress] = useState<string | null>(null);
   const stopStress = useRef<(() => void) | null>(null);
   const [override, setOverride] = useState(dev.status?.streakOverride ?? 4);
@@ -131,6 +149,7 @@ export default function DevModeScreen() {
     const game: CheckinGame = {
       discovery: options.discovery ? PREVIEW_DISCOVERY : null,
       milestone: previewMilestone && chosenMilestone ? { ...chosenMilestone, status: 'pending' } : null,
+      badges: previewBadge ? [PREVIEW_BADGE] : [],
       asOf: null,
     };
     setPendingReveal({
@@ -161,8 +180,9 @@ export default function DevModeScreen() {
   const showMilestone = () => {
     if (!chosenMilestone) return;
     setPendingCelebration({
-      kind: 'milestone',
+      kind: 'reveal',
       milestone: { ...chosenMilestone, status: milestoneGranted ? 'granted' : 'pending' },
+      badges: [],
       discovered: chosenMilestone.threshold,
       totalBins: 120,
       asOf: null,
@@ -173,11 +193,41 @@ export default function DevModeScreen() {
     router.push('/celebrate');
   };
 
-  /** Missed moments as the presenter shows them: three discoveries, and the chosen milestone. */
+  /** A badge on its own, as after a reveal. */
+  const showBadge = () => {
+    setPendingCelebration({
+      kind: 'reveal',
+      milestone: null,
+      badges: [PREVIEW_BADGE],
+      discovered: null,
+      totalBins: null,
+      asOf: null,
+      preview: true,
+      forceReduceMotion: previewReduceMotion,
+      noSound: previewNoSound,
+    });
+    router.push('/celebrate');
+  };
+
+  /** The approval celebration as it appears when the app opens: the chosen numbers, made up. */
+  const showApproval = (options = { approved: approvedCount, rejected: rejectedCount, levelUp: approvalLevelUp, badge: approvalBadge }) => {
+    setPendingCelebration({
+      kind: 'approval',
+      results: previewResults(options, levels),
+      asOf: null,
+      preview: true,
+      forceReduceMotion: previewReduceMotion,
+      noSound: previewNoSound,
+    });
+    router.push('/celebrate');
+  };
+
+  /** Missed moments as the presenter shows them: three discoveries, the chosen milestone and a badge. */
   const showMissed = () => {
     const at = new Date().toISOString();
     const moments: MissedMoment[] = [58, 61, 74].map((binId, i) => ({ kind: 'discovery', at, binId, ordinal: 10 + i, status: 'pending' }));
     if (chosenMilestone) moments.push({ kind: 'milestone', at, ...chosenMilestone, status: 'pending' });
+    moments.push({ kind: 'badge', at, badge: PREVIEW_BADGE });
     setPendingCelebration({
       kind: 'missed',
       moments,
@@ -265,6 +315,7 @@ export default function DevModeScreen() {
           <Toggle label="Reeks verlengd (vlam)" isOn={previewExtended} onIsOnChange={setPreviewExtended} />
           <Toggle label="Onbekende stap (PREMIE ×2)" isOn={previewUnknownStep} onIsOnChange={setPreviewUnknownStep} />
           <Toggle label="Daarna een mijlpaal" isOn={previewMilestone} onIsOnChange={setPreviewMilestone} />
+          <Toggle label="Daarna een badge (Vroege vogel)" isOn={previewBadge} onIsOnChange={setPreviewBadge} />
           <Toggle label="Met bonusvraag" isOn={previewBonus} onIsOnChange={setPreviewBonus} />
           <Toggle
             label="Bonus toegekend"
@@ -287,8 +338,9 @@ export default function DevModeScreen() {
           title="Vieringen bekijken"
           footer={
             <Text>
-              De mijlpaalviering (volledig scherm, confetti) en de gemiste momenten zoals ze na het openen verschijnen.
-              Reduce Motion en geluid volgen de schakelaars hierboven. Schrijft niets weg en markeert niets als gezien.
+              De mijlpaalviering (volledig scherm, confetti), een badge, de gemiste momenten en de goedkeuringsviering
+              zoals ze na het openen verschijnen (met verzonnen getallen). Reduce Motion en geluid volgen de schakelaars
+              hierboven. Schrijft niets weg en markeert niets als gezien.
             </Text>
           }>
           <Stepper
@@ -300,7 +352,24 @@ export default function DevModeScreen() {
           />
           <Toggle label="Al toegekend" isOn={milestoneGranted} onIsOnChange={setMilestoneGranted} />
           <Button label="Mijlpaal tonen" systemImage="flag.checkered" onPress={showMilestone} modifiers={[disabled(!chosenMilestone)]} />
+          <Button label="Badge tonen" systemImage="rosette" onPress={showBadge} />
           <Button label="Gemiste momenten tonen" systemImage="tray.full" onPress={showMissed} />
+          <Stepper label={`Goedgekeurd: ${approvedCount}`} value={approvedCount} min={0} max={5} onValueChange={setApprovedCount} />
+          <Stepper label={`Afgewezen: ${rejectedCount}`} value={rejectedCount} min={0} max={3} onValueChange={setRejectedCount} />
+          <Toggle label="Met level-up" isOn={approvalLevelUp} onIsOnChange={setApprovalLevelUp} />
+          <Toggle label="Met badge en avatar" isOn={approvalBadge} onIsOnChange={setApprovalBadge} />
+          <Button
+            label="Goedkeuring tonen"
+            systemImage="checkmark.seal"
+            onPress={() => showApproval()}
+            modifiers={[disabled(approvedCount + rejectedCount === 0 && !approvalLevelUp && !approvalBadge)]}
+          />
+          <Button
+            label="Alleen een level-up tonen"
+            systemImage="arrow.up.circle"
+            onPress={() => showApproval({ approved: 0, rejected: 0, levelUp: true, badge: false })}
+            modifiers={[disabled(levels.length === 0)]}
+          />
         </Section>
 
         <Section

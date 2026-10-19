@@ -40,6 +40,10 @@ update game_config set value = '-0.005' where key = 'region_south';
 update game_config set value = '0.025' where key = 'region_east';
 update game_config set value = '0.005' where key = 'region_north';
 
+-- Badges are tested in 14_badges; none here, so the answers below are the same
+-- at every hour of the day.
+update badges set active = false;
+
 create function pg_temp.bin(i integer) returns bigint language sql as $$
   select b.id from public.bins b where b.osm_id = 900000000001200 + i;
 $$;
@@ -150,7 +154,7 @@ select is((select row(ok, pg_temp.kinds(score), score->>'total', score->'streak_
 select is((select game from c1),
   jsonb_build_object('discovery', jsonb_build_object('bin_id', pg_temp.bin(1), 'ordinal', 1, 'discovered', 1,
                                                      'total_bins', 12, 'status', 'pending'),
-                     'milestone', null, 'as_of', now()),
+                     'milestone', null, 'badges', '[]'::jsonb, 'as_of', now()),
   'game: the discovery with its counter (1 of the 12 bins of the region), no milestone');
 select is((select row(d.checkin_id = c1.checkin_id, d.status)::text from discoveries d, c1
            where d.user_id = 'c1200000-0000-0000-0000-000000000001' and d.bin_id = pg_temp.bin(1)),
@@ -304,7 +308,7 @@ select is(mark_seen('moments', now()), now(), 'mark_seen moves the mark to the g
 select is((select row(my_unseen()->>'moments_total', my_game_state()->>'unseen_moments')::text), '(0,0)',
   'after that nothing is unseen');
 select is(mark_seen('moments', now() - interval '2 days'), now(), 'the mark never moves back');
-select throws_ok($$ select mark_seen('results', now()) $$, '22023', null, 'mark_seen knows only moments (for now)');
+select throws_ok($$ select mark_seen('quests', now()) $$, '22023', null, 'mark_seen knows only moments and results');
 select throws_ok($$ select mark_seen('moments', null) $$, '22023', null, 'and needs a time');
 select is((select count(*)::integer from discoveries), 11, 'alice reads her own discoveries only, the revoked one too (RLS)');
 select throws_ok($$ insert into discoveries (user_id, bin_id, checkin_id, status, discovered_at)
