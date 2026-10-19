@@ -1315,5 +1315,31 @@ en 4 staan op staging en als EAS Update op `dev`, en zijn op de iPhone gecontrol
   - een badge die tegelijk als gemist moment en als bevestigd in de goedkeuring staat, kan twee
     keer verschijnen (eerst bevestigd, dan bij de gemiste momenten);
   - het totaal gebruikt `playType.total` (vijf cijfers op 75 %).
-- Nog te doen: verslag en akkoord, dan de staging-uitrol (migratie `20261019180000_progression.sql`,
-  geen `deploy` nodig, `update:dev`).
+- Akkoord (20 oktober). Staging, voorbereid: backup `postgres-20261020-011958.dump` (sha256 OK);
+  telling vooraf: laatste migratie 20261019120000, 2 profielen, 66 echte en 128 testpunten, hash
+  `6e476fd4…` over (id, punten, testpunten), beide op `last_seen_level` 1; check-ins 3 echte
+  goedgekeurd, 8 test goedgekeurd, 1 test wachtend, 5 test afgewezen; ledger toegekend 9 echte rijen
+  (66) en 16 testrijen (128), 2 wachtend, 10 herroepen; invariant leeg; 3 ontdekkingen, 0 mijlpalen,
+  meldingen 1 goedgekeurd en 1 afgewezen, 17 bonusantwoorden, 23 actieve events. De dry-run toont
+  alleen `20261019180000_progression.sql`.
+- Staging (20 oktober): `20261019180000_progression.sql` toegepast (door de gebruiker; staat in
+  `supabase_migrations.schema_migrations`). Telling erna identiek, behalve de migratieversie en 23 → 26
+  actieve events: dezelfde hash, invariant leeg. 11 actieve badges; de backfill gaf 3 toegekende
+  badges (twee keer Eerste inworp, één keer Kaartmaker), geen enkele als ongezien moment of ongeziene
+  beslissing; een refresh van beide profielen verandert niets. `my_badges`, `my_unseen`, `mark_seen`
+  en `game_catalog` alleen voor aangemelde gebruikers, RLS op `badges` en `user_badges`, de tabel
+  `badges` niet leesbaar, de trigger op meldingen staat er, de geheime badge is gemaskeerd in de
+  catalogus en de hint van de merel noemt "Vroege vogel". Beide profielen hebben 22 en 44 echte
+  punten (level 2) en staan nog op `last_seen_level` 1: ze zien één keer "Level 2 · Blikjesbuddy"
+  (die punten kwamen na fase 4). De functie veranderde niet (geen `deploy`). `check-supabase`,
+  `check-auth` en `check-fake-location` geslaagd. EAS Update op `dev` (runtime 1): update-groep
+  `d8133390-d9a1-4972-9949-0b47404d504b` (commit ebf6db4).
+- Nog te controleren op de iPhone (na `update:dev`): bij het openen één keer "Level 2 · Blikjesbuddy"
+  (fanfare, confetti), daarna niet meer; Dev-modus → "Vieringen bekijken": "Goedkeuring tonen" (kop
+  "Goedgekeurd! +32", totaal rolt 120 → 152, chips, level-up, badge en merel, afwijzingen rustig
+  onderaan), "Alleen een level-up tonen", "Badge tonen", gemiste momenten met badge, de onthulling
+  met "Daarna een badge"; met Reduce Motion (geen confetti, alleen fades) en zonder geluid; het
+  profiel ("Badges · N van 11", raster, tik = uitleg, geheime badge, klokje); de echte keten met het
+  testaccount: een echte inworp → onthulling → goedkeuren in Beheer → de app naar de achtergrond en
+  terug → "Goedgekeurd! +N" met het nieuwe totaal; afwijzen met een reden → rustig blok; en tijdens
+  het goedkeuren de camera open laten: er verschijnt niets boven de camera of de onthulling.
