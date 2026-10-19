@@ -38,6 +38,7 @@ describe('parseCheckinResponse', () => {
     expect(outcome.ok && outcome.game).toEqual({
       discovery: { binId: 58, ordinal: 12, discovered: 12, totalBins: 120, status: 'pending' },
       milestone: { threshold: 10, points: 50, status: 'pending' },
+      badges: [],
       asOf: '2026-10-15T18:00:00+00:00',
     });
   });

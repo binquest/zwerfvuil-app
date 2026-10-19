@@ -2,6 +2,8 @@
 // (docs/GAMIFICATION.md, 2.6 and 2.7): `game` in the answer of a check-in,
 // my_game_state(), my_collection() and my_unseen(). Pure parsers and labels,
 // unit tested; fetching is in src/lib/api.ts, the state in GameProvider.
+import { parseResults, type UnseenResults } from './approval';
+import { parseBadgeNews, parseBadgeNewsList, type BadgeNews } from './badges';
 import { parseLevelState, type LevelState } from './levels';
 
 /** pending until an admin approves a check-in at that bin. */
@@ -28,6 +30,8 @@ export interface MilestoneNews {
 export interface CheckinGame {
   discovery: DiscoveryNews | null;
   milestone: MilestoneNews | null;
+  /** Badges this check-in earned (phase 5). */
+  badges: BadgeNews[];
   /** Server time: mark_seen('moments', asOf) after the celebrations. */
   asOf: string | null;
 }
@@ -72,13 +76,16 @@ export interface CollectionEntry {
 
 export type MissedMoment =
   | { kind: 'discovery'; at: string; binId: number; ordinal: number; status: DiscoveryStatus }
-  | { kind: 'milestone'; at: string; threshold: number; points: number; status: MilestoneStatus };
+  | { kind: 'milestone'; at: string; threshold: number; points: number; status: MilestoneStatus }
+  | { kind: 'badge'; at: string; badge: BadgeNews };
 
-/** my_unseen(): the moments missed since the last visit, oldest first. */
+/** my_unseen(): the moments missed since the last visit (oldest first) and the decisions. */
 export interface Unseen {
   moments: MissedMoment[];
   /** All unseen moments (moments holds the newest 20). */
   total: number;
+  /** What was decided since the last visit (phase 5); null from an older server. */
+  results: UnseenResults | null;
   asOf: string;
 }
 
@@ -122,6 +129,7 @@ export function parseCheckinGame(value: unknown): CheckinGame | null {
   return {
     discovery: parseDiscoveryNews(value.discovery),
     milestone: parseMilestoneNews(value.milestone),
+    badges: parseBadgeNewsList(value.badges),
     asOf: typeof value.as_of === 'string' ? value.as_of : null,
   };
 }
@@ -187,9 +195,18 @@ export function parseUnseen(value: unknown): Unseen | null {
         ? [{ kind: 'milestone', at: m.at, threshold: m.threshold, points: m.points, status }]
         : [];
     }
+    if (m.kind === 'badge') {
+      const badge = parseBadgeNews(m);
+      return badge ? [{ kind: 'badge', at: m.at, badge }] : [];
+    }
     return [];
   });
-  return { moments, total: isNumber(value.moments_total) ? value.moments_total : moments.length, asOf: value.as_of };
+  return {
+    moments,
+    total: isNumber(value.moments_total) ? value.moments_total : moments.length,
+    results: parseResults(value.results),
+    asOf: value.as_of,
+  };
 }
 
 export type CollectionFilter = 'all' | 'discovered' | 'undiscovered';
@@ -234,17 +251,21 @@ export function nextMilestoneLabel(discovered: number, next: NextMilestone | nul
 
 /**
  * What the celebration of missed moments shows: the highest milestone (with
- * confetti) or none, and the discoveries.
+ * confetti) or none, the discoveries and the badges (one per badge, the last
+ * status).
  */
 export function summarizeMoments(moments: readonly MissedMoment[]): {
   milestone: Extract<MissedMoment, { kind: 'milestone' }> | null;
   discoveries: Extract<MissedMoment, { kind: 'discovery' }>[];
+  badges: BadgeNews[];
 } {
   let milestone: Extract<MissedMoment, { kind: 'milestone' }> | null = null;
   const discoveries: Extract<MissedMoment, { kind: 'discovery' }>[] = [];
+  const badges = new Map<string, BadgeNews>();
   for (const moment of moments) {
     if (moment.kind === 'discovery') discoveries.push(moment);
+    else if (moment.kind === 'badge') badges.set(moment.badge.key, moment.badge);
     else if (!milestone || moment.threshold > milestone.threshold) milestone = moment;
   }
-  return { milestone, discoveries };
+  return { milestone, discoveries, badges: [...badges.values()] };
 }

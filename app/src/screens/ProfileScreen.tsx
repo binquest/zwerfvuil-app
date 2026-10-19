@@ -1,21 +1,23 @@
 // The profile (docs/GAMIFICATION.md, chapter 5), in React Native: the avatar
 // in the ring to the next level (tap = the picker), name, level and title;
 // the points (rolling) with what waits for approval; the statistics; the
+// badges in a grid of 3 (locked = silhouette, tap = how to earn it); the
 // collection and the leaderboard; the history. The gear opens the settings
-// (name, account, app, sign out). Badges come in phase 5.
+// (name, account, app, sign out).
 import { router, Stack, useFocusEffect } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useCallback, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import type { SFSymbol } from 'sf-symbols-typescript';
 
-import { Avatar, GameNumber, PendingTag, ProgressRing } from '@/components/game';
+import { Avatar, BadgeGrid, BadgeIcon, GameNumber, PendingTag, ProgressRing } from '@/components/game';
+import { badgeCountLabel, badgeStatusLine, type Badge } from '@/game/badges';
 import { streakMultiplierLabel } from '@/game/catalog';
 import { levelLabel, levelProgress, toNextLabel } from '@/game/levels';
 import { useGameCatalog } from '@/game/useGameCatalog';
-import { fetchMyHistory } from '@/lib/api';
+import { fetchMyBadges, fetchMyHistory } from '@/lib/api';
 import { genericErrorMessage } from '@/lib/errors';
-import { formatDateTime, formatWeeks } from '@/lib/format';
+import { formatDate, formatDateTime, formatWeeks } from '@/lib/format';
 import { formatDistance } from '@/lib/geo';
 import { buildHistory, formatHistoryPoints, HISTORY_LABEL, type HistoryItem, type HistoryState } from '@/lib/history';
 import { useAuth } from '@/providers/AuthProvider';
@@ -73,6 +75,25 @@ function LinkRow({ title, symbol, color, onPress }: { title: string; symbol: SFS
   );
 }
 
+/** The explanation of the badge tapped in the grid: what it is, how to earn it, how far along you are. */
+function BadgeExplanation({ badge }: { badge: Badge | null }) {
+  if (!badge) {
+    return <Text style={[type.footnote, { color: colors.secondaryLabel, textAlign: 'center' }]}>Tik op een badge om te zien hoe je hem verdient.</Text>;
+  }
+  const line = badgeStatusLine(badge, formatDate);
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }} accessible accessibilityLiveRegion="polite">
+      <BadgeIcon badge={badge} size={48} locked={badge.status === 'locked'} decorative />
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={[type.headline, { color: colors.label }]}>{badge.name}</Text>
+        <Text style={[type.footnote, { color: colors.label }]}>{badge.description}</Text>
+        {badge.status === 'pending' ? <PendingTag style={{ alignSelf: 'flex-start', marginTop: spacing.xs }} /> : null}
+        {line && badge.status !== 'pending' ? <Text style={[type.footnote, { color: colors.secondaryLabel }]}>{line}</Text> : null}
+      </View>
+    </View>
+  );
+}
+
 function HistoryRow({ item }: { item: HistoryItem }) {
   const status = STATUS_STYLE[item.state];
   const when = item.distanceM === null ? formatDateTime(item.date) : `${formatDateTime(item.date)} · ${formatDistance(item.distanceM)}`;
@@ -101,12 +122,16 @@ export function ProfileScreen() {
   const { state, refresh } = useGame();
   const catalog = useGameCatalog();
   const [history, setHistory] = useState<HistoryItem[] | null>(null);
+  const [badges, setBadges] = useState<Badge[] | null>(null);
+  const [focusedBadge, setFocusedBadge] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const userId = session?.user.id;
   const load = useCallback(async () => {
     if (!userId) return;
+    // The badges on their own: a failure there leaves the rest of the profile.
+    fetchMyBadges().then(setBadges, () => {});
     try {
       const [mine] = await Promise.all([fetchMyHistory(userId), refresh(), refreshProfile()]);
       setHistory(buildHistory(mine.checkins, mine.entries));
@@ -212,6 +237,21 @@ export function ProfileScreen() {
               />
               <Stat label="Langste reeks" value={stats && stats.longestStreak > 0 ? formatWeeks(stats.longestStreak) : '—'} />
               <View style={{ flex: 1 }} />
+            </View>
+          </View>
+        ) : null}
+
+        {badges && badges.length > 0 ? (
+          <View style={{ gap: spacing.sm }}>
+            <SectionTitle>{`Badges · ${badgeCountLabel(badges)}`}</SectionTitle>
+            <View style={[card, { gap: spacing.lg }]}>
+              <BadgeExplanation badge={badges.find((b) => b.key === focusedBadge) ?? null} />
+              <BadgeGrid
+                badges={badges}
+                selected={focusedBadge}
+                onSelect={(badge) => setFocusedBadge(badge.key)}
+                inset={spacing.lg * 2}
+              />
             </View>
           </View>
         ) : null}

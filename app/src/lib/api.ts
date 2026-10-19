@@ -5,6 +5,7 @@ import { File } from 'expo-file-system';
 import { track } from '@/analytics';
 
 import { parseMyAvatars, type AvatarChoice } from '../game/avatars';
+import { parseMyBadges, type Badge } from '../game/badges';
 import {
   parseCollection,
   parseGameState,
@@ -210,6 +211,19 @@ export async function fetchMyUnseen(): Promise<Unseen> {
 export async function markMomentsSeen(until: string): Promise<void> {
   const { error } = await supabase.rpc('mark_seen', { kind: 'moments', until });
   if (error) throw error;
+}
+
+/** Marks the decisions up to `until` (`as_of` of my_unseen) as seen, and their level. */
+export async function markResultsSeen(until: string): Promise<void> {
+  const { error } = await supabase.rpc('mark_seen', { kind: 'results', until });
+  if (error) throw error;
+}
+
+/** my_badges(): every badge with its status and progress, for the profile. */
+export async function fetchMyBadges(): Promise<Badge[]> {
+  const { data, error } = await supabase.rpc('my_badges');
+  if (error) throw error;
+  return parseMyBadges(data);
 }
 
 export async function markBonusShown(checkinId: string): Promise<void> {

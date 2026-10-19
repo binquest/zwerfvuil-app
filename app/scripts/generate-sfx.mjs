@@ -24,6 +24,8 @@
 //   chip_add           the +5 discovery chips (and a step the app does not know): bright plink at G6
 //   flame_whoosh       the streak flame grows: a warm noise sweep over a low E3
 //   milestone_fanfare  a milestone: arpeggio C5 E5 G5, then the full C major chord over C4
+//   approve_chime      approved (and a badge): two bells up a fourth, G5 then C6, with a shimmer
+//   levelup_fanfare    a level-up: a quick pentatonic run C5 to C6, then the C major chord an octave up
 //
 // Deterministic: the same script writes the same samples (seeded noise).
 // generate-sfx.test.mjs checks the committed files against it.
@@ -290,6 +292,43 @@ function milestoneFanfare() {
   return buf;
 }
 
+function approveChime() {
+  const buf = buffer(0.8);
+  // Two bells up a fourth, the second louder; a soft shimmer at G7 on it.
+  addTone(buf, { freq: note(7), partials: BELL, decay: 0.14, gain: 0.7 });
+  addTone(buf, { at: 0.09, freq: note(12), partials: BELL, decay: 0.2, gain: 0.85 });
+  for (const detune of [1.003, 0.997]) {
+    addTone(buf, { at: 0.1, freq: note(31) * detune, decay: 0.1, gain: 0.06, fadeIn: 0.01 });
+  }
+  fadeOut(buf, 0.03);
+  return buf;
+}
+
+// The chord of the level-up lands here (src/game/approval.ts, LEVEL_CHORD_MS).
+const LEVEL_CHORD_AT = 0.4;
+
+function levelupFanfare() {
+  const buf = buffer(1.8);
+  // A quick run up the pentatonic scale, then a bright chord with a low C and a thump.
+  [0, 2, 4, 7, 9, 12].forEach((semitones, k) => {
+    addTone(buf, { at: k * 0.06, freq: note(semitones), partials: BELL, decay: 0.08, gain: 0.45 + 0.05 * k });
+  });
+  [[12, 0.8], [16, 0.7], [19, 0.7], [24, 0.5], [0, 0.6]].forEach(([semitones, gain]) => {
+    for (const detune of [1.002, 0.998]) {
+      addTone(buf, {
+        at: LEVEL_CHORD_AT,
+        freq: note(semitones) * detune,
+        partials: [[1, 1, 1], [2, 0.3, 0.6], [3, 0.12, 0.4]],
+        decay: 0.45,
+        gain: gain * 0.4,
+      });
+    }
+  });
+  addTone(buf, { at: LEVEL_CHORD_AT, freq: 60, decay: 0.12, gain: 0.8, drop: 0.5, dropTime: 0.03 });
+  fadeOut(buf, 0.04);
+  return buf;
+}
+
 function heatLoop() {
   const n = SAMPLE_RATE;
   const rng = mulberry32(2026);
@@ -345,6 +384,8 @@ export function renderAll() {
   sounds.chip_add = chipAdd();
   sounds.flame_whoosh = flameWhoosh();
   sounds.milestone_fanfare = milestoneFanfare();
+  sounds.approve_chime = approveChime();
+  sounds.levelup_fanfare = levelupFanfare();
   return sounds;
 }
 

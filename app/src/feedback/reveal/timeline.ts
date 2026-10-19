@@ -71,7 +71,9 @@ export type Event =
   | { atMs: number; type: 'badge'; value: number }
   // A celebration (celebrate.tsx): confetti (0 pieces with Reduce Motion), its reward comes in.
   | { atMs: number; type: 'confetti'; pieces: number }
-  | { atMs: number; type: 'reward' };
+  | { atMs: number; type: 'reward' }
+  // The approval celebration: its `index`-th block comes in (src/game/approval.ts).
+  | { atMs: number; type: 'part'; index: number };
 
 type DistributiveOmit<U, K extends PropertyKey> = U extends unknown ? Omit<U, K> : never;
 /** An event without its time. */

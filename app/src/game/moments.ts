@@ -5,6 +5,7 @@
 //   - Only on a tab screen without an open modal, and one at a time.
 //   - A warm start is background -> active only (not Control Center or a
 //     permission dialog, which go through inactive).
+import { hasResults, type UnseenResults } from './approval';
 
 export const MOMENT_ORDER = ['onboarding', 'update', 'approval', 'missed', 'notifications', 'chest'] as const;
 
@@ -35,6 +36,18 @@ export function enqueueMoment<M extends Moment>(queue: readonly M[], moment: M):
 /** True on a tab screen with nothing on top (no camera, reveal, sheet or celebration) and nothing showing. */
 export function canPresent(segments: readonly string[], presenting: boolean): boolean {
   return !presenting && segments[0] === '(tabs)';
+}
+
+/**
+ * The moments one answer of my_unseen asks for: the approval celebration when
+ * something was decided (or the level rose), the missed moments when there
+ * are any. The presenter shows them in MOMENT_ORDER: approval first.
+ */
+export function unseenMomentKinds(unseen: { moments: readonly unknown[]; results: UnseenResults | null }): ('approval' | 'missed')[] {
+  const kinds: ('approval' | 'missed')[] = [];
+  if (hasResults(unseen.results)) kinds.push('approval');
+  if (unseen.moments.length > 0) kinds.push('missed');
+  return kinds;
 }
 
 /** The kind of start a change of app state is: the first active state is cold, background -> active warm. */

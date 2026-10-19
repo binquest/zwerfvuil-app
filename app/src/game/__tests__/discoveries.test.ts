@@ -17,26 +17,29 @@ import {
 } from '../discoveries';
 
 describe('parseCheckinGame', () => {
-  it('reads the discovery, the milestone and the server time', () => {
+  it('reads the discovery, the milestone, the badges and the server time', () => {
     expect(
       parseCheckinGame({
         discovery: { bin_id: 58, ordinal: 12, discovered: 12, total_bins: 120, status: 'pending' },
         milestone: { threshold: 10, points: 50, status: 'pending' },
+        badges: [{ key: 'first_checkin', name: 'Eerste inworp', description: 'Doe je eerste inworp.', symbol: 'hand.thumbsup.fill', rarity: 'common', status: 'pending' }, { key: 'x' }],
         as_of: '2026-10-15T18:00:00+00:00',
         later: true,
       }),
     ).toEqual({
       discovery: { binId: 58, ordinal: 12, discovered: 12, totalBins: 120, status: 'pending' },
       milestone: { threshold: 10, points: 50, status: 'pending' },
+      badges: [{ key: 'first_checkin', name: 'Eerste inworp', description: 'Doe je eerste inworp.', symbol: 'hand.thumbsup.fill', rarity: 'common', status: 'pending' }],
       asOf: '2026-10-15T18:00:00+00:00',
     });
   });
 
   it('keeps what it can read: no discovery, no milestone', () => {
-    expect(parseCheckinGame({ discovery: null, milestone: null, as_of: 'x' })).toEqual({ discovery: null, milestone: null, asOf: 'x' });
+    expect(parseCheckinGame({ discovery: null, milestone: null, as_of: 'x' })).toEqual({ discovery: null, milestone: null, badges: [], asOf: 'x' });
     expect(parseCheckinGame({ discovery: { bin_id: '58' }, milestone: { threshold: 10, points: 50, status: 'revoked' } })).toEqual({
       discovery: null,
       milestone: null,
+      badges: [],
       asOf: null,
     });
   });
@@ -127,19 +130,33 @@ describe('parseUnseen', () => {
         moments: [
           { kind: 'discovery', at: 'a', bin_id: 58, ordinal: 9, status: 'pending' },
           { kind: 'milestone', at: 'b', threshold: 10, points: 50, status: 'granted' },
+          { kind: 'badge', at: 'b', ...{ key: 'first_checkin', name: 'Eerste inworp', description: 'Doe je eerste inworp.', symbol: 'hand.thumbsup.fill', rarity: 'common', status: 'pending' } },
+          { kind: 'badge', at: 'b', key: 'broken' },
           { kind: 'chest', at: 'c' },
         ],
-        moments_total: 2,
+        moments_total: 3,
         as_of: 'now',
       }),
     ).toEqual({
       moments: [
         { kind: 'discovery', at: 'a', binId: 58, ordinal: 9, status: 'pending' },
         { kind: 'milestone', at: 'b', threshold: 10, points: 50, status: 'granted' },
+        { kind: 'badge', at: 'b', badge: { key: 'first_checkin', name: 'Eerste inworp', description: 'Doe je eerste inworp.', symbol: 'hand.thumbsup.fill', rarity: 'common', status: 'pending' } },
       ],
-      total: 2,
+      total: 3,
+      results: null,
       asOf: 'now',
     });
+  });
+
+  it('reads the results of phase 5 next to the moments', () => {
+    const unseen = parseUnseen({
+      moments: [],
+      moments_total: 0,
+      results: { approved: [{ checkin_id: 'c1', bin_id: 58, points: 16 }], rejected: [], approved_count: 1, gained: 16 },
+      as_of: 'now',
+    });
+    expect(unseen?.results).toMatchObject({ approvedCount: 1, gained: 16, approved: [{ checkinId: 'c1', binId: 58, points: 16 }] });
   });
 
   it('is null without moments or a server time', () => {
@@ -200,5 +217,14 @@ describe('summarizeMoments', () => {
 
   it('has no milestone when there is none', () => {
     expect(summarizeMoments([]).milestone).toBeNull();
+  });
+
+  it('keeps each badge once, with its last status', () => {
+    const badge = { key: 'first_checkin', name: 'Eerste inworp', description: '', symbol: 'star', rarity: 'common' as const };
+    const { badges } = summarizeMoments([
+      { kind: 'badge', at: 'a', badge: { ...badge, status: 'pending' } },
+      { kind: 'badge', at: 'b', badge: { ...badge, status: 'granted' } },
+    ]);
+    expect(badges).toEqual([{ ...badge, status: 'granted' }]);
   });
 });

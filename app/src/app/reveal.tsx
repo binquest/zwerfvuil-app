@@ -531,14 +531,16 @@ export default function RevealScreen() {
     router.replace('/reveal');
   };
 
-  // Done: a milestone gets its own celebration next; otherwise the moments of
-  // this check-in are seen, and the map and counter catch up.
+  // Done: a milestone or a badge gets its own celebration next; otherwise the
+  // moments of this check-in are seen, and the map and counter catch up.
   const leave = () => {
     const milestone = game?.milestone ?? null;
-    if (milestone && data) {
+    const badges = game?.badges ?? [];
+    if ((milestone || badges.length > 0) && data) {
       setPendingCelebration({
-        kind: 'milestone',
+        kind: 'reveal',
         milestone,
+        badges,
         discovered: game?.discovery?.discovered ?? null,
         totalBins: game?.discovery?.totalBins ?? null,
         asOf: game?.asOf ?? null,

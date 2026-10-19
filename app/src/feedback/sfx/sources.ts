@@ -32,6 +32,8 @@ export const SFX_SOURCES = {
   chip_add: require('../../../assets/sfx/chip_add.wav'),
   flame_whoosh: require('../../../assets/sfx/flame_whoosh.wav'),
   milestone_fanfare: require('../../../assets/sfx/milestone_fanfare.wav'),
+  approve_chime: require('../../../assets/sfx/approve_chime.wav'),
+  levelup_fanfare: require('../../../assets/sfx/levelup_fanfare.wav'),
 } as const;
 
 export type SfxId = keyof typeof SFX_SOURCES;

@@ -1277,9 +1277,43 @@ en 4 staan op staging en als EAS Update op `dev`, en zijn op de iPhone gecontrol
     `mark_seen('results')`. Samen 612. Integratie: goedkeuren → `my_unseen` met de beslissing,
     +22 per bron, level 1 → 2 en Eerste inworp → `mark_seen('results')` → niets meer; herroepen →
     rustig met reden.
-- Nog te doen, deel 2 (app): parsers voor `results` en badges; badgeraster van 3 in het profiel
-  met uitleg (tik); goedkeuringsviering als bron van de `MomentsPresenter` (koude en warme start,
-  vóór de gemiste momenten), level-up (apart als er geen beslissing is), badges in de viering na de
-  onthulling en bij de gemiste momenten; geluiden `approve_chime` en `levelup_fanfare`; Dev-previews
-  (goedkeuring met aantallen, level-up, badge); Jest (viering-tijdlijn, presenter-volgorde); alle
-  controles; verslag. Daarna de staging-uitrol.
+- Deel 2, app, af en getest (geen nieuwe route, geen native wijziging):
+  - `src/game/badges.ts` (parsers voor `my_badges` en badgenieuws, statusregel "Nog 13 te gaan ·
+    12/25") en `src/game/approval.ts` (`parseResults`, `hasResults`, koptekst "Goedgekeurd! +16",
+    chips per bron "+33 inworpen", regels voor level en afwijzing, de blokken van het scherm, hun
+    tijdlijn en verzonnen resultaten voor de Dev-preview). `parseUnseen` leest badge-momenten en
+    `results`, `parseCheckinGame` de badges.
+  - Goedkeuringsviering: `MissedMoments` zet uit één `my_unseen` een `approval`- en/of
+    `missed`-moment in de wachtrij (`unseenMomentKinds`; de presenter toont `approval` eerst), bij
+    koude en warme start; vlak voor het tonen vraagt het opnieuw en kijkt het of er nog steeds geen
+    camera, onthulling of sheet open is (anders niets, het komt terug bij de volgende start).
+    `celebrate.tsx` heeft nu drie soorten: `reveal` (mijlpaal en/of badges na de onthulling),
+    `missed` (met badges) en `approval` (`ApprovalBody`: kop, totaal rolt van oud naar nieuw, chips
+    per bron in PUNTEN-blauw, level-up in goud met `levelup_fanfare` en confetti, bevestigde badges,
+    ontgrendelde avatars, afwijzingen rustig onderaan met reden; alles gemount bij het openen, één
+    gedeelde waarde laat de blokken na elkaar invallen). Een level-up zonder beslissing is dezelfde
+    viering met het level als kop. Sluiten = `mark_seen('results', as_of)`.
+  - Profiel: "Badges · 4 van 11" met een raster van 3 (`BadgeGrid`, `BadgeIcon`: symbool op een
+    cirkel in de zeldzaamheidskleur, vergrendeld = silhouet, wacht = klokje); tik = uitleg erboven
+    (naam, hoe je hem verdient, datum, "wacht op goedkeuring" of voortgang).
+  - Geluiden `approve_chime` (ook voor een badge zonder mijlpaal) en `levelup_fanfare` uit
+    `generate-sfx.mjs`. Events `approval_shown`, `level_up_shown`, `badge_shown` (bron
+    reveal/missed/approval).
+  - Dev-modus, "Vieringen bekijken": "Daarna een badge" bij de onthulling, "Badge tonen", gemiste
+    momenten met een badge, "Goedkeuring tonen" (aantallen goedgekeurd 0–5 en afgewezen 0–3, met
+    level-up, met badge en avatar) en "Alleen een level-up tonen". Schrijft niets.
+  - Tests: Jest 310 (`approval.test.ts`: parser, kop, chips, samenvatting, blokken, tijdlijn met
+    Reduce Motion, alleen afwijzingen, alleen level-up, preview; `badges.test.ts`; presenter-volgorde
+    in `moments.test.ts`; badges in `discoveries`, `checkin` en `celebration`); `test:scripts` 28
+    (de twee geluiden in de lijst en hun lengte).
+- Kleine keuzes buiten het plan:
+  - geen Questheld en Premiejager: hun regeltypes komen met fase 6 en 8;
+  - badges geven geen punten (geen ledgerrij); de "+16" is alles wat sinds het vorige bezoek
+    toegekend werd, ook een mijlpaal;
+  - Nachtuil is de geheime badge; Vroege vogel telt van 5 tot 8 u (niet vanaf middernacht);
+  - de goedkeuringsviering toont alleen echte inworpen; testinworpen zijn nooit een beslissing;
+  - een badge die tegelijk als gemist moment en als bevestigd in de goedkeuring staat, kan twee
+    keer verschijnen (eerst bevestigd, dan bij de gemiste momenten);
+  - het totaal gebruikt `playType.total` (vijf cijfers op 75 %).
+- Nog te doen: verslag en akkoord, dan de staging-uitrol (migratie `20261019180000_progression.sql`,
+  geen `deploy` nodig, `update:dev`).

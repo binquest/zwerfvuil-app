@@ -296,6 +296,10 @@ echte gebruikersdata vraagt meer.
   badge Kaartmaker verschijnt). Een correctie (`adjust_points`) en een bonusvraag die
   pas na de goedkeuring beantwoord wordt, tellen mee in het totaal, maar niet in
   "+N" per bron: hun tijd wordt niet na de gebruikerslock gezet.
+- [ ] **Een viering die niet kan verschijnen, wacht tot de volgende start.** Opent
+  iemand de camera net terwijl de app `my_unseen` vraagt, dan toont de presenter de
+  goedkeuringsviering of de gemiste momenten pas bij de volgende koude of warme
+  start. Beter: het moment in de wachtrij laten tot er weer een tab-scherm is.
 - [ ] **Badges rekenen telkens alles opnieuw**: de refresh en `my_badges` evalueren
   elke regel over alle inworpen, ontdekkingen en bonusantwoorden van de speler.
   Bij duizenden inworpen per speler: tellers bijhouden of alleen de badges van de

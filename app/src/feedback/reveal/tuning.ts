@@ -127,4 +127,6 @@ export const VOLUME = {
   chipAdd: 0.75,
   flame: 0.7,
   milestone: 0.9,
+  approve: 0.8,
+  levelUp: 0.9,
 };
