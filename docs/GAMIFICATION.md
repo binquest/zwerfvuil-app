@@ -1245,5 +1245,41 @@ en 4 staan op staging en als EAS Update op `dev`, en zijn op de iPhone gecontrol
   Wegwerp-rookie", medailles, "Testdata tonen"); Reduce Motion en donkere modus. De vaste eigen rij
   onderaan is pas te zien met meer spelers dan op één scherm passen.
 - Gemerged in `main` als PR #6 (19 oktober).
-- Nog te doen: fase 5 t/m 7.
-- Volgende stap: fase 5 in een nieuwe sessie, op `gamification/5-progressie` vanaf `main`.
+
+**Fase 5 (progressie: badges en goedkeuringsviering)**, op `gamification/5-progressie`
+- Deel 1, server (`20261019180000_progression.sql`), af en lokaal getest:
+  - Catalogus `badges` (11: de badges van hoofdstuk 3 zonder Questheld en Premiejager, die komen met
+    hun regeltype in fase 6 en 8) met een `rule` van een vast type, gecontroleerd door
+    `private.badge_rule_ok`: `count` over `checkins` (met `hour_from`/`hour_before` in de tijd van
+    Gent, over middernacht als from > before), `discoveries`, `bonus_answers` of `reports`;
+    `streak_weeks` (de langste reeks); `region_complete`. Vroege vogel = 5–8 u, Nachtuil = 22–5 u
+    (geheim).
+  - Spelfeit `user_badges` (pending/granted/revoked, `earned_at` = het moment, `granted_at` alleen bij
+    granted, anker), RLS eigen rijen/admins. De refresh rekent elke actieve badge uit over de twee
+    zekerheden (`private.badge_progress`), na de mijlpalen en vóór de avatar. Meldingen van
+    ontbrekende vuilbakken starten nu de refresh (trigger bij insert en beoordeling).
+  - Badge-avatar: `avatar_states` volgt de badge (granted = unlocked, pending = pending), de refresh
+    neemt de merel af als de badge vervalt; `avatar_hint` haalt de naam uit `badges`.
+  - `record_checkin` geeft `game.badges` (bereikt in deze inworp); momenten hebben nu ook `badge`
+    (volgorde: tijd, dan ontdekking, mijlpaal, badge); `game_catalog()` met `badges` (geheime
+    gemaskeerd); `my_badges()` met status locked/pending/granted, `earned_at` en `progress`/`target`.
+  - Beslissingen: `profiles.results_seen_at`; `my_unseen()` geeft `results` (goedgekeurd en
+    afgewezen met reden en `revoked`, aantallen, `gained` en `by_source`, `points_before`/`after`,
+    `level_before` = `last_seen_level`/`level_after`/`level_title`, toegekende badges, ontgrendelde
+    avatars); `mark_seen('results', until)` zet `results_seen_at` en `last_seen_level` = het level van
+    de punten op dat tijdstip (`private.points_at`). Geen race: `my_unseen` neemt de gebruikerslock
+    en leest `as_of` daarna; `review_checkin`, `revoke_checkin` en de refresh stempelen met
+    `clock_timestamp()` na diezelfde lock.
+  - Events `approval_shown`, `level_up_shown`, `badge_shown` (ook in `events.ts` en `ANALYTICS.md`);
+    `badges` en `user_badges` in `check-restore.sh`. De functie veranderde niet (geen `deploy`).
+  - Tests: `14_badges` (47), `15_unseen` (24); 10 kent de nieuwe events; 12 en 13 zetten de badges
+    uit (anders hangt het antwoord van het uur af) en 12 verwacht `badges: []` in `game` en kent
+    `mark_seen('results')`. Samen 612. Integratie: goedkeuren → `my_unseen` met de beslissing,
+    +22 per bron, level 1 → 2 en Eerste inworp → `mark_seen('results')` → niets meer; herroepen →
+    rustig met reden.
+- Nog te doen, deel 2 (app): parsers voor `results` en badges; badgeraster van 3 in het profiel
+  met uitleg (tik); goedkeuringsviering als bron van de `MomentsPresenter` (koude en warme start,
+  vóór de gemiste momenten), level-up (apart als er geen beslissing is), badges in de viering na de
+  onthulling en bij de gemiste momenten; geluiden `approve_chime` en `levelup_fanfare`; Dev-previews
+  (goedkeuring met aantallen, level-up, badge); Jest (viering-tijdlijn, presenter-volgorde); alle
+  controles; verslag. Daarna de staging-uitrol.

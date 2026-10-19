@@ -11,6 +11,8 @@ export type DistanceBucket = '0_10' | '10_25' | '25_50' | '50_plus' | 'unknown';
 export type PhotoMode = 'checkin' | 'report';
 /** Where a celebration was shown: in the reveal (or right after it) or as a missed moment. */
 export type CelebrationSource = 'reveal' | 'missed';
+/** Where a badge was shown: a celebration source or the approval celebration (confirmed). */
+export type BadgeSource = CelebrationSource | 'approval';
 export type OnboardingStep = 'name' | 'avatar';
 
 export interface EventProps {
@@ -37,6 +39,9 @@ export interface EventProps {
   leaderboard_viewed: { period: 'week' | 'all' };
   report_flow_start: Record<string, never>;
   report_submitted: { ok: boolean };
+  approval_shown: { approved: number; rejected: number; points: number };
+  level_up_shown: { level: number; previous: number };
+  badge_shown: { badge_key: string; status: string; source: BadgeSource };
 }
 
 export type EventName = keyof EventProps;
@@ -66,6 +71,9 @@ const NAMES = {
   leaderboard_viewed: true,
   report_flow_start: true,
   report_submitted: true,
+  approval_shown: true,
+  level_up_shown: true,
+  badge_shown: true,
 } satisfies Record<EventName, true>;
 
 export const EVENT_NAMES = Object.keys(NAMES) as EventName[];

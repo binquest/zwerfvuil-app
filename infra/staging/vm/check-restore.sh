@@ -22,6 +22,7 @@ log "dump: $(basename "$dump") ($(du -h "$dump" | cut -f1)), checksum ok"
 # appear, so the newest dump should be fresh (the script makes one if asked).
 TABLES=(public.bins public.profiles public.checkins public.point_transactions public.bin_reports
   public.milestones public.discoveries public.user_milestones private.game_errors public.levels public.avatars
+  public.badges public.user_badges
   public.game_config public.event_names public.app_events private.game_config_rules private.app_environment auth.users auth.identities storage.buckets storage.objects supabase_migrations.schema_migrations)
 
 image=$(docker inspect -f '{{.Config.Image}}' supabase-db)

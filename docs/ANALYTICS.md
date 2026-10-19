@@ -104,6 +104,9 @@ Deno-integratietest de app met de database.
 | `leaderboard_viewed` | ranglijst geopend of andere periode | `period` week/all |
 | `report_flow_start` | melding van een ontbrekende vuilbak gestart ("Foto nemen") | — |
 | `report_submitted` | melding verstuurd | `ok` |
+| `approval_shown` | goedkeuringsviering getoond (beslissingen sinds het vorige bezoek) | `approved`, `rejected` (aantallen), `points` (erbij gekregen) |
+| `level_up_shown` | level-up getoond: in de goedkeuringsviering of apart | `level`, `previous` |
+| `badge_shown` | badge getoond: na de onthulling, als gemist moment of bevestigd in de goedkeuringsviering | `badge_key`, `status` pending/granted, `source` reveal/missed/approval |
 
 Opmerkingen:
 - `discovery` in `reveal_shown` is `true` als de score een ontdekkingsstap heeft (sinds fase 3). In
@@ -124,8 +127,6 @@ fase die de functie bouwt.
 
 | Event | Fase | Props |
 |---|---|---|
-| `level_up_shown`, `badge_shown` | 5 | `level` / `badge_key`, `status` |
-| `approval_shown` | 5 | `approved`, `rejected`, `points` |
 | `quest_viewed`, `quest_completed`, `chest_opened`, `tip_shown` | 6 | zie GAMIFICATION.md |
 | `notification_permission`, `notification_scheduled`, `notification_opened` | 7 | zie GAMIFICATION.md |
 | `heatmap_toggled`, `recap_shown`, `recap_shared`, `bounty` in `map_bin_tap` en `reveal_shown` | 8–9 | zie GAMIFICATION.md |
