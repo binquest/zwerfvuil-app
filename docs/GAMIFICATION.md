@@ -868,8 +868,8 @@ vergelijking van de punten en in fase 1b van de eventtellingen in Studio.
 
 ## Overdracht
 
-Stand op 19 oktober 2026: fase 1a, 1b, 2, 3 en 4 zijn af en gemerged in `main` (PR #2 t/m #6); fase 3
-en 4 staan op staging en als EAS Update op `dev`, en zijn op de iPhone gecontroleerd.
+Stand op 20 oktober 2026: fase 1a, 1b, 2, 3, 4 en 5 zijn af en gemerged in `main` (PR #2 t/m #7);
+fase 3, 4 en 5 staan op staging en als EAS Update op `dev`, en zijn op de iPhone gecontroleerd.
 
 - Af: dit plan; fase 1a (puntenledger); fase 1b (config en eventlog), lokaal.
   - Server (`20261015120000_points_ledger.sql`): `point_transactions` met de projectie vanuit
@@ -1334,8 +1334,8 @@ en 4 staan op staging en als EAS Update op `dev`, en zijn op de iPhone gecontrol
   (die punten kwamen na fase 4). De functie veranderde niet (geen `deploy`). `check-supabase`,
   `check-auth` en `check-fake-location` geslaagd. EAS Update op `dev` (runtime 1): update-groep
   `d8133390-d9a1-4972-9949-0b47404d504b` (commit ebf6db4).
-- iPhone (20 oktober): alles in orde. Gecontroleerd (na `update:dev`): bij het openen één keer "Level 2 · Blikjesbuddy"
-  (fanfare, confetti), daarna niet meer; Dev-modus → "Vieringen bekijken": "Goedkeuring tonen" (kop
+- iPhone (20 oktober): alles in orde. Gecontroleerd (na `update:dev`): bij het openen één keer
+  "Level 2 · Blikjesbuddy" (fanfare, confetti), daarna niet meer; Dev-modus → "Vieringen bekijken": "Goedkeuring tonen" (kop
   "Goedgekeurd! +32", totaal rolt 120 → 152, chips, level-up, badge en merel, afwijzingen rustig
   onderaan), "Alleen een level-up tonen", "Badge tonen", gemiste momenten met badge, de onthulling
   met "Daarna een badge"; met Reduce Motion (geen confetti, alleen fades) en zonder geluid; het
@@ -1343,3 +1343,6 @@ en 4 staan op staging en als EAS Update op `dev`, en zijn op de iPhone gecontrol
   testaccount: een echte inworp → onthulling → goedkeuren in Beheer → de app naar de achtergrond en
   terug → "Goedgekeurd! +N" met het nieuwe totaal; afwijzen met een reden → rustig blok; en tijdens
   het goedkeuren de camera open laten: er verschijnt niets boven de camera of de onthulling.
+- Gemerged in `main` als PR #7 (20 oktober).
+- Nog te doen: fase 6 en 7.
+- Volgende stap: fase 6 in een nieuwe sessie, op `gamification/6-vandaag` vanaf `main`.
