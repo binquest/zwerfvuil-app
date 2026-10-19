@@ -9,7 +9,32 @@ const CONFIG_JSON = { checkin_base_chips: 10, streak_multiplier: 1.1, streak_max
 describe('parseCatalog', () => {
   it('reads the numbers of game_catalog()', () => {
     const answer = { config: { ...CONFIG_JSON, later_key: 3 } };
-    expect(parseCatalog(answer)).toEqual({ config: DEFAULT_CONFIG, milestones: [] });
+    expect(parseCatalog(answer)).toEqual({ config: DEFAULT_CONFIG, milestones: [], levels: [], avatars: [] });
+  });
+
+  it('reads the levels and avatars, sorted', () => {
+    const answer = {
+      config: CONFIG_JSON,
+      levels: [
+        { level: 2, min_points: 10, title: 'Blikjesbuddy' },
+        { level: 1, min_points: 0, title: 'Wegwerp-rookie' },
+        { level: 3, title: 'zonder drempel' },
+      ],
+      avatars: [
+        { key: 'vos', name: 'Vos', rarity: 'common', unlock_type: 'default', unlock_param: null, sort: 2, placeholder_symbol: 'pawprint.fill', placeholder_color: '#C8553D' },
+        { key: 'spruit', name: 'Spruit', rarity: 'common', unlock_type: 'default', unlock_param: null, sort: 1, placeholder_symbol: 'leaf.fill', placeholder_color: '#4E9A52' },
+        { key: 'kapot', name: 'Kapot' },
+      ],
+    };
+    const catalog = parseCatalog(answer);
+    expect(catalog?.levels).toEqual([
+      { level: 1, title: 'Wegwerp-rookie', minPoints: 0 },
+      { level: 2, title: 'Blikjesbuddy', minPoints: 10 },
+    ]);
+    expect(catalog?.avatars.map((a) => a.key)).toEqual(['spruit', 'vos']);
+    expect(catalog?.avatars[1]).toEqual({
+      key: 'vos', name: 'Vos', rarity: 'common', unlockType: 'default', sort: 2, symbol: 'pawprint.fill', color: '#C8553D',
+    });
   });
 
   it('reads the milestones, sorted, and skips malformed ones', () => {

@@ -304,6 +304,17 @@ export default function DevModeScreen() {
         </Section>
 
         <Section
+          title="Onboarding bekijken"
+          footer={
+            <Text>
+              Naam en avatar zoals een nieuw account ze ziet, met je huidige naam ingevuld. Bewaart niets: de laatste
+              knop sluit de preview.
+            </Text>
+          }>
+          <Button label="Onboarding tonen" systemImage="person.crop.circle.badge.plus" onPress={() => router.push('/onboarding-preview')} />
+        </Section>
+
+        <Section
           title="Spelonderdelen"
           footer={
             <Text>

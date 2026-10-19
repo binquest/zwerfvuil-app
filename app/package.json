@@ -58,11 +58,12 @@
     "doctor": "npx --yes expo-doctor@1.20.4",
     "export:staging": "node scripts/staging.mjs npx --yes expo export --platform ios --output-dir dist-staging --clear",
     "check:staging-bundle": "node scripts/staging.mjs npx --yes expo export --platform ios --output-dir dist-staging --clear --no-bytecode && node scripts/check-staging-bundle.mjs dist-staging",
-    "test:scripts": "node --test scripts/staging.test.mjs scripts/icons.test.mjs scripts/generate-sfx.test.mjs scripts/native-versions.test.mjs",
+    "test:scripts": "node --test scripts/staging.test.mjs scripts/icons.test.mjs scripts/generate-sfx.test.mjs scripts/native-versions.test.mjs scripts/avatars.test.mjs",
     "update:dev": "node scripts/update-dev.mjs",
     "native:check": "node scripts/native-versions.mjs",
     "native:record": "node scripts/native-versions.mjs --record",
-    "sfx:generate": "node scripts/generate-sfx.mjs"
+    "sfx:generate": "node scripts/generate-sfx.mjs",
+    "avatars": "node scripts/avatars.mjs"
   },
   "private": true,
   "expo": {

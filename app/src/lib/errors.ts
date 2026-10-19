@@ -48,6 +48,20 @@ export function adminErrorMessage(error: ErrorLike): string {
   return 'Dat lukte niet. Probeer het opnieuw.';
 }
 
+/** complete_onboarding, set_my_name and set_my_avatar. */
+export function identityErrorMessage(error: ErrorLike): string {
+  if (isNetworkError(error)) return 'Geen verbinding met de server. Controleer je internet.';
+  switch (error?.code) {
+    case '22023':
+      return 'Deze naam kan niet. Gebruik 2 tot 24 tekens.';
+    case '42501':
+      return 'Deze avatar is nog vergrendeld.';
+    case 'P0002':
+      return 'Deze avatar bestaat niet meer. Kies een andere.';
+  }
+  return 'Bewaren lukte niet. Probeer het opnieuw.';
+}
+
 export function genericErrorMessage(error: ErrorLike): string {
   if (isNetworkError(error)) return 'Geen verbinding met de server. Controleer je internet.';
   return 'Er ging iets mis. Probeer het opnieuw.';

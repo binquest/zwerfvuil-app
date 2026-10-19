@@ -1,9 +1,11 @@
 // The game catalog (game_catalog()): the numbers of game_config, used for
-// labels ("×1,1 per week, up to ×2,14") and the Dev mode preview, and the
-// discovery milestones. Pure, so it is unit tested; fetching is in
-// useGameCatalog.ts.
+// labels ("×1,1 per week, up to ×2,14") and the Dev mode preview, the
+// discovery milestones, the levels and the avatars. Pure, so it is unit
+// tested; fetching is in useGameCatalog.ts.
 import { formatMultiplier } from '../lib/points';
 import type { Score } from '../lib/score';
+import { parseAvatarDefs, type AvatarDef } from './avatars';
+import { parseLevels, type Level } from './levels';
 
 export interface GameConfig {
   checkinBaseChips: number;
@@ -23,6 +25,10 @@ export interface GameCatalog {
   config: GameConfig;
   /** Ascending by threshold. */
   milestones: Milestone[];
+  /** Ascending by level. */
+  levels: Level[];
+  /** The active avatars, by sort. */
+  avatars: AvatarDef[];
 }
 
 function isNumber(value: unknown): value is number {
@@ -51,6 +57,8 @@ export function parseCatalog(value: unknown): GameCatalog | null {
       discoveryChips: isNumber(discovery_chips) ? discovery_chips : 0,
     },
     milestones,
+    levels: parseLevels((value as { levels?: unknown }).levels),
+    avatars: parseAvatarDefs((value as { avatars?: unknown }).avatars),
   };
 }
 

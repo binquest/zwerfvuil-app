@@ -73,10 +73,17 @@ voor echte gebruikers. Wordt aangevuld telkens zo'n keuze gemaakt wordt.
 
 - [ ] Privacyverklaring: welke data (e-mail, locaties, foto's), waarom, hoe lang.
 - [ ] Account en data verwijderen vanuit de app.
-- [ ] `display_name` wordt afgeleid van het deel vóór de `@` van het
-  e-mailadres en staat **op de ranglijst, zichtbaar voor iedereen**, zodra iemand
-  punten heeft. Gebruikers kunnen hem wijzigen in Profiel, maar pas achteraf. Vraag
-  een naam bij de eerste aanmelding, of begin met een neutrale naam.
+- [ ] **Namen van bestaande accounts.** Sinds gamification fase 4 krijgt een nieuw
+  account geen naam meer uit het e-mailadres: de onboarding vraagt er een (zonder
+  naam toont de ranglijst "Anoniem"). Bestaande accounts houden hun oude naam (vaak
+  het deel vóór de `@`) tot ze de onboarding doen, waar die naam al ingevuld staat.
+  Wie de nieuwe app nooit opent, staat zo nog op de ranglijst. Voor echte gebruikers:
+  oude afgeleide namen wissen of vervangen door een neutrale naam.
+- [ ] **Namen worden niet gemodereerd en zijn niet uniek** (alleen 2–24 tekens,
+  spaties samengevoegd, geen stuurtekens; `private.clean_name`). Scheldwoorden,
+  iemand anders nadoen of onzichtbare tekens (bv. zero-width spaces) worden niet
+  tegengehouden. Voor echte gebruikers: een woordfilter, melden en een admin die een
+  naam kan resetten.
 - [ ] De sessie staat in `expo-sqlite`-localStorage (niet versleuteld). Overweeg
   versleutelde opslag voor het refresh token.
 - [ ] **Gebruiksdata zonder toestemming.** Sinds gamification fase 1b logt de app
@@ -185,8 +192,9 @@ echte gebruikersdata vraagt meer.
 
 - [ ] **Android.** De schermen gebruiken SwiftUI via `@expo/ui/swift-ui`; op
   Android crasht dat ("Unable to get view config"). Voor een Android-release:
-  Jetpack Compose- of universele varianten van login, profiel, ranglijst,
-  Dev-modus, bin-sheet en de knoppen.
+  Jetpack Compose- of universele varianten van login, instellingen, Dev-modus,
+  bin-sheet en de knoppen, en van de SwiftUI-stukjes in de React Native-schermen
+  (segmentkeuze in ranglijst en collectie, de levelring in het profiel).
 - [ ] **Reeksen tellen inworpen die nog wachten.** Wordt een eerdere inworp later
   afgewezen of herroepen, dan worden de reeksen (en punten) van latere inworpen niet herrekend.
 - [ ] **Een verdacht snel bonusantwoord krijgt toch +5** (alleen gemarkeerd, de
@@ -262,6 +270,20 @@ echte gebruikersdata vraagt meer.
   vertraging, dan stap je over op `react-native-audio-api` (native: nieuwe IPA en
   runtimeversie). Meet ook het geheugen en de starttijd van de 35 players op een
   oudere iPhone.
+- [ ] **Avatartekeningen zitten in de app-bundel** (`app/assets/avatars/`, max.
+  200 KB per tekening plus een thumbnail van 192 px): twaalf tekeningen maken elke
+  EAS Update tot ±3 MB groter bij de eerste download. Voor meer avatars of vaker
+  wisselen: de tekeningen uit Supabase Storage of een CDN laden, met een cache.
+- [ ] **Een lager level neemt een avatar stil af.** Wordt een inworp afgewezen of
+  herroepen en zakt iemand daardoor onder het level van zijn avatar (of vervalt een
+  mijlpaal), dan zet de refresh hem terug op de standaardavatar, zonder melding.
+  Overweeg een uitleg ("Je avatar Bloem komt terug op level 5").
+- [ ] **De badge-hint van de merel staat in SQL** (`private.avatar_hint` noemt
+  "Vroege vogel" zelf). Fase 5 haalt badgenamen uit de tabel `badges`; tot dan staat
+  een nieuwe badge-avatar zonder naam in de hint.
+- [ ] **Ontgrendelen wordt berekend, niet bewaard**: er is geen geschiedenis van
+  wanneer iemand een avatar kreeg, en een avatar via badge, quest of kist is tot
+  fase 5 en 6 altijd vergrendeld.
 - [ ] **`app/native-versions.json` wordt met de hand vastgelegd** (`npm run
   native:record`, in de commit van een nieuwe IPA, na het ophogen van
   `DEV_RUNTIME_VERSION`). De workflow `ios-dev.yml` controleert niet dat de IPA bij

@@ -350,7 +350,7 @@ variatie (nieuwe vuilbakken, bonusvragen, later premies), net de data die we wil
 
 | L | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 12 | 15 | 20 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| punten | 10 | 60 | 175 | 370 | 655 | 1.055 | 1.575 | 2.230 | 3.025 | 5.100 | 9.545 | 21.115 |
+| punten | 10 | 60 | 175 | 370 | 655 | 1.055 | 1.575 | 2.230 | 3.025 | 5.100 | 9.550 | 21.125 |
 | casual | 1e inworp | wk 1 | wk 3 | wk 6 | wk 10 | wk 14 | wk 20 | wk 28 | wk 37 | | | |
 | actief | dag 1 | dag 1 | dag 3 | dag 5 | wk 2 | wk 2 | wk 3 | wk 5 | wk 6 | wk 9 | wk 16 | wk 34 |
 
@@ -380,9 +380,10 @@ bonusvragen) · Kaartmaker (goedgekeurde melding van een ontbrekende vuilbak) ·
 8 u) · Nachtuil (na 22 u) · Heel de buurt (alle vuilbakken van de testregio, legendarisch) ·
 Questheld (30 quests, fase 6) · Premiejager (5 premie-inworpen, fase 8).
 
-**Avatars** (placeholders tot de tekeningen er zijn): 4 standaard (o.a. Zwerfie, ook de mascotte in
-onboarding en lege schermen), 3 via level (5, 8, 12), 2 via mijlpaal (50, 100), 1 via badge (Vroege
-vogel), 2 alleen uit de kist (episch, legendarisch).
+**Avatars** (placeholders tot de tekeningen er zijn, zie `docs/AVATARS.md`): 4 standaard (spruit,
+vos, zon, berg), 3 via level (bloem 5, bliksem 8, eik 12), 2 via mijlpaal (haas 50, schildpad 100),
+1 via badge (merel, Vroege vogel), 2 alleen uit de kist (maan episch, regenboog legendarisch). De
+mascotte Zwerfie (onboarding, lege schermen) is geen avatar die een speler kan dragen (fase 4).
 
 ---
 
@@ -867,8 +868,8 @@ vergelijking van de punten en in fase 1b van de eventtellingen in Studio.
 
 ## Overdracht
 
-Stand op 19 oktober 2026: fase 1a, 1b, 2 en 3 zijn af en gemerged in `main` (PR #2, #3, #4 en #5); fase 3
-staat op staging en als EAS Update op `dev`, en is op de iPhone gecontroleerd.
+Stand op 19 oktober 2026: fase 1a, 1b, 2, 3 en 4 zijn af en gemerged in `main` (PR #2 t/m #6); fase 3
+en 4 staan op staging en als EAS Update op `dev`, en zijn op de iPhone gecontroleerd.
 
 - Af: dit plan; fase 1a (puntenledger); fase 1b (config en eventlog), lokaal.
   - Server (`20261015120000_points_ledger.sql`): `point_transactions` met de projectie vanuit
@@ -1146,5 +1147,103 @@ staat op staging en als EAS Update op `dev`, en is op de iPhone gecontroleerd.
   banner); na afwijzen in Beheer klopt de collectie; de app sluiten tijdens een onthulling met
   ontdekking en opnieuw openen (gemist moment); de 10e ontdekking toont "+50 · wacht op goedkeuring".
 - Gemerged in `main` als PR #5 (19 oktober).
-- Nog te doen: fase 4 t/m 7.
-- Volgende stap: fase 4 in een nieuwe sessie, op `gamification/4-identiteit` vanaf `main`.
+
+**Fase 4 (identiteit: onboarding, avatars, levels, profiel)**
+- Server (`20261019120000_identity.sql`):
+  - Catalogus `levels` (20, `10 × (L−1)^2,6` afgerond op 5, met titels) en `avatars` (12, met
+    `placeholder_symbol`/`placeholder_color`; een controle per soort ontgrendeling op `unlock_param`),
+    niet rechtstreeks leesbaar. `private.level_of(punten)` geeft level en volgend level; het level volgt
+    altijd de toegekende echte punten.
+  - Ontgrendelen wordt berekend (`private.avatar_states`): standaard altijd; level over de toegekende
+    punten (`pending` als de punten die nog wachten het level halen); mijlpaal uit `user_milestones`
+    (pending/granted); badge, quest en kist blijven vergrendeld tot fase 5 en 6. Hints uit
+    `private.avatar_hint` ("Bereik level 5", "Ontdek 50 vuilbakken", …).
+  - Profielen: `avatar_key` (→ `avatars`, null = standaardavatar spruit), `onboarded_at`,
+    `last_seen_level` (bestaande profielen op hun huidige level). `handle_new_user` vult geen naam meer in.
+    Clients schrijven `profiles` niet meer rechtstreeks: `complete_onboarding(name, avatar_key)`,
+    `set_my_name(name)` en `set_my_avatar(key)`, met één naamregel (`private.clean_name`: spaties
+    samengevoegd, 2–24 tekens, geen stuurtekens) en de gebruikerslock voor de controle.
+  - De refresh (en `adjust_points`) zet een gedragen avatar die niet meer ontgrendeld is terug op de
+    standaardavatar (`private.refresh_avatar`, telt mee in de gewijzigde rijen).
+  - `my_avatars()`; `game_catalog()` met `levels` en `avatars`; `my_game_state()` met `level` en `stats`
+    (inworpen, bonusvragen, langste reeks); `leaderboard()` met `avatar_key`, `level`, `title` (opnieuw
+    aangemaakt, rechten terug). Events `avatar_changed`, `onboarding_step`, `onboarding_completed`.
+    `levels` en `avatars` in `check-restore.sh`.
+- Functie: niet veranderd (geen `deploy` nodig).
+- App:
+  - Guard in de root-layout (`src/game/onboarding.ts`): sessie of profiel onbekend → splash (de native
+    splash blijft staan, hoogstens 8 s); `onboarded_at` leeg → onboarding; profiel niet geladen (fout of
+    na 5 s) → de app. Komt het profiel later toch binnen zonder onboarding, dan wisselt de app pas op een
+    tab-scherm zonder modal. De `MomentsPresenter` staat uit tijdens de onboarding en tot het profiel
+    bekend is.
+  - Onboarding (`src/screens/OnboardingFlow.tsx`, route `onboarding`, preview `onboarding-preview` in
+    Dev-modus) met de teksten van het prototype: naam ("Hoe mogen we je noemen?", met Zwerfie), dan
+    "Kies je reisgenoot." met de ontgrendelde avatars, "Vos gaat met je mee.", "Op ontdekking →",
+    "← Naam aanpassen". Bestaande accounts zien ze één keer, met hun naam ingevuld.
+  - `Avatar` (PNG uit `src/game/avatarImages.ts` op een cirkel in de avatarkleur, anders het SF Symbol;
+    silhouet via `tintColor`; onbekende sleutel → neutrale placeholder; thumbnail tot 64 pt) en
+    `AvatarGrid`. `app/scripts/avatars.mjs` (`npm run avatars`): controleert de PNG's (512 × 512,
+    transparante hoeken, ≤ 200 KB, `<key>.png`), maakt thumbnails van 192 × 192 en de require-map met
+    een hash per tekening. `docs/AVATARS.md` voor wie tekent.
+  - Avatar-kiezer (`avatar-picker`, formSheet): raster, vergrendeld = silhouet met slot, tik = bovenaan
+    met "Hoe ontgrendel je dit?" en de hint, "Kies Vos".
+  - Profiel en Ranglijst in React Native (`src/screens/ProfileScreen.tsx`, `LeaderboardScreen.tsx`):
+    avatar in de levelring (tik = kiezer), naam, "Level 3 · Peukenpikker", "Nog 115 punten tot level 4",
+    rollende punten met "+N wacht op goedkeuring", statistieken, Collectie en Ranglijst, historiek.
+    Ranglijst: medaille top 3, avatar, naam met "Lv 7 · Stoepridder", punten; de eigen rij vast onderaan
+    als ze buiten beeld valt. Instellingen (`(profile)/settings`, SwiftUI-formulier via het tandwiel):
+    naam wijzigen, e-mail, testpunten (Dev), versie en updates, afmelden.
+- Tests: `13_identity` (65: catalogus en curve, nieuw account zonder naam, geen rechtstreekse
+  schrijfrechten, onboarding valideert naam en avatar, `set_my_name`/`set_my_avatar`, level-unlock
+  pending → granted, herroepen verlaagt het level en zet de avatar terug, testpunten ontgrendelen niets,
+  mijlpaal-unlock, inactieve avatar, ranglijst, rechten, invarianten). Fixtures van 01, 04, 06, 07 en 08
+  krijgen een naam; 00 kent `profiles.display_name:UPDATE` niet meer; 01 test `set_my_name` i.p.v. een
+  directe update; 10 kent de nieuwe events; 12 vergelijkt `my_game_state` zonder `level` en `stats`.
+  Samen 541. Deno: `otp-login` verwacht geen naam, events met de drie nieuwe voorbeelden. Jest 281:
+  avatar-map = de PNG's in de map, `resolveAvatar`, `levelProgress`, guard en naamregel, parsers.
+  `avatars.test.mjs` (7) in `test:scripts`. Echte run: een test-PNG in de map, script, staging-export
+  met tekening en thumbnail in de bundel, daarna weer weggehaald.
+- Kleine keuzes buiten het plan:
+  - Zwerfie is de mascotte en geen van de twaalf: een gids die iedereen kan dragen, vult de ranglijst
+    met hetzelfde gezicht. De twaalf zijn de reisgenoten van het prototype: eerst de zes van de
+    cofounder (spruit, vos, zon, berg standaard; bloem en bliksem via level), aangevuld met eik, haas,
+    schildpad, merel, maan en regenboog;
+  - de tabel met drempels in hoofdstuk 3 had 9.545 en 21.115 voor level 15 en 20; de formule geeft 9.550
+    en 21.125 (tabel verbeterd);
+  - titels voor de levels die het plan open liet: 9 Scheldespeurder, 11 Blikvanger, 12
+    Kringloopkampioen, 14 Stadsveger, 15 Stoepsheriff, 17 Opruimorakel, 18 Buurtbaron;
+  - de mijlpaal-avatar staat in `avatars.unlock_param`, niet ook in `milestones.avatar_key`; `user_avatars`
+    komt pas met de kist (fase 6);
+  - een level-avatar is `pending` zolang de punten die nog wachten het level halen (dragen kan pas na
+    goedkeuring); de ranglijst toont het level van de echte punten, ook met testdata aan;
+  - `set_my_name` is nieuw (de naam wijzigen kon vroeger rechtstreeks); `adjust_points` kijkt ook de
+    avatar na;
+  - `my_game_state` heeft `stats` voor het profiel; "Reeks nu" staat er nog bij tot Vandaag (fase 6);
+  - de onboarding is één route met twee stappen (geen map `onboarding/`); de preview logt
+    `onboarding_step` als `is_test` en bewaart niets;
+  - de onboarding toont het silhouet van de eerste avatar tot je kiest;
+  - de naam in de onboarding staat al ingevuld bij bestaande accounts (vaak het deel van het e-mailadres);
+  - de getypte routes van Expo Router worden lokaal gemaakt met `startTypescriptTypeGenerationAsync` (geen
+    dev-server nodig).
+- Staging (19 oktober): backup `postgres-20261019-174648.dump`; `20261019120000_identity.sql` toegepast
+  (staat in `supabase_migrations.schema_migrations`). Telling voor en na identiek: 2 profielen, 0 echte
+  en 128 testpunten, dezelfde hash over (id, punten, testpunten), check-ins 8 goedgekeurd en 4 afgewezen
+  (allemaal test), ledger 16 toegekende testrijen (128), invariant leeg; een refresh van beide profielen
+  verandert niets. 20 levels (5 = 370, 15 = 9.550, 20 = 21.125), 12 actieve avatars, `game_catalog` met
+  `levels` en `avatars`, de nieuwe RPC's alleen voor aangemelde gebruikers, geen rechtstreekse
+  naamwijziging meer, RLS op `levels` en `avatars`, 23 actieve events. Beide profielen houden hun naam,
+  hebben nog geen avatar en geen onboarding (die zien ze één keer na de update) en staan op level 1. De
+  functie veranderde niet (geen `deploy`). `check-supabase`, `check-auth` en `check-fake-location`
+  geslaagd. EAS Update op `dev` (runtime 1): update-groep `e245d229-9285-4799-a507-54fa018040f2` (commit 8848ff0).
+- iPhone (19 oktober): alles in orde. Gecontroleerd (na `update:dev`): de onboarding één keer bij het openen, met je naam
+  ingevuld (naam → avatar → kaart; daarna niet meer); "Onboarding tonen" in Dev-modus (Zwerfie, teksten,
+  foutmelding bij één teken, "← Naam aanpassen", "Vos gaat met je mee."); offline starten (de app opent
+  na hoogstens 5 s); het profiel (avatar in de levelring: scherp en de juiste dikte, level en titel,
+  "Nog N punten", rollende punten, statistieken, historiek, tandwiel → Instellingen met naam wijzigen en
+  afmelden); de avatar-kiezer (sheet leesbaar op het glas, silhouetten met slot, "Hoe ontgrendel je
+  dit?", een andere standaardavatar kiezen → profiel en ranglijst); de ranglijst (avatar, "Lv 1 ·
+  Wegwerp-rookie", medailles, "Testdata tonen"); Reduce Motion en donkere modus. De vaste eigen rij
+  onderaan is pas te zien met meer spelers dan op één scherm passen.
+- Gemerged in `main` als PR #6 (19 oktober).
+- Nog te doen: fase 5 t/m 7.
+- Volgende stap: fase 5 in een nieuwe sessie, op `gamification/5-progressie` vanaf `main`.

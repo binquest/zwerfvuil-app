@@ -42,8 +42,7 @@ select is(
    cross join (values ('INSERT'), ('UPDATE')) p(priv)
    where n.nspname = 'public' and c.relkind in ('r', 'p', 'v', 'm') and pg_temp.ours('pg_class', c.oid)
      and has_column_privilege('authenticated', c.oid, a.attnum, p.priv)),
-  array['bin_reports.geom:INSERT', 'bin_reports.note:INSERT', 'bin_reports.photo_path:INSERT',
-        'profiles.display_name:UPDATE'],
+  array['bin_reports.geom:INSERT', 'bin_reports.note:INSERT', 'bin_reports.photo_path:INSERT'],
   'signed-in users write only these columns directly; everything else goes through functions');
 
 select is_empty($$
