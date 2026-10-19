@@ -1,4 +1,6 @@
 // The shared game components (docs/GAMIFICATION.md, chapter 5).
+export { Avatar } from './Avatar';
+export { AvatarGrid } from './AvatarGrid';
 export { ChunkyButton } from './ChunkyButton';
 export { Confetti } from './Confetti';
 export { GameNumber } from './GameNumber';

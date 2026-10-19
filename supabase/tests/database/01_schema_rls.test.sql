@@ -33,14 +33,22 @@ insert into checkins (user_id, bin_id, photo_path, user_geom, accuracy_m, distan
 
 select is(
   (select display_name from profiles where id = '11111111-1111-1111-1111-111111111111'),
-  'alice',
-  'a profile is created for every new auth user'
+  null,
+  'a profile is created for every new auth user, without a name from the e-mail address'
 );
 select is(
   (select points from profiles where id = '11111111-1111-1111-1111-111111111111'),
   0,
   'new profiles start with 0 points'
 );
+
+-- The names the onboarding would ask for.
+update profiles set display_name = case id
+    when '11111111-1111-1111-1111-111111111111' then 'alice'
+    when '22222222-2222-2222-2222-222222222222' then 'bob'
+    else 'admin' end
+where id in ('11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222',
+             '33333333-3333-3333-3333-333333333333');
 
 -- Noise: another user's activity, as in a dev database with real data.
 -- Every count and pick above and below must stay scoped to the test users.
@@ -103,10 +111,9 @@ select throws_ok($$ update profiles set points = 1000 where id = auth.uid() $$, 
   'users cannot change their points');
 select throws_ok($$ update profiles set is_admin = true where id = auth.uid() $$, '42501', null,
   'users cannot make themselves admin');
-select lives_ok($$ update profiles set display_name = 'Alice' where id = auth.uid() $$,
-  'users can change their display name');
-select is_empty($$ update profiles set display_name = 'hacked' where id = '22222222-2222-2222-2222-222222222222' returning id $$,
-  'users cannot change another user''s display name');
+select throws_ok($$ update profiles set display_name = 'Alice' where id = auth.uid() $$, '42501', null,
+  'users cannot write their display name directly');
+select is(set_my_name('Alice'), 'Alice', 'they change it through set_my_name');
 
 -- checkins
 select is((select count(*)::int from checkins), 1, 'users only see their own check-ins');

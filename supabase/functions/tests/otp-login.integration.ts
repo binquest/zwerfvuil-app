@@ -73,9 +73,11 @@ Deno.test("email OTP login with a 6-digit code", async (t) => {
       userId = data.user!.id;
     });
 
-    await t.step("the new user has a profile", async () => {
-      const { data } = await admin.from("profiles").select("display_name, points, is_admin").eq("id", userId!).single();
-      assertEquals(data, { display_name: email.split("@")[0], points: 0, is_admin: false });
+    await t.step("the new user has a profile without a name (the onboarding asks for one)", async () => {
+      const { data } = await admin.from("profiles")
+        .select("display_name, points, is_admin, avatar_key, onboarded_at")
+        .eq("id", userId!).single();
+      assertEquals(data, { display_name: null, points: 0, is_admin: false, avatar_key: null, onboarded_at: null });
     });
 
     await t.step("an existing user signs in again with a new code", async () => {

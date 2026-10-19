@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { adminErrorMessage, authErrorMessage, isNetworkError, reportErrorMessage } from '../errors';
+import { adminErrorMessage, authErrorMessage, identityErrorMessage, isNetworkError, reportErrorMessage } from '../errors';
 
 describe('error messages', () => {
   it('recognises network failures', () => {
@@ -29,5 +29,13 @@ describe('error messages', () => {
     expect(adminErrorMessage({ code: '42501' })).toBe('Alleen admins kunnen dit doen.');
     expect(adminErrorMessage({ code: 'P0002' })).toBe('Dit item bestaat niet meer.');
     expect(adminErrorMessage({ code: '22023' })).toBe('Geef een reden van 1 tot 200 tekens.');
+  });
+
+  it('maps the errors of the onboarding, name and avatar RPCs', () => {
+    expect(identityErrorMessage({ code: '22023' })).toBe('Deze naam kan niet. Gebruik 2 tot 24 tekens.');
+    expect(identityErrorMessage({ code: '42501' })).toBe('Deze avatar is nog vergrendeld.');
+    expect(identityErrorMessage({ code: 'P0002' })).toContain('bestaat niet meer');
+    expect(identityErrorMessage({ message: 'Network request failed' })).toContain('Geen verbinding');
+    expect(identityErrorMessage(null)).toBe('Bewaren lukte niet. Probeer het opnieuw.');
   });
 });

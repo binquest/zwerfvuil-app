@@ -11,6 +11,7 @@ export type DistanceBucket = '0_10' | '10_25' | '25_50' | '50_plus' | 'unknown';
 export type PhotoMode = 'checkin' | 'report';
 /** Where a celebration was shown: in the reveal (or right after it) or as a missed moment. */
 export type CelebrationSource = 'reveal' | 'missed';
+export type OnboardingStep = 'name' | 'avatar';
 
 export interface EventProps {
   app_open: { kind: 'cold' | 'warm' };
@@ -29,6 +30,9 @@ export interface EventProps {
   bonus_question_answered: { question_key: string; answered: boolean; response_ms: number | null };
   discovery_shown: { ordinal: number | null; status: string | null; source: CelebrationSource };
   milestone_shown: { threshold: number; status: string; source: CelebrationSource };
+  avatar_changed: { avatar_key: string; from: 'onboarding' | 'profile' };
+  onboarding_step: { step: OnboardingStep };
+  onboarding_completed: Record<string, never>;
   collection_viewed: { discovered: number; total: number };
   leaderboard_viewed: { period: 'week' | 'all' };
   report_flow_start: Record<string, never>;
@@ -55,6 +59,9 @@ const NAMES = {
   bonus_question_answered: true,
   discovery_shown: true,
   milestone_shown: true,
+  avatar_changed: true,
+  onboarding_step: true,
+  onboarding_completed: true,
   collection_viewed: true,
   leaderboard_viewed: true,
   report_flow_start: true,

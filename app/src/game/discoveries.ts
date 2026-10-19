@@ -2,6 +2,7 @@
 // (docs/GAMIFICATION.md, 2.6 and 2.7): `game` in the answer of a check-in,
 // my_game_state(), my_collection() and my_unseen(). Pure parsers and labels,
 // unit tested; fetching is in src/lib/api.ts, the state in GameProvider.
+import { parseLevelState, type LevelState } from './levels';
 
 /** pending until an admin approves a check-in at that bin. */
 export type DiscoveryStatus = 'pending' | 'confirmed';
@@ -38,14 +39,25 @@ export interface NextMilestone {
   previous: number;
 }
 
-/** my_game_state() v1. */
+/** The numbers of the profile (real check-ins and bonus answers that were not rejected). */
+export interface ProfileStats {
+  checkins: number;
+  bonusAnswers: number;
+  /** In weeks. */
+  longestStreak: number;
+}
+
+/** my_game_state() v1, with the level and the statistics since phase 4. */
 export interface GameState {
   points: { granted: number; pending: number };
+  /** Null when the server sent none. */
+  level: LevelState | null;
   streak: { weeks: number; thisWeek: boolean };
   discovered: number;
   confirmed: number;
   totalBins: number;
   nextMilestone: NextMilestone | null;
+  stats: ProfileStats | null;
   unseenMoments: number;
 }
 
@@ -122,8 +134,10 @@ export function parseGameState(value: unknown): GameState | null {
   if (!isNumber(points.granted) || !isNumber(points.pending)) return null;
   if (!isNumber(discoveries.discovered) || !isNumber(discoveries.confirmed) || !isNumber(discoveries.total_bins)) return null;
   const next = isObject(discoveries.next_milestone) ? discoveries.next_milestone : null;
+  const stats = isObject(value.stats) ? value.stats : null;
   return {
     points: { granted: points.granted, pending: points.pending },
+    level: parseLevelState(value.level),
     streak: { weeks: isNumber(streak.weeks) ? streak.weeks : 0, thisWeek: streak.this_week === true },
     discovered: discoveries.discovered,
     confirmed: discoveries.confirmed,
@@ -131,6 +145,10 @@ export function parseGameState(value: unknown): GameState | null {
     nextMilestone:
       next && isNumber(next.threshold) && isNumber(next.points)
         ? { threshold: next.threshold, points: next.points, previous: isNumber(next.previous) ? next.previous : 0 }
+        : null,
+    stats:
+      stats && isNumber(stats.checkins) && isNumber(stats.bonus_answers) && isNumber(stats.longest_streak)
+        ? { checkins: stats.checkins, bonusAnswers: stats.bonus_answers, longestStreak: stats.longest_streak }
         : null,
     unseenMoments: isNumber(value.unseen_moments) ? value.unseen_moments : 0,
   };

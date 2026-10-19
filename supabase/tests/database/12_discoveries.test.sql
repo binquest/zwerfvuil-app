@@ -288,7 +288,7 @@ select is(
         'confirmed:1', 'confirmed:1', 'confirmed:1', 'pending:1', '-:0'],
   'the collection: every bin of the region, discovered or not, with the check-ins that count');
 select is(
-  my_game_state() - 'as_of' - 'streak',
+  my_game_state() - 'as_of' - 'streak' - 'level' - 'stats',
   '{"points": {"granted": 135, "pending": 65},
     "discoveries": {"discovered": 10, "confirmed": 9, "total_bins": 12,
                     "next_milestone": {"threshold": 20, "points": 50, "previous": 10}},

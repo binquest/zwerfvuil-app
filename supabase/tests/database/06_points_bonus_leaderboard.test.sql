@@ -20,6 +20,10 @@ insert into auth.users (id, email, aud, role) values
   ('22222222-2222-2222-2222-222222222222', 'bob@example.test', 'authenticated', 'authenticated'),
   ('33333333-3333-3333-3333-333333333333', 'admin@example.test', 'authenticated', 'authenticated'),
   ('55555555-5555-5555-5555-555555555555', 'carol@example.test', 'authenticated', 'authenticated');
+-- A name for every test account: since phase 4 a new account gets none from
+-- its e-mail address (the onboarding asks for one).
+update profiles p set display_name = split_part(u.email, '@', 1)
+from auth.users u where u.id = p.id and u.email like '%@example.test' and p.display_name is null;
 update profiles set is_admin = true where id = '33333333-3333-3333-3333-333333333333';
 
 -- Bins around Null Island, far away from imported data.

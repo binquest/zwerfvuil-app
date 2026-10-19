@@ -19,6 +19,10 @@ insert into auth.users (id, email, aud, role) values
   ('11111111-1111-1111-1111-111111111111', 'alice@example.test', 'authenticated', 'authenticated'),
   ('33333333-3333-3333-3333-333333333333', 'admina@example.test', 'authenticated', 'authenticated'),
   ('77777777-7777-7777-7777-777777777777', 'adminb@example.test', 'authenticated', 'authenticated');
+-- A name for every test account: since phase 4 a new account gets none from
+-- its e-mail address (the onboarding asks for one).
+update profiles p set display_name = split_part(u.email, '@', 1)
+from auth.users u where u.id = p.id and u.email like '%@example.test' and p.display_name is null;
 update profiles set is_admin = true
  where id in ('33333333-3333-3333-3333-333333333333', '77777777-7777-7777-7777-777777777777');
 

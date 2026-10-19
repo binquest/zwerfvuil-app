@@ -63,13 +63,31 @@ describe('parseGameState', () => {
   it('reads my_game_state()', () => {
     expect(parseGameState(answer)).toEqual({
       points: { granted: 135, pending: 65 },
+      level: null,
       streak: { weeks: 3, thisWeek: true },
       discovered: 10,
       confirmed: 9,
       totalBins: 120,
       nextMilestone: { threshold: 20, points: 50, previous: 10 },
+      stats: null,
       unseenMoments: 2,
     });
+  });
+
+  it('reads the level and the statistics (phase 4)', () => {
+    const state = parseGameState({
+      ...answer,
+      level: { level: 3, title: 'Peukenpikker', min_points: 60, next: { level: 4, title: 'Stoepridder', min_points: 175 } },
+      stats: { checkins: 10, bonus_answers: 4, longest_streak: 2 },
+    });
+    expect(state?.level).toEqual({
+      level: 3,
+      title: 'Peukenpikker',
+      minPoints: 60,
+      next: { level: 4, title: 'Stoepridder', minPoints: 175 },
+    });
+    expect(state?.stats).toEqual({ checkins: 10, bonusAnswers: 4, longestStreak: 2 });
+    expect(parseGameState({ ...answer, stats: { checkins: 1 } })?.stats).toBeNull();
   });
 
   it('has no next milestone when all are reached', () => {

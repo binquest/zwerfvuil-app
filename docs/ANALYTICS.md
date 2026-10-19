@@ -97,6 +97,9 @@ Deno-integratietest de app met de database.
 | `bonus_question_answered` | bonusvraag beantwoord of overgeslagen | `question_key`, `answered`, `response_ms` (op 100 ms) |
 | `discovery_shown` | een ontdekking gevierd: in de onthulling of als gemist moment | `ordinal`, `status` pending/confirmed, `source` reveal/missed |
 | `milestone_shown` | mijlpaalviering getoond (na de onthulling of als gemist moment) | `threshold`, `status` pending/granted, `source` reveal/missed |
+| `avatar_changed` | avatar bewaard: aan het einde van de onboarding of in de avatar-kiezer | `avatar_key`, `from` onboarding/profile |
+| `onboarding_step` | stap van de onboarding getoond | `step` name/avatar |
+| `onboarding_completed` | onboarding afgerond (naam en avatar bewaard) | — |
 | `collection_viewed` | collectie geopend | `discovered`, `total` |
 | `leaderboard_viewed` | ranglijst geopend of andere periode | `period` week/all |
 | `report_flow_start` | melding van een ontbrekende vuilbak gestart ("Foto nemen") | — |
@@ -109,7 +112,8 @@ Opmerkingen:
 - `reveal_skipped` heeft `step` `discovery` als de tik na de ontdekking en vóór de reeks kwam.
 - Een onthulling die eindigt doordat de app naar de achtergrond gaat, of die met VoiceOver meteen op
   de eindstand begint, geeft geen `reveal_skipped` (wel `reveal_shown`).
-- Previews in Dev-modus (onthulling, bonusvraag) gaan als `is_test` mee.
+- Previews in Dev-modus (onthulling, bonusvraag, onboarding) gaan als `is_test` mee. De preview van de
+  onboarding bewaart niets en logt dus nooit `avatar_changed` of `onboarding_completed`.
 - `checkin_submitted` en `checkin_result` komen uit `submitCheckin` (`app/src/lib/api.ts`), waar
   grootte en duur bekend zijn. Lukt het lezen van de foto niet, dan is er geen `checkin_submitted`.
 
@@ -120,8 +124,7 @@ fase die de functie bouwt.
 
 | Event | Fase | Props |
 |---|---|---|
-| `level_up_shown`, `badge_shown` | 4–5 | `level` / `badge_key`, `status` |
-| `avatar_changed`, `onboarding_step`, `onboarding_completed` | 4 | `avatar_key`, `from` / `step` / — |
+| `level_up_shown`, `badge_shown` | 5 | `level` / `badge_key`, `status` |
 | `approval_shown` | 5 | `approved`, `rejected`, `points` |
 | `quest_viewed`, `quest_completed`, `chest_opened`, `tip_shown` | 6 | zie GAMIFICATION.md |
 | `notification_permission`, `notification_scheduled`, `notification_opened` | 7 | zie GAMIFICATION.md |

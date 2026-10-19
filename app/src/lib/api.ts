@@ -4,6 +4,7 @@ import { File } from 'expo-file-system';
 
 import { track } from '@/analytics';
 
+import { parseMyAvatars, type AvatarChoice } from '../game/avatars';
 import {
   parseCollection,
   parseGameState,
@@ -35,6 +36,10 @@ export interface Profile {
   /** Points of approved test check-ins (Dev mode), never part of points. */
   testPoints: number;
   isAdmin: boolean;
+  /** The worn avatar; null = the standard avatar. */
+  avatarKey: string | null;
+  /** Null until the onboarding is done (the guard shows it). */
+  onboardedAt: string | null;
 }
 
 export interface PendingCheckin {
@@ -96,17 +101,49 @@ export async function fetchBins(): Promise<Bin[]> {
 export async function fetchProfile(userId: string): Promise<Profile> {
   const { data, error } = await supabase
     .from('profiles')
-    .select('display_name, points, test_points, is_admin')
+    .select('display_name, points, test_points, is_admin, avatar_key, onboarded_at')
     .eq('id', userId)
     .single();
   if (error) throw error;
-  return { displayName: data.display_name, points: data.points, testPoints: data.test_points, isAdmin: data.is_admin };
+  return {
+    displayName: data.display_name,
+    points: data.points,
+    testPoints: data.test_points,
+    isAdmin: data.is_admin,
+    avatarKey: data.avatar_key,
+    onboardedAt: data.onboarded_at,
+  };
 }
 
-/** 1 to 50 characters; shown on the leaderboard. */
-export async function updateDisplayName(userId: string, name: string): Promise<void> {
-  const { error } = await supabase.from('profiles').update({ display_name: name }).eq('id', userId);
+/** The end of the onboarding: name and an unlocked avatar. What the server saved. */
+export async function completeOnboarding(
+  name: string,
+  avatarKey: string,
+): Promise<Pick<Profile, 'displayName' | 'avatarKey' | 'onboardedAt'>> {
+  const { data, error } = await supabase.rpc('complete_onboarding', { name, avatar_key: avatarKey });
   if (error) throw error;
+  const saved = data as { display_name: string; avatar_key: string; onboarded_at: string };
+  return { displayName: saved.display_name, avatarKey: saved.avatar_key, onboardedAt: saved.onboarded_at };
+}
+
+/** 2 to 24 characters (game/onboarding.ts); shown on the leaderboard. Returns the name as saved. */
+export async function setMyName(name: string): Promise<string> {
+  const { data, error } = await supabase.rpc('set_my_name', { name });
+  if (error) throw error;
+  return data as string;
+}
+
+/** Puts on an unlocked avatar (the server refuses a locked one). */
+export async function setMyAvatar(key: string): Promise<void> {
+  const { error } = await supabase.rpc('set_my_avatar', { key });
+  if (error) throw error;
+}
+
+/** my_avatars(): every avatar with its status and hint, for the picker. */
+export async function fetchMyAvatars(): Promise<AvatarChoice[]> {
+  const { data, error } = await supabase.rpc('my_avatars');
+  if (error) throw error;
+  return parseMyAvatars(data);
 }
 
 export interface Streak {
@@ -129,9 +166,14 @@ export interface LeaderboardRow {
   display_name: string;
   points: number;
   is_me: boolean;
+  /** The standard avatar when none was chosen. */
+  avatar_key: string;
+  /** From the granted real points, also with test data. */
+  level: number;
+  title: string;
 }
 
-/** Display names and points only. includeTest is Dev mode only (the server refuses others). */
+/** Name, avatar, level and points. includeTest is Dev mode only (the server refuses others). */
 export async function fetchLeaderboard(period: LeaderboardPeriod, includeTest = false): Promise<LeaderboardRow[]> {
   const { data, error } = await supabase.rpc('leaderboard', { period, max_rows: 50, include_test: includeTest });
   if (error) throw error;

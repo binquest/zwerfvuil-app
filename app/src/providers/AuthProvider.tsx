@@ -9,11 +9,20 @@ interface AuthState {
   /** True until the stored session has been read. */
   loading: boolean;
   profile: Profile | null;
-  /** True once the first profile request for this session finished (even if it failed). */
+  /** True once the first profile request for this session finished (even if it failed or timed out). */
   profileLoaded: boolean;
   refreshProfile: () => Promise<void>;
+  /** What a write returned (onboarding, name, avatar), without another request. */
+  updateProfile: (patch: Partial<Profile>) => void;
   signOut: () => Promise<void>;
 }
+
+/**
+ * The first profile request counts as failed after this long: the app opens
+ * (never a splash forever, e.g. without Tailscale), and a late answer still
+ * lands.
+ */
+const PROFILE_TIMEOUT_MS = 5000;
 
 const AuthContext = createContext<AuthState | null>(null);
 
@@ -43,14 +52,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [userId]);
 
+  const updateProfile = useCallback(
+    (patch: Partial<Profile>) => {
+      if (!userId) return;
+      setLoaded((prev) => (prev?.userId === userId && prev.profile ? { userId, profile: { ...prev.profile, ...patch } } : prev));
+    },
+    [userId],
+  );
+
   useEffect(() => {
     if (!userId) return;
     let active = true;
+    const failed = () => active && setLoaded((prev) => (prev?.userId === userId ? prev : { userId, profile: null }));
+    const timer = setTimeout(failed, PROFILE_TIMEOUT_MS);
     fetchProfile(userId)
       .then((next) => active && setLoaded({ userId, profile: next }))
-      .catch(() => active && setLoaded((prev) => (prev?.userId === userId ? prev : { userId, profile: null })));
+      .catch(failed)
+      .finally(() => clearTimeout(timer));
     return () => {
       active = false;
+      clearTimeout(timer);
     };
   }, [userId]);
 
@@ -65,9 +86,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       profile: current?.profile ?? null,
       profileLoaded: current !== null,
       refreshProfile,
+      updateProfile,
       signOut,
     }),
-    [session, loading, current, refreshProfile, signOut],
+    [session, loading, current, refreshProfile, updateProfile, signOut],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
