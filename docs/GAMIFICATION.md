@@ -1514,4 +1514,9 @@ fase 3, 4 en 5 staan op staging en als EAS Update op `dev`, en zijn op de iPhone
   `notification_scheduled`, actief): dezelfde hash, invariant leeg. De functie veranderde niet
   (geen `deploy`). `check-supabase`, `check-auth` en `check-fake-location` geslaagd. EAS Update op
   `dev` (runtime 1): update-groep `24967991-20ad-4b91-aa2c-50a7d74b5bf1` (commit 90f2087).
-- Volgende stap: de gebruiker test op de iPhone; daarna push en PR naar `main`.
+- Volgende stap: de gebruiker test op de iPhone; daarna push en PR naar `main`. Daarna fase 7b
+  (locatie per sessie) op `gamification/7b-locatie`, vanaf `main`, niet de spelerstest. Voor 7b:
+  het nieuwe moment komt in `MOMENT_ORDER` (`src/game/moments.ts`) na `notifications`; wanneer
+  onze vraag om meldingen getoond werd, staat per toestel in `localStorage`
+  (`notifications.asked`, ISO-tijd, via `src/notifications/memory.ts`), zodat 7b pas bij een
+  latere opening kan vragen.
