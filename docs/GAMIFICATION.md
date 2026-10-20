@@ -1428,4 +1428,9 @@ fase 3, 4 en 5 staan op staging en als EAS Update op `dev`, en zijn op de iPhone
   het eerste bezoek of de eerste inworp. De functie veranderde niet (geen `deploy`).
   `check-supabase`, `check-auth` en `check-fake-location` geslaagd. EAS Update op `dev` (runtime 1):
   update-groep `71589416-60bd-457e-8672-24a5c353a7a1` (commit bd08a6b).
-- Volgende stap: de iPhone-controle; daarna branch pushen en een PR naar `main` openen.
+- iPhone (20 oktober): alles in orde. Gecontroleerd (na `update:dev`): de tab Vandaag met de
+  uitlegkaarten (één keer), de reekskaart, een echte inworp met bonusvraag (quest voltooid na de
+  onthulling, quests opgelopen), de dagkist (schudden, beloning, "Kansen", tab-badge), goedkeuren en
+  afwijzen in Beheer, de previews in Dev-modus (ook met Reduce Motion en zonder geluid), en Ranglijst
+  en Collectie vanuit Vandaag en Profiel.
+- Volgende stap: PR naar `main`; de gebruiker merget hem.
