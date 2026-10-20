@@ -9,6 +9,7 @@ const SETTINGS_KEY = 'notifications.settings';
 const RECORD_KEY = 'notifications.record';
 const ASKED_KEY = 'notifications.asked';
 const HANDLED_KEY = 'notifications.handled';
+const PRETEND_KEY = 'notifications.devPretend';
 
 function read(key: string): string | null {
   try {
@@ -73,4 +74,14 @@ export function lastHandledTap(): string | null {
 
 export function markTapHandled(id: string): void {
   write(HANDLED_KEY, id);
+}
+
+/** Dev mode: the real check-ins when "nothing counts this week" was switched on, or null. */
+export function pretendNoCheckinAt(): number | null {
+  const value = Number(read(PRETEND_KEY));
+  return read(PRETEND_KEY) !== null && Number.isInteger(value) ? value : null;
+}
+
+export function setPretendNoCheckinAt(checkins: number | null): void {
+  write(PRETEND_KEY, checkins === null ? null : String(checkins));
 }

@@ -15,6 +15,7 @@ import {
   parseSettings,
   planDays,
   planNotifications,
+  pretendStreak,
   settle,
   type NotificationRecord,
   type PlanInput,
@@ -319,5 +320,15 @@ describe('a tap', () => {
     expect(notificationTarget(chest, [])).toEqual({ screen: 'today' });
     expect(notificationTarget({ source: 'planner', type: 'streak', chestDay: null }, [])).toEqual({ screen: 'today' });
     expect(notificationTarget({ source: 'test', type: 'quest', chestDay: null }, null)).toEqual({ screen: 'today' });
+  });
+});
+
+describe('Dev mode: as if nothing counted this week', () => {
+  it('plans the Sunday reminder until the next real check-in', () => {
+    const counted = streak({ thisWeek: true });
+    expect(brief(plan({ streak: pretendStreak(counted, 4, 4) }))).toContain('streak 2026-10-25 17:00');
+    // One real check-in later the switch has ended: the reminder goes.
+    expect(brief(plan({ streak: pretendStreak(counted, 4, 5) })).some((n) => n.startsWith('streak'))).toBe(false);
+    expect(pretendStreak(counted, null, 4)).toBe(counted);
   });
 });

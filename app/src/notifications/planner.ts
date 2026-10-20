@@ -222,6 +222,16 @@ export function planDays(input: Omit<PlanInput, 'ignoredInARow'>): PlannedNotifi
 }
 
 /**
+ * Dev mode, "Doe alsof deze week nog niets telt": the streak as if nothing
+ * counted this week, while the real check-ins are still the `pretendAt` of
+ * when it was switched on. The next real check-in ends it (a test check-in
+ * does not, as it does not count for the streak either).
+ */
+export function pretendStreak(streak: StreakState, pretendAt: number | null, checkins: number | null): StreakState {
+  return pretendAt !== null && checkins === pretendAt ? { ...streak, thisWeek: false } : streak;
+}
+
+/**
  * Fewer after three ignored: every planned notification counts as ignored
  * until the app opens again (which plans anew), so from the third on only the
  * streak reminder stays.

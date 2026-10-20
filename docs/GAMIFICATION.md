@@ -1479,7 +1479,23 @@ fase 3, 4 en 5 staan op staging en als EAS Update op `dev`, en zijn op de iPhone
   - Dev-modus, eigen sectie "Meldingen testen" (`NotificationsDevSection`, niet in "Vieringen
     bekijken": het is geen viering): soort kiezen, "Testmelding over 5 s" (tik = Vandaag, of de kist
     als er een klaarstaat), wat de planner nu in iOS heeft ("Genegeerd op rij" en de geplande
-    meldingen met tijdstip), "Opnieuw plannen" en "Vraag om meldingen tonen" (onze uitleg als
-    preview: vraagt iOS niets, events als `is_test`).
+    meldingen met tijdstip), "Opnieuw plannen", "Doe alsof deze week nog niets telt" (plant de
+    reeksmelding van zondag 17:00 tot de volgende echte inworp: zo is "verdwijnt na een inworp" ook
+    te zien in een week die al telt) en "Vraag om meldingen tonen" (onze uitleg als preview: vraagt
+    iOS niets, events als `is_test`).
+  - Tests: Jest 374 (de schakelaar "doe alsof": zondagmelding tot de volgende echte inworp).
   - `PRE-BETA.md`: lokaal (geen push), per toestel, regels als constanten, "genegeerd" als
     benadering, tijdzone van de iPhone, één vraag per toestel.
+- Kleine keuzes buiten het plan:
+  - de reeksmelding komt ook bij 0 weken ("Nog geen inworp deze week · Eén inworp vandaag en je
+    reeks begint"): het plan zegt alleen "als er deze week nog niets is";
+  - de kistmelding komt één keer (de dag zelf of de dag erna) om het uur van de quest-herinnering;
+    oudere kisten alleen via de tab-badge;
+  - "minder" = alleen nog de reeksmelding; de teller gaat terug naar 0 bij een tik, een melding in
+    de open app of een opening binnen 2 u;
+  - de planning kijkt een week vooruit en telt elke geplande melding als genegeerd tot de volgende
+    opening, dus wie de app niet opent, krijgt er hooguit drie plus de reeks, daarna niets meer;
+  - 30 minuten speling na het plannen; een opening ruimt onze meldingen in het berichtencentrum op;
+  - `notification_permission` heeft ook `from` (moment/settings);
+  - de regels staan als constanten in de app, de instellingen per toestel (zie PRE-BETA);
+  - de testmelding staat in een eigen sectie "Meldingen testen" in Dev-modus.

@@ -8,12 +8,13 @@ import * as Notifications from 'expo-notifications';
 import { track } from '@/analytics';
 import type { GameState } from '@/game/discoveries';
 
-import { loadRecord, loadSettings, saveRecord } from './memory';
+import { loadRecord, loadSettings, pretendNoCheckinAt, saveRecord, setPretendNoCheckinAt } from './memory';
 import {
   answered,
   newlyPlanned,
   parseNotificationData,
   planNotifications,
+  pretendStreak,
   settle,
   type NotificationContent,
   type NotificationKind,
@@ -94,11 +95,14 @@ async function planFrom(state: GameState | null): Promise<void> {
   const previous = loadRecord();
   const record = settle(previous, now);
   const granted = (await notificationPermission()) === 'granted';
+  const checkins = state?.stats?.checkins ?? null;
+  const pretendAt = pretendNoCheckinAt();
+  if (pretendAt !== null && state && checkins !== pretendAt) setPretendNoCheckinAt(null);
   const plan =
     granted && state?.today
       ? planNotifications({
           now,
-          streak: state.streak,
+          streak: pretendStreak(state.streak, pretendAt, checkins),
           today: state.today,
           settings: loadSettings(),
           ignoredInARow: record.ignoredInARow,
@@ -159,6 +163,7 @@ export function clearNotifications(): Promise<void> {
       // Nothing scheduled, or no access: nothing to clear.
     }
     saveRecord(null);
+    setPretendNoCheckinAt(null);
   });
 }
 
