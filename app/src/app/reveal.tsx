@@ -54,8 +54,9 @@ import { DISCOVERY_SPARKLES, VOLUME } from '@/feedback/reveal/tuning';
 import { MAX_PARTICLES, useParticleStyle, usePopupStyle, useRevealMotion, type PopupValues } from '@/feedback/reveal/useRevealMotion';
 import { play, stopAll } from '@/feedback/sfx/engine';
 import { bonusSoundtrack, revealSoundtrack, warmUpSounds } from '@/feedback/sfx/soundtrack';
-import { setPendingCelebration } from '@/game/celebration';
-import { answerBonus, markBonusShown, markMomentsSeen } from '@/lib/api';
+import { hasRevealNews, revealNews, setPendingCelebration } from '@/game/celebration';
+import type { MissedMoment } from '@/game/discoveries';
+import { answerBonus, fetchMyUnseen, markBonusShown, markMomentsSeen } from '@/lib/api';
 import { formatWeeks } from '@/lib/format';
 import type { BonusOption } from '@/lib/points';
 import { revealSummary, setPendingReveal, takePendingReveal, type RevealData } from '@/lib/reveal';
@@ -65,6 +66,13 @@ import { createStore, useSyncState, type Store } from '@/lib/useSyncState';
 import { useGame } from '@/providers/GameProvider';
 import { ToastViewport } from '@/providers/ToastProvider';
 import { colors, numberStyle, playColors, playType, shapes, spacing, type } from '@/theme';
+
+/** What the bonus answer added after the check-in (a quest, the chest): moments after game.asOf. */
+type Later = { moments: MissedMoment[]; asOf: string };
+
+function within<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  return Promise.race([promise, new Promise<null>((resolve) => setTimeout(() => resolve(null), ms))]);
+}
 
 // total: the total has landed and the bonus question is about to appear.
 type Phase = 'loading' | 'playing' | 'total' | 'question' | 'answering' | 'answered' | 'done';
@@ -241,6 +249,8 @@ export default function RevealScreen() {
   const withSound = useRef(false);
   const playbacks = useRef<Playback[]>([]);
   const answering = useRef(false);
+  const later = useRef<Promise<Later | null> | null>(null);
+  const leaving = useRef(false);
   const mounted = useRef(true);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const phaseNow = useRef<Phase>('loading');
@@ -506,6 +516,15 @@ export default function RevealScreen() {
     if (data?.checkinId && !data.preview) {
       try {
         bonus = await answerBonus(data.checkinId, option.key);
+        // The answer can complete a quest or make the chest ready: ask what is
+        // new since the check-in, for the celebration after "Klaar".
+        if (game?.asOf) {
+          const since = Date.parse(game.asOf);
+          later.current = fetchMyUnseen().then(
+            (unseen) => ({ moments: unseen.moments.filter((m) => Date.parse(m.at) > since), asOf: unseen.asOf }),
+            () => null,
+          );
+        }
       } catch (error) {
         if (!mounted.current) return;
         setMessage(bonusErrorMessage(error as { code?: string }));
@@ -531,19 +550,22 @@ export default function RevealScreen() {
     router.replace('/reveal');
   };
 
-  // Done: a milestone or a badge gets its own celebration next; otherwise the
-  // moments of this check-in are seen, and the map and counter catch up.
-  const leave = () => {
-    const milestone = game?.milestone ?? null;
-    const badges = game?.badges ?? [];
-    if ((milestone || badges.length > 0) && data) {
+  // Done: a milestone, quests done, the chest ready or a badge (also from the
+  // bonus answer) get their own celebration next; otherwise the moments of
+  // this check-in are seen, and the map and counter catch up.
+  const leave = async () => {
+    if (leaving.current) return;
+    leaving.current = true;
+    const extra = later.current ? await within(later.current, 1000) : null;
+    const news = revealNews(game, extra?.moments ?? []);
+    const asOf = extra?.asOf ?? game?.asOf ?? null;
+    if (hasRevealNews(news) && data) {
       setPendingCelebration({
         kind: 'reveal',
-        milestone,
-        badges,
+        ...news,
         discovered: game?.discovery?.discovered ?? null,
         totalBins: game?.discovery?.totalBins ?? null,
-        asOf: game?.asOf ?? null,
+        asOf,
         preview: data.preview,
         forceReduceMotion: data.forceReduceMotion,
         noSound: data.noSound,
@@ -551,7 +573,7 @@ export default function RevealScreen() {
       router.replace('/celebrate');
       return;
     }
-    if (game?.asOf && !data?.preview) markMomentsSeen(game.asOf).catch(() => {});
+    if (asOf && !data?.preview) markMomentsSeen(asOf).catch(() => {});
     if (!data?.preview) refreshGame();
     router.back();
   };

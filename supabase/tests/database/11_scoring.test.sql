@@ -12,6 +12,9 @@ set search_path = public, extensions;
 
 select plan(32);
 
+-- No quests (phase 6) in this test: no quest rewards, no chest.
+update quest_templates set active = false;
+
 insert into auth.users (id, email, aud, role) values
   ('b1000000-0000-0000-0000-000000000001', 'score-user@example.test', 'authenticated', 'authenticated'),
   ('b1000000-0000-0000-0000-000000000002', 'score-admin@example.test', 'authenticated', 'authenticated');
@@ -175,7 +178,7 @@ select set_config('request.jwt.claims', '{"sub":"b1000000-0000-0000-0000-0000000
 select is(game_catalog()->'config',
   '{"checkin_base_chips": 10, "streak_multiplier": 1.15, "streak_max_steps": 8, "bonus_question_points": 5,
     "discovery_chips": 5, "region_west": 3.708015, "region_south": 51.044642, "region_east": 3.725743,
-    "region_north": 51.059883}'::jsonb,
+    "region_north": 51.059883, "max_freezes": 2, "chest_open_days": 7}'::jsonb,
   'game_catalog gives signed-in users every number of the config, as it is now');
 select throws_ok($$ select private.checkin_score(1) $$, '42501', null, 'users cannot call checkin_score');
 reset role;

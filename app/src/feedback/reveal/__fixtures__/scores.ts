@@ -11,6 +11,8 @@ export const DEFAULT_CONFIG: GameConfig = {
   streakMaxSteps: 8,
   bonusQuestionPoints: 5,
   discoveryChips: 5,
+  maxFreezes: 2,
+  chestOpenDays: 7,
 };
 
 /**

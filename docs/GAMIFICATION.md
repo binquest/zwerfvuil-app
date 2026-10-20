@@ -1344,5 +1344,93 @@ fase 3, 4 en 5 staan op staging en als EAS Update op `dev`, en zijn op de iPhone
   terug → "Goedgekeurd! +N" met het nieuwe totaal; afwijzen met een reden → rustig blok; en tijdens
   het goedkeuren de camera open laten: er verschijnt niets boven de camera of de onthulling.
 - Gemerged in `main` als PR #7 (20 oktober).
-- Nog te doen: fase 6 en 7.
-- Volgende stap: fase 6 in een nieuwe sessie, op `gamification/6-vandaag` vanaf `main`.
+
+**Fase 6 (vandaag: quests, kist, dagbolletjes, bevriezer)**, op `gamification/6-vandaag`
+- Deel 1, server (`20261020120000_today.sql`), af en lokaal getest:
+  - `game_config`: `max_freezes` 2, `chest_open_days` 7. `milestones.freezes` (1 bij 50).
+  - Catalogus `quest_templates` (11: de dagquests en weekuitdagingen van hoofdstuk 3 zonder
+    premie) met regels van een vast type (`private.quest_rule_ok`): `count` over checkins (met
+    uren, `new`, `revisit`), discoveries, bonus_answers of reports; `distinct_far_bins`
+    (`min_m`, doel 1 of 2); `active_days`. Doel en beloning zijn kolommen; `requires` met
+    `undiscovered_bins` en `before_hour`. `chest_rewards` (7, gewichten van hoofdstuk 3; Maan 3,
+    Regenboog 1).
+  - Spelfeiten `user_quests` (open/pending/granted, bevroren titel, regel, doel en beloning),
+    `daily_chests` (locked/ready/opened, de trekking blijft), `streak_freezes`
+    (pending/available/revoked met `source_lost` of `freezes_full`), `user_avatars` (de kist);
+    RLS eigen rijen/admins.
+  - `private.ensure_quests(user, dag)` deelt per vak één quest uit (gewogen over wat mag, gerold
+    met `hashtextextended(user:dag:vak)`), plus de weekuitdaging en de kist. De refresh
+    (`refresh_game_state(user, since)`, nieuw: `since`) deelt de quests van vandaag uit en
+    rekent quests en kisten van 14 dagen terug (of vanaf de dag van de beoordeelde of herroepen
+    inworp: `refresh_game_state_safely` geeft die dag mee; `repair_game_state` alles), met
+    ledgerrijen `quest:<id>` (bron quest of weekly) en `chest:<id>`, de kistavatar, de
+    bevriezers (oudste eerst, maximum via de wandeling) en dan de badges.
+  - `private.streak_walk` leidt het gebruik van bevriezers af; `streak_weeks`, `my_streak` en
+    `longest_streak` gebruiken hem (tot `clock_timestamp()`).
+  - `open_daily_chest(day)`, `my_game_state` v2 (volatile; `streak` met dagen, bevriezers en
+    bevroren weken; `today`, `quests`, `weekly`, `chest`, `chests_ready`, `pending_checkins`),
+    `game` met `quests`, `chest` en `freezes`, momenten `quest`, `chest`, `freeze`,
+    `game_catalog` met `quests` en `chest_rewards`, de badge Questheld (`count` of `quests`),
+    avatars via quest en kist in `avatar_states` en `results`. Events `quest_viewed`,
+    `quest_completed`, `chest_opened`, `tip_shown` (ook in `events.ts` en `ANALYTICS.md`);
+    de zes tabellen in `check-restore.sh`.
+  - Tests: `16_quests_chest_freeze` (72); 02, 06–09 en 11–15 zetten de quests uit
+    (`update quest_templates set active = false`); 10, 11, 12 en 14 kennen de nieuwe events,
+    sleutels en de badge. Samen 684. Deno: `game.quests` en `game.chest` in de integratie;
+    de puntentotalen tellen de quests mee (hun keuze hangt van gebruiker en dag af).
+- Deel 2, app, af en getest (geen native wijziging; nieuwe routes en geluiden):
+  - `src/game/today.ts` (parsers voor quests, kist, reeks v2 en Vandaag; view-models: dagbolletjes,
+    gevaar vanaf vrijdag, statusregel, bevriezers, questrij, weekuitdaging, kistkaart,
+    "3 inworpen wachten · +64 voorlopig", tab-badge, kansen, uitleg met getallen uit de catalogus),
+    `src/game/todayMemory.ts` (uitleg gezien en kist aangekondigd, per toestel), `src/game/chest.ts`
+    (tijdlijnen schudden en openen, zeldzaamheid, parser van `open_daily_chest`, preview);
+    `catalog.ts` met `quests`, `chestRewards`, `maxFreezes`, `chestOpenDays`; `discoveries.ts` met
+    `today`, reeks v2, `game.quests/chest/freezes` en momenten quest/chest/freeze.
+  - Tab Vandaag (`(tabs)/(today)/today.tsx`, met eigen `leaderboard` en `collection`; links met de
+    groep, ook in Profiel) en `TodayScreen`: reekskaart (vlam, weken en mult, `DayDots`,
+    "Deze week telt al" of oranje "Reeks in gevaar · nog 2 dagen", bevriezers), drie quests
+    (`QuestRow`, balk en beloning in PUNTEN-blauw, klokje als ze wachten), dagkist (dicht met balk,
+    gouden rand en een zachte puls als ze klaarstaat, geopend met beloning), oudere kisten die nog
+    klaarstaan, weekuitdaging, wat wacht, Ranglijst en Collectie; `FirstTimeTip` bij reeks, quests
+    en kist (één keer per toestel). Tab-badge = aantal klaarstaande kisten. Profiel toont de reeks
+    niet meer ("Langste reeks" blijft).
+  - Kist-scherm (`chest.tsx`, fullScreenModal): tik → drie golven schudden met tikjes, haptiek en een
+    groeiende gloed terwijl `open_daily_chest` trekt → pop, flits, beloningskaart in de
+    zeldzaamheidskleur, rollend getal, "wacht op goedkeuring"; confetti bij een epische of
+    legendarische vondst; "Kansen" toont de gewichten; Reduce Motion zonder schudden en flits,
+    VoiceOver opent meteen met een samenvatting. Alles wordt bij het openen gemount.
+  - Vieringen: na de onthulling ook quests (ook die het bonusantwoord voltooide, via `my_unseen`
+    na het antwoord), de kist die klaarstaat ("Open je kist" opent ze) en bevriezers, met
+    `quest_ding`; gemiste momenten tonen quests, kist en bevriezers. `ChestMoment` is de bron
+    "kist klaar" van de presenter (een klaarstaande kist die op dit toestel nog niet aangekondigd
+    werd).
+  - Geluiden `quest_ding`, `chest_rattle`, `chest_open` uit `generate-sfx.mjs`.
+  - Dev-modus, "Vandaag bekijken": kist openen met een gekozen beloning, quest voltooid (met kist),
+    uitleg opnieuw tonen; gemiste momenten tonen nu ook een quest.
+  - Tests: Jest 345 (`today.test.ts`: parsers, dagbolletjes, gevaar vanaf vrijdag, uitleg één
+    keer, kist aangekondigd, kansen; `chest.test.ts`: tijdlijnen met Reduce Motion, zeldzaamheid,
+    parser, quests na de onthulling en na het bonusantwoord); `test:scripts` 28 (de drie geluiden).
+- Akkoord (20 oktober). Staging (20 oktober): backup `postgres-20261020-113047.dump` (sha256 OK);
+  telling vooraf: laatste migratie 20261019180000, 2 profielen, 66 echte en 145 testpunten, hash
+  `a1af6229…` over (id, punten, testpunten), `last_seen_level` 1 en 2; check-ins 3 echte goedgekeurd,
+  9 test goedgekeurd, 5 test afgewezen; ledger toegekend 9 echte rijen (66) en 18 testrijen (145),
+  10 herroepen; invariant leeg; 3 ontdekkingen, 0 mijlpalen, 3 badges, meldingen 1 goedgekeurd en
+  1 afgewezen, 17 bonusantwoorden, 26 actieve events. De dry-run toonde alleen
+  `20261020120000_today.sql`; de gebruiker paste hem toe (staat in
+  `supabase_migrations.schema_migrations`). Telling erna identiek, behalve de migratieversie,
+  26 → 30 actieve events, 9 → 11 config-sleutels, 11 → 12 actieve badges en de zes nieuwe tabellen;
+  dezelfde hash, invariant leeg. 11 actieve quests (3 makkelijk +5, 3 gemiddeld +10, 2 moeilijk +15,
+  3 weekuitdagingen +40), 7 kistbeloningen met de gewichten van hoofdstuk 3, bevriezer bij mijlpaal
+  50, `max_freezes` 2, `chest_open_days` 7, RLS op de nieuwe tabellen, `quest_templates` niet
+  leesbaar, `open_daily_chest`/`my_game_state`/`game_catalog` alleen voor aangemelde gebruikers.
+  Een proef-refresh van beide profielen in een teruggedraaide transactie: per profiel 4 quests en
+  een kist, een tweede refresh 0, invariant leeg. Nog geen quests op staging: die verschijnen bij
+  het eerste bezoek of de eerste inworp. De functie veranderde niet (geen `deploy`).
+  `check-supabase`, `check-auth` en `check-fake-location` geslaagd. EAS Update op `dev` (runtime 1):
+  update-groep `71589416-60bd-457e-8672-24a5c353a7a1` (commit bd08a6b).
+- iPhone (20 oktober): alles in orde. Gecontroleerd (na `update:dev`): de tab Vandaag met de
+  uitlegkaarten (één keer), de reekskaart, een echte inworp met bonusvraag (quest voltooid na de
+  onthulling, quests opgelopen), de dagkist (schudden, beloning, "Kansen", tab-badge), goedkeuren en
+  afwijzen in Beheer, de previews in Dev-modus (ook met Reduce Motion en zonder geluid), en Ranglijst
+  en Collectie vanuit Vandaag en Profiel.
+- Volgende stap: PR naar `main`; de gebruiker merget hem.

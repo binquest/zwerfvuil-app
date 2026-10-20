@@ -282,8 +282,9 @@ echte gebruikersdata vraagt meer.
   "Vroege vogel" zelf). Sinds fase 5 komt de naam uit de tabel `badges` (een geheime
   badge blijft geheim in de hint).
 - [ ] **Ontgrendelen wordt berekend, niet bewaard**: er is geen geschiedenis van
-  wanneer iemand een avatar kreeg, en een avatar via quest of kist is tot fase 6
-  altijd vergrendeld (via badge sinds fase 5).
+  wanneer iemand een avatar kreeg (via badge sinds fase 5, via quest uit
+  `user_quests`); alleen een avatar uit de kist staat sinds fase 6 in
+  `user_avatars`.
 - [ ] **Badges worden afgeleid, ook "Heel de buurt".** De refresh rekent elke badge
   opnieuw uit; komt er een actieve vuilbak bij in de regio, dan vervalt "Heel de
   buurt" tot ook die ontdekt is, zonder melding. Overweeg een badge die ooit
@@ -304,6 +305,35 @@ echte gebruikersdata vraagt meer.
   elke regel over alle inworpen, ontdekkingen en bonusantwoorden van de speler.
   Bij duizenden inworpen per speler: tellers bijhouden of alleen de badges van de
   geraakte soort herrekenen.
+- [ ] **Een toegekende beloning die terug naar "wacht" gaat, verliest haar
+  `granted_at`** (een quest of mijlpaal die na een herroeping nog voorlopig klopt).
+  `points_before` in de goedkeuringsviering (`private.points_at`) mist ze dan: het
+  totaal "voor" is te laag. Beter: een geschiedenis van statuswissels in de ledger.
+- [ ] **Quests en kisten worden 14 dagen terug herrekend** (of vanaf de dag van de
+  beoordeelde of herroepen inworp). Een melding of bonusantwoord dat pas later
+  beoordeeld wordt, herrekent de quests van die oudere dag niet; `repair_game_state`
+  rekent alles.
+- [ ] **Quests worden uitgedeeld bij het eerste bezoek van de dag** (of de eerste
+  inworp): "vóór 10 uur" verschijnt alleen als dat bezoek vóór 10 uur valt, en
+  "nieuwe vuilbak" alleen als er dan nog niet-ontdekte zijn. Wie pas 's avonds
+  opent, krijgt dus andere kansen dan wie 's ochtends opent.
+- [ ] **De kist trekt met `random()` van Postgres**: niet cryptografisch, wel één
+  keer en op de server bewaard. Voor echte prijzen (vouchers) een betere bron
+  gebruiken.
+- [ ] **Twee bevriezers in dezelfde transactie** (bv. een mijlpaal en een quest op
+  hetzelfde moment) zien elkaar niet bij de controle "max 2 in bezit": in dat
+  zeldzame geval kan iemand er 3 hebben.
+- [ ] **De reeks met bevriezers wordt telkens afgeleid** (`private.streak_walk` loopt
+  alle weken af, ook per bevriezer bij de controle op het maximum). Bij jaren
+  geschiedenis per speler: het gebruik bewaren of de wandeling inkorten.
+- [ ] **Uitlegkaarten en "kist aangekondigd" staan per toestel** (`localStorage`): op een
+  nieuw toestel of na een herinstallatie verschijnen ze opnieuw. Bewaar ze bij het profiel
+  als dat stoort.
+- [ ] **Wat het bonusantwoord voltooide** (een quest, de kist) vraagt de app na het antwoord
+  op met `my_unseen`; is dat na 1 s niet terug als je op "Klaar" tikt, dan verschijnt het pas
+  bij de volgende start als gemist moment.
+- [ ] **De kist is een SF Symbol** (`shippingbox`) met een gouden gloed: een placeholder tot er
+  een tekening en animatie (Lottie of Rive) is.
 - [ ] **`app/native-versions.json` wordt met de hand vastgelegd** (`npm run
   native:record`, in de commit van een nieuwe IPA, na het ophogen van
   `DEV_RUNTIME_VERSION`). De workflow `ios-dev.yml` controleert niet dat de IPA bij

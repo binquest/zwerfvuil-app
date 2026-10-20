@@ -39,6 +39,9 @@ describe('parseCheckinResponse', () => {
       discovery: { binId: 58, ordinal: 12, discovered: 12, totalBins: 120, status: 'pending' },
       milestone: { threshold: 10, points: 50, status: 'pending' },
       badges: [],
+      quests: [],
+      chest: null,
+      freezes: [],
       asOf: '2026-10-15T18:00:00+00:00',
     });
   });

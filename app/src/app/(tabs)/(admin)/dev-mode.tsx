@@ -16,7 +16,10 @@ import { previewScore, streakMultiplierLabel, type GameConfig } from '@/game/cat
 import { previewResults } from '@/game/approval';
 import type { BadgeNews } from '@/game/badges';
 import { setPendingCelebration } from '@/game/celebration';
-import { milestoneTitle, type CheckinGame, type MissedMoment } from '@/game/discoveries';
+import { setPendingChestPreview } from '@/game/chest';
+import { milestoneTitle, type CheckinGame, type MissedMoment, type MissedQuest } from '@/game/discoveries';
+import { chestChances } from '@/game/today';
+import { resetTips } from '@/game/todayMemory';
 import { useGameCatalog } from '@/game/useGameCatalog';
 import { adminErrorMessage } from '@/lib/errors';
 import { formatPoints, formatWeeks } from '@/lib/format';
@@ -39,6 +42,12 @@ const PREVIEW_BADGE: BadgeNews = {
   rarity: 'rare',
   status: 'pending',
 };
+
+/** The preview's quests: two of today's, done and waiting for approval (as the server names them). */
+const PREVIEW_QUESTS: MissedQuest[] = [
+  { id: 'preview-medium', period: 'day', slot: 'medium', templateKey: 'two_checkins', title: 'Doe 2 inworpen', reward: 10, freezes: 0, status: 'pending' },
+  { id: 'preview-hard', period: 'day', slot: 'hard', templateKey: 'far_bins', title: 'Doe 2 inworpen bij vuilbakken minstens 200 m uit elkaar', reward: 15, freezes: 0, status: 'pending' },
+];
 
 /**
  * The score of the preview: base, discovery, streak, and optionally a step the
@@ -94,6 +103,11 @@ export default function DevModeScreen() {
   const [milestoneGranted, setMilestoneGranted] = useState(false);
   const chosenMilestone = milestones[Math.min(milestoneIndex, Math.max(0, milestones.length - 1))] ?? null;
   const levels = useGameCatalog()?.levels ?? [];
+  const catalog = useGameCatalog();
+  const chestRewards = catalog?.chestRewards ?? [];
+  const [chestIndex, setChestIndex] = useState(0);
+  const chosenChestReward = chestRewards[Math.min(chestIndex, Math.max(0, chestRewards.length - 1))] ?? null;
+  const chestLabels = chestChances(chestRewards, (key) => catalog?.avatars.find((a) => a.key === key)?.name ?? null);
   const [approvedCount, setApprovedCount] = useState(2);
   const [rejectedCount, setRejectedCount] = useState(1);
   const [approvalLevelUp, setApprovalLevelUp] = useState(true);
@@ -150,6 +164,9 @@ export default function DevModeScreen() {
       discovery: options.discovery ? PREVIEW_DISCOVERY : null,
       milestone: previewMilestone && chosenMilestone ? { ...chosenMilestone, status: 'pending' } : null,
       badges: previewBadge ? [PREVIEW_BADGE] : [],
+      quests: [],
+      chest: null,
+      freezes: [],
       asOf: null,
     };
     setPendingReveal({
@@ -183,6 +200,9 @@ export default function DevModeScreen() {
       kind: 'reveal',
       milestone: { ...chosenMilestone, status: milestoneGranted ? 'granted' : 'pending' },
       badges: [],
+      quests: [],
+      chestDay: null,
+      freezes: 0,
       discovered: chosenMilestone.threshold,
       totalBins: 120,
       asOf: null,
@@ -199,6 +219,9 @@ export default function DevModeScreen() {
       kind: 'reveal',
       milestone: null,
       badges: [PREVIEW_BADGE],
+      quests: [],
+      chestDay: null,
+      freezes: 0,
       discovered: null,
       totalBins: null,
       asOf: null,
@@ -227,6 +250,7 @@ export default function DevModeScreen() {
     const at = new Date().toISOString();
     const moments: MissedMoment[] = [58, 61, 74].map((binId, i) => ({ kind: 'discovery', at, binId, ordinal: 10 + i, status: 'pending' }));
     if (chosenMilestone) moments.push({ kind: 'milestone', at, ...chosenMilestone, status: 'pending' });
+    moments.push({ kind: 'quest', at, quest: PREVIEW_QUESTS[0] });
     moments.push({ kind: 'badge', at, badge: PREVIEW_BADGE });
     setPendingCelebration({
       kind: 'missed',
@@ -238,6 +262,42 @@ export default function DevModeScreen() {
       noSound: previewNoSound,
     });
     router.push('/celebrate');
+  };
+
+  /** Quests done after a reveal, with the chest ready (the button then says "Verder": the preview opens no chest). */
+  const showQuests = () => {
+    setPendingCelebration({
+      kind: 'reveal',
+      milestone: null,
+      badges: [],
+      quests: PREVIEW_QUESTS,
+      chestDay: new Date().toISOString().slice(0, 10),
+      freezes: 0,
+      discovered: null,
+      totalBins: null,
+      asOf: null,
+      preview: true,
+      forceReduceMotion: previewReduceMotion,
+      noSound: previewNoSound,
+    });
+    router.push('/celebrate');
+  };
+
+  /** The chest screen with the chosen reward, waiting for approval: nothing is drawn or written. */
+  const showChest = () => {
+    if (!chosenChestReward) return;
+    const { key, kind, amount, avatarKey } = chosenChestReward;
+    setPendingChestPreview({
+      reward: { key, kind, amount, avatarKey, status: 'pending' },
+      forceReduceMotion: previewReduceMotion,
+      noSound: previewNoSound,
+    });
+    router.push('/chest');
+  };
+
+  const showTipsAgain = () => {
+    resetTips();
+    toast.show({ title: 'Uitleg staat klaar', message: 'Open Vandaag: de uitleg bij reeks, quests en kist verschijnt opnieuw.', systemImage: 'lightbulb' });
   };
 
   const startStressTest = () => {
@@ -373,6 +433,26 @@ export default function DevModeScreen() {
         </Section>
 
         <Section
+          title="Vandaag bekijken"
+          footer={
+            <Text>
+              Het kistscherm met de gekozen beloning (zonder trekking), quests die na een onthulling af zijn met de kist
+              die klaarstaat, en de eenmalige uitleg op Vandaag opnieuw. Schrijft niets weg.
+            </Text>
+          }>
+          <Stepper
+            label={chosenChestReward ? `Beloning: ${chestLabels[Math.min(chestIndex, chestLabels.length - 1)]?.label ?? chosenChestReward.key}` : 'Kistbeloningen laden…'}
+            value={chestIndex}
+            min={0}
+            max={Math.max(0, chestRewards.length - 1)}
+            onValueChange={setChestIndex}
+          />
+          <Button label="Kist openen" systemImage="shippingbox" onPress={showChest} modifiers={[disabled(!chosenChestReward)]} />
+          <Button label="Quest voltooid tonen" systemImage="checklist" onPress={showQuests} />
+          <Button label="Uitleg opnieuw tonen" systemImage="lightbulb" onPress={showTipsAgain} />
+        </Section>
+
+        <Section
           title="Onboarding bekijken"
           footer={
             <Text>
@@ -445,7 +525,7 @@ export default function DevModeScreen() {
 
         <Section title="Ranglijst">
           <Toggle label="Testdata tonen" systemImage="hammer" isOn={dev.showTestData} onIsOnChange={dev.setShowTestData} />
-          <Button label="Open de ranglijst" systemImage="trophy" onPress={() => router.push('/leaderboard')} />
+          <Button label="Open de ranglijst" systemImage="trophy" onPress={() => router.push('/(tabs)/(profile)/leaderboard')} />
         </Section>
 
         <Section
