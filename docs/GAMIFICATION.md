@@ -1433,4 +1433,12 @@ fase 3, 4 en 5 staan op staging en als EAS Update op `dev`, en zijn op de iPhone
   onthulling, quests opgelopen), de dagkist (schudden, beloning, "Kansen", tab-badge), goedkeuren en
   afwijzen in Beheer, de previews in Dev-modus (ook met Reduce Motion en zonder geluid), en Ranglijst
   en Collectie vanuit Vandaag en Profiel.
-- Volgende stap: PR naar `main`; de gebruiker merget hem.
+- Gemerged in `main` als PR #8 (20 oktober).
+
+**Fase 7 (meldingen)**, op `gamification/7-meldingen`
+- Deel 1, server (`20261020180000_notifications.sql`), af en lokaal getest: de meldingen zelf zijn
+  lokaal (geen tabel), dus de server leert alleen de events `notification_permission` (`status`,
+  `prompt` pre/system, `from` moment/settings), `notification_scheduled` (`type`, `in_hours`) en
+  `notification_opened` (`type`); ook in `events.ts` en `ANALYTICS.md` (de rij uit "Gepland" is
+  weg). Tests: 10 kent de nieuwe events (samen 684), de Deno-integratie heeft een voorbeeld per
+  event. De functie veranderde niet (geen `deploy`).

@@ -111,6 +111,9 @@ Deno-integratietest de app met de database.
 | `quest_completed` | een voltooide quest getoond: na de onthulling of als gemist moment | `template_key`, `period` day/week, `source` reveal/missed |
 | `chest_opened` | dagkist geopend (de trekking) | `reward_kind` points/freeze/avatar, `amount` (null bij een avatar), `days_ago` (0 = vandaag) |
 | `tip_shown` | eenmalige uitleg op Vandaag getoond | `tip` streak/quests/chest |
+| `notification_permission` | antwoord op de vraag om meldingen: eerst onze eigen uitleg, dan de vraag van iOS | `status` accepted/declined (pre) of granted/denied (system), `prompt` pre/system, `from` moment/settings |
+| `notification_scheduled` | een nieuwe lokale melding gepland (niet bij elke nieuwe planning opnieuw) | `type` streak/quest/chest, `in_hours` (afgerond) |
+| `notification_opened` | een tik op een melding opent de app (ook bij een koude start) | `type` streak/quest/chest |
 
 Opmerkingen:
 - `discovery` in `reveal_shown` is `true` als de score een ontdekkingsstap heeft (sinds fase 3). In
@@ -126,6 +129,13 @@ Opmerkingen:
   bonusantwoord voltooide) of bij de gemiste momenten (`missed`); `chest_opened` alleen bij de echte
   trekking (niet als een al geopende kist opnieuw getoond wordt); `tip_shown` zodra een uitlegkaart
   verschijnt (één keer per toestel). Previews in Dev-modus gaan als `is_test` mee.
+- Meldingen zijn lokaal: de app plant ze opnieuw na elke verse `my_game_state`. `notification_scheduled`
+  komt alleen voor een melding die er in de vorige planning nog niet was (soort en tijdstip), niet bij
+  elke opening opnieuw. `notification_permission` komt per antwoord: eerst onze uitleg (`pre`), na
+  "Meldingen aanzetten" de vraag van iOS (`system`); `from` = de vraag na een inworp (`moment`) of de
+  knop in Instellingen (`settings`). De testmelding uit Dev-modus geeft `notification_opened` als
+  `is_test`. De open-ratio per soort is ongeveer `notification_opened` / `notification_scheduled` per
+  `type` (een geplande melding die vervalt, bv. de reeksmelding na een inworp, telt in de noemer mee).
 - `checkin_submitted` en `checkin_result` komen uit `submitCheckin` (`app/src/lib/api.ts`), waar
   grootte en duur bekend zijn. Lukt het lezen van de foto niet, dan is er geen `checkin_submitted`.
 
@@ -136,7 +146,6 @@ fase die de functie bouwt.
 
 | Event | Fase | Props |
 |---|---|---|
-| `notification_permission`, `notification_scheduled`, `notification_opened` | 7 | zie GAMIFICATION.md |
 | `heatmap_toggled`, `recap_shown`, `recap_shared`, `bounty` in `map_bin_tap` en `reveal_shown` | 8–9 | zie GAMIFICATION.md |
 
 ## Een event toevoegen
