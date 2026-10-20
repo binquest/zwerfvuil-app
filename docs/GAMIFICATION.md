@@ -1499,3 +1499,19 @@ fase 3, 4 en 5 staan op staging en als EAS Update op `dev`, en zijn op de iPhone
   - `notification_permission` heeft ook `from` (moment/settings);
   - de regels staan als constanten in de app, de instellingen per toestel (zie PRE-BETA);
   - de testmelding staat in een eigen sectie "Meldingen testen" in Dev-modus.
+- Akkoord (20 oktober). Staging, voorbereid: backup `postgres-20261020-123338.dump` (sha256 OK);
+  telling vooraf: laatste migratie 20261020120000, 2 profielen, 66 echte en 145 testpunten, hash
+  `a1af6229…` over (id, punten, testpunten), beide op `last_seen_level` 2; check-ins 3 echte
+  goedgekeurd, 9 test goedgekeurd, 5 test afgewezen; ledger toegekend 9 echte rijen (66) en 18
+  testrijen (145), 10 herroepen; invariant leeg; 3 ontdekkingen, 3 badges, meldingen 1 goedgekeurd
+  en 1 afgewezen, 17 bonusantwoorden, 30 actieve events (geen `notification_*`), 11
+  config-sleutels, 12 actieve badges, 11 quests, 7 kistbeloningen, 8 open quests, 2 dichte kisten.
+  Beide profielen hebben deze week al een echte inworp. De dry-run toont alleen
+  `20261020180000_notifications.sql`.
+- Staging (20 oktober): `20261020180000_notifications.sql` toegepast (door de gebruiker; staat in
+  `supabase_migrations.schema_migrations`). Telling erna identiek, behalve de migratieversie en
+  30 → 33 actieve events (`notification_opened`, `notification_permission`,
+  `notification_scheduled`, actief): dezelfde hash, invariant leeg. De functie veranderde niet
+  (geen `deploy`). `check-supabase`, `check-auth` en `check-fake-location` geslaagd. EAS Update op
+  `dev` (runtime 1): update-groep `24967991-20ad-4b91-aa2c-50a7d74b5bf1` (commit 90f2087).
+- Volgende stap: de gebruiker test op de iPhone; daarna push en PR naar `main`.
