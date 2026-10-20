@@ -50,6 +50,10 @@ const EXAMPLES: { [N in EventName]: EventProps[N] } = {
   approval_shown: { approved: 2, rejected: 1, points: 33 },
   level_up_shown: { level: 4, previous: 3 },
   badge_shown: { badge_key: "early_bird", status: "granted", source: "approval" },
+  quest_viewed: { open: 2, done: 1 },
+  quest_completed: { template_key: "two_checkins", period: "day", source: "reveal" },
+  chest_opened: { reward_kind: "points", amount: 10, days_ago: 0 },
+  tip_shown: { tip: "quests" },
 };
 
 Deno.test("event log end to end", async (t) => {

@@ -1344,5 +1344,39 @@ fase 3, 4 en 5 staan op staging en als EAS Update op `dev`, en zijn op de iPhone
   terug → "Goedgekeurd! +N" met het nieuwe totaal; afwijzen met een reden → rustig blok; en tijdens
   het goedkeuren de camera open laten: er verschijnt niets boven de camera of de onthulling.
 - Gemerged in `main` als PR #7 (20 oktober).
-- Nog te doen: fase 6 en 7.
-- Volgende stap: fase 6 in een nieuwe sessie, op `gamification/6-vandaag` vanaf `main`.
+
+**Fase 6 (vandaag: quests, kist, dagbolletjes, bevriezer)**, op `gamification/6-vandaag`
+- Deel 1, server (`20261020120000_today.sql`), af en lokaal getest:
+  - `game_config`: `max_freezes` 2, `chest_open_days` 7. `milestones.freezes` (1 bij 50).
+  - Catalogus `quest_templates` (11: de dagquests en weekuitdagingen van hoofdstuk 3 zonder
+    premie) met regels van een vast type (`private.quest_rule_ok`): `count` over checkins (met
+    uren, `new`, `revisit`), discoveries, bonus_answers of reports; `distinct_far_bins`
+    (`min_m`, doel 1 of 2); `active_days`. Doel en beloning zijn kolommen; `requires` met
+    `undiscovered_bins` en `before_hour`. `chest_rewards` (7, gewichten van hoofdstuk 3; Maan 3,
+    Regenboog 1).
+  - Spelfeiten `user_quests` (open/pending/granted, bevroren titel, regel, doel en beloning),
+    `daily_chests` (locked/ready/opened, de trekking blijft), `streak_freezes`
+    (pending/available/revoked met `source_lost` of `freezes_full`), `user_avatars` (de kist);
+    RLS eigen rijen/admins.
+  - `private.ensure_quests(user, dag)` deelt per vak één quest uit (gewogen over wat mag, gerold
+    met `hashtextextended(user:dag:vak)`), plus de weekuitdaging en de kist. De refresh
+    (`refresh_game_state(user, since)`, nieuw: `since`) deelt de quests van vandaag uit en
+    rekent quests en kisten van 14 dagen terug (of vanaf de dag van de beoordeelde of herroepen
+    inworp: `refresh_game_state_safely` geeft die dag mee; `repair_game_state` alles), met
+    ledgerrijen `quest:<id>` (bron quest of weekly) en `chest:<id>`, de kistavatar, de
+    bevriezers (oudste eerst, maximum via de wandeling) en dan de badges.
+  - `private.streak_walk` leidt het gebruik van bevriezers af; `streak_weeks`, `my_streak` en
+    `longest_streak` gebruiken hem (tot `clock_timestamp()`).
+  - `open_daily_chest(day)`, `my_game_state` v2 (volatile; `streak` met dagen, bevriezers en
+    bevroren weken; `today`, `quests`, `weekly`, `chest`, `chests_ready`, `pending_checkins`),
+    `game` met `quests`, `chest` en `freezes`, momenten `quest`, `chest`, `freeze`,
+    `game_catalog` met `quests` en `chest_rewards`, de badge Questheld (`count` of `quests`),
+    avatars via quest en kist in `avatar_states` en `results`. Events `quest_viewed`,
+    `quest_completed`, `chest_opened`, `tip_shown` (ook in `events.ts` en `ANALYTICS.md`);
+    de zes tabellen in `check-restore.sh`.
+  - Tests: `16_quests_chest_freeze` (72); 02, 06–09 en 11–15 zetten de quests uit
+    (`update quest_templates set active = false`); 10, 11, 12 en 14 kennen de nieuwe events,
+    sleutels en de badge. Samen 684. Deno: `game.quests` en `game.chest` in de integratie;
+    de puntentotalen tellen de quests mee (hun keuze hangt van gebruiker en dag af).
+- Volgende stap: deel 2, de app (tab Vandaag, kist-scherm, quest-momenten, tab-badge,
+  Dev-previews).

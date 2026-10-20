@@ -13,6 +13,9 @@ set search_path = public, extensions;
 
 select plan(47);
 
+-- No quests (phase 6) in this test: no quest rewards, no chest.
+update quest_templates set active = false;
+
 -- ---------------------------------------------------------------------------
 -- Fixtures (as postgres)
 -- ---------------------------------------------------------------------------
@@ -98,21 +101,22 @@ $$;
 
 select is((select array_agg(key order by sort) from badges where active),
   array['first_checkin', 'explorer_10', 'explorer_50', 'explorer_100', 'streak_4', 'streak_8', 'curious',
-        'mapmaker', 'early_bird', 'night_owl', 'whole_neighbourhood'],
-  'the badges of chapter 3 (without quests and bounties)');
+        'mapmaker', 'early_bird', 'night_owl', 'quest_hero', 'whole_neighbourhood'],
+  'the badges of chapter 3 (without bounties)');
 select is((select array_agg(private.badge_rule_ok(r::jsonb)) from unnest(array[
     '{"type": "count", "of": "checkins", "target": 1}',
     '{"type": "count", "of": "checkins", "target": 3, "hour_from": 22, "hour_before": 5}',
     '{"type": "count", "of": "checkins", "target": 1, "hour_before": 24}',
     '{"type": "count", "of": "reports", "target": 1}',
     '{"type": "streak_weeks", "target": 8}',
-    '{"type": "region_complete"}']) r),
-  array[true, true, true, true, true, true], 'the rule types and their parameters');
+    '{"type": "region_complete"}',
+    '{"type": "count", "of": "quests", "target": 30}']) r),
+  array[true, true, true, true, true, true, true], 'the rule types and their parameters');
 select is((select array_agg(private.badge_rule_ok(r::jsonb)) from unnest(array[
     '{"type": "count", "of": "checkins"}',
     '{"type": "count", "of": "checkins", "target": 0}',
     '{"type": "count", "of": "checkins", "target": "3"}',
-    '{"type": "count", "of": "quests", "target": 3}',
+    '{"type": "count", "of": "bounties", "target": 3}',
     '{"type": "count", "of": "discoveries", "target": 3, "hour_from": 5}',
     '{"type": "count", "of": "checkins", "target": 1, "hour_from": 24}',
     '{"type": "count", "of": "checkins", "target": 1, "hour_from": 5, "hour_before": 5}',
@@ -132,7 +136,7 @@ select is_empty($$ select a.key from avatars a
 select is((select row(jsonb_array_length(c->'badges'), c->'badges'->0->>'name', c->'badges'->9->>'name',
                       c->'badges'->9->>'symbol', c->'badges'->9->>'description' = 'Een verrassing: blijf spelen.')::text
            from (select game_catalog() c) x),
-  '(11,"Eerste inworp","Geheime badge",questionmark,t)', 'game_catalog has the badges, the secret one hidden');
+  '(12,"Eerste inworp","Geheime badge",questionmark,t)', 'game_catalog has the badges, the secret one hidden');
 
 -- ---------------------------------------------------------------------------
 -- 2. A count of check-ins: pending, granted, back to pending, revoked, again
@@ -227,7 +231,7 @@ set local role authenticated;
 select is((select row(name, description, symbol, status, progress, target)::text from my_badges() where key = 'night_owl'),
   '("Geheime badge","Een verrassing: blijf spelen.",questionmark,locked,,)', 'a secret badge stays hidden, without progress');
 select is((select row(count(*), count(*) filter (where status = 'locked'), min(progress))::text from my_badges()),
-  '(11,11,0)', 'a new player: every badge locked, no progress');
+  '(12,12,0)', 'a new player: every badge locked, no progress');
 select is((select hint from my_avatars() where key = 'merel'), 'Verdien de badge Vroege vogel',
   'the hint of the badge avatar names the badge from the catalog');
 reset role;

@@ -13,6 +13,9 @@ set search_path = public, extensions;
 
 select plan(62);
 
+-- No quests (phase 6) in this test: no quest rewards, no chest.
+update quest_templates set active = false;
+
 -- ---------------------------------------------------------------------------
 -- Fixtures (as postgres): alice (user), the admin, bob (user)
 -- ---------------------------------------------------------------------------
@@ -107,7 +110,7 @@ select is((select array_agg(points order by threshold) from milestones where thr
 select is(
   (select row(jsonb_array_length(c->'milestones'), c->'milestones'->0, c->'config'->'discovery_chips')::text
    from (select game_catalog() c) x),
-  '(15,"{""points"": 50, ""threshold"": 10}",5)', 'game_catalog has the milestones and the discovery chips');
+  '(15,"{""points"": 50, ""freezes"": 0, ""threshold"": 10}",5)', 'game_catalog has the milestones and the discovery chips');
 
 -- ---------------------------------------------------------------------------
 -- 2. The score: discovery step, streak extended, ledger parts
@@ -154,7 +157,8 @@ select is((select row(ok, pg_temp.kinds(score), score->>'total', score->'streak_
 select is((select game from c1),
   jsonb_build_object('discovery', jsonb_build_object('bin_id', pg_temp.bin(1), 'ordinal', 1, 'discovered', 1,
                                                      'total_bins', 12, 'status', 'pending'),
-                     'milestone', null, 'badges', '[]'::jsonb, 'as_of', now()),
+                     'milestone', null, 'badges', '[]'::jsonb, 'quests', '[]'::jsonb, 'chest', null,
+                     'freezes', '[]'::jsonb, 'as_of', now()),
   'game: the discovery with its counter (1 of the 12 bins of the region), no milestone');
 select is((select row(d.checkin_id = c1.checkin_id, d.status)::text from discoveries d, c1
            where d.user_id = 'c1200000-0000-0000-0000-000000000001' and d.bin_id = pg_temp.bin(1)),
@@ -292,7 +296,8 @@ select is(
         'confirmed:1', 'confirmed:1', 'confirmed:1', 'pending:1', '-:0'],
   'the collection: every bin of the region, discovered or not, with the check-ins that count');
 select is(
-  my_game_state() - 'as_of' - 'streak' - 'level' - 'stats',
+  my_game_state() - 'as_of' - 'streak' - 'level' - 'stats' - 'today' - 'quests' - 'weekly' - 'chest'
+    - 'chests_ready' - 'pending_checkins',
   '{"points": {"granted": 135, "pending": 65},
     "discoveries": {"discovered": 10, "confirmed": 9, "total_bins": 12,
                     "next_milestone": {"threshold": 20, "points": 50, "previous": 10}},

@@ -8,6 +8,9 @@ set search_path = public, extensions;
 
 select plan(40);
 
+-- No quests (phase 6) in this test: no quest rewards, no chest.
+update quest_templates set active = false;
+
 -- The economy before phase 3: no discovery chips, so the points below stay
 -- as they were (12_discoveries covers discoveries).
 update game_config set value = '0' where key = 'discovery_chips';

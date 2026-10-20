@@ -14,6 +14,8 @@ export type CelebrationSource = 'reveal' | 'missed';
 /** Where a badge was shown: a celebration source or the approval celebration (confirmed). */
 export type BadgeSource = CelebrationSource | 'approval';
 export type OnboardingStep = 'name' | 'avatar';
+/** The one-time explanations on Today. */
+export type TipKind = 'streak' | 'quests' | 'chest';
 
 export interface EventProps {
   app_open: { kind: 'cold' | 'warm' };
@@ -42,6 +44,10 @@ export interface EventProps {
   approval_shown: { approved: number; rejected: number; points: number };
   level_up_shown: { level: number; previous: number };
   badge_shown: { badge_key: string; status: string; source: BadgeSource };
+  quest_viewed: { open: number; done: number };
+  quest_completed: { template_key: string; period: 'day' | 'week'; source: CelebrationSource };
+  chest_opened: { reward_kind: string; amount: number | null; days_ago: number };
+  tip_shown: { tip: TipKind };
 }
 
 export type EventName = keyof EventProps;
@@ -74,6 +80,10 @@ const NAMES = {
   approval_shown: true,
   level_up_shown: true,
   badge_shown: true,
+  quest_viewed: true,
+  quest_completed: true,
+  chest_opened: true,
+  tip_shown: true,
 } satisfies Record<EventName, true>;
 
 export const EVENT_NAMES = Object.keys(NAMES) as EventName[];

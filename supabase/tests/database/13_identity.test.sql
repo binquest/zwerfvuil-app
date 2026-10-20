@@ -13,6 +13,9 @@ set search_path = public, extensions;
 
 select plan(65);
 
+-- No quests (phase 6) in this test: no quest rewards, no chest.
+update quest_templates set active = false;
+
 -- ---------------------------------------------------------------------------
 -- Fixtures (as postgres): alice, the admin, bob and carol
 -- ---------------------------------------------------------------------------

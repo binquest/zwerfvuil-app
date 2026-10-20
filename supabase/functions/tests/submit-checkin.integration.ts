@@ -156,6 +156,15 @@ Deno.test("submit-checkin end to end", async (t) => {
       return [profile?.points, rows.reduce((sum, r) => sum + r.amount, 0)];
     };
 
+    // Granted rewards that are not of one check-in: the quests handed out today
+    // (their choice depends on the user and the day).
+    const questPoints = async (): Promise<number> => {
+      const { data: rows, error } = await admin.from("point_transactions").select("amount")
+        .eq("user_id", userId).eq("status", "granted").eq("is_test", false).is("checkin_id", null);
+      if (error) throw error;
+      return rows.reduce((sum, r) => sum + r.amount, 0);
+    };
+
     const photosInStorage = async (): Promise<string[]> => {
       const { data, error } = await admin.storage.from("checkin-photos").list(userId);
       if (error) throw error;
@@ -193,6 +202,11 @@ Deno.test("submit-checkin end to end", async (t) => {
       );
       assert(body.game.discovery.total_bins >= 1, `total_bins ${body.game.discovery.total_bins}`);
       assert(typeof body.game.as_of === "string", "as_of for mark_seen");
+      // Today's three quests and this week's challenge are handed out and count
+      // this check-in (every medium quest does); today's chest belongs to them.
+      assertEquals(body.game.quests.map((q: { slot: string }) => q.slot), ["easy", "medium", "hard", "weekly"]);
+      assert(body.game.quests[1].progress >= 1, `medium quest ${JSON.stringify(body.game.quests[1])}`);
+      assertEquals([body.game.chest.status === "opened", body.game.chest.quests_total], [false, 3]);
       assertEquals(body.bonus_question.key, "bin_fullness");
       assertEquals(body.bonus_question.points, 5);
       assertEquals(body.bonus_question.options.map((o: { key: string }) => o.key), ["empty", "half", "full"]);
@@ -243,7 +257,7 @@ Deno.test("submit-checkin end to end", async (t) => {
         [checkin_base_chips, streak_multiplier, streak_max_steps, bonus_question_points, discovery_chips],
         [10, 1.1, 8, 5, 5],
       );
-      assertEquals(data.milestones[0], { threshold: 10, points: 50 });
+      assertEquals(data.milestones[0], { threshold: 10, points: 50, freezes: 0 });
     });
 
     await t.step("the bonus question can be answered once, for 5 points", async () => {
@@ -406,16 +420,18 @@ Deno.test("submit-checkin end to end", async (t) => {
       const approved = await adminClient.rpc("review_checkin", { id: checkinId, approve: true });
       assertEquals([approved.error, approved.data?.status], [null, "approved"]);
       assertEquals(await ledgerOf(checkinId), ["bonus:5:granted", "checkin:11:granted", "discovery:6:granted"]);
-      assertEquals(await pointsAndLedger(), [22, 22]);
+      const quests = await questPoints();
+      assertEquals(await pointsAndLedger(), [22 + quests, 22 + quests]);
 
       // The approval celebration: the decision stays unseen until mark_seen('results').
       const unseen = await authed.rpc("my_unseen");
       assertEquals(unseen.error, null);
       const results = unseen.data.results;
       assertEquals(results.approved.map((a: { checkin_id: string }) => a.checkin_id), [checkinId]);
+      assertEquals([results.gained, results.points_before, results.points_after], [22 + quests, 0, 22 + quests]);
       assertEquals(
-        [results.gained, results.by_source, results.points_before, results.points_after],
-        [22, { bonus: 5, checkin: 11, discovery: 6 }, 0, 22],
+        [results.by_source.bonus, results.by_source.checkin, results.by_source.discovery, results.by_source.quest ?? 0],
+        [5, 11, 6, quests],
       );
       assertEquals([results.level_before, results.level_after, results.level_title], [1, 2, "Blikjesbuddy"]);
       assert(results.badges.some((b: { key: string }) => b.key === "first_checkin"), "Eerste inworp granted");
@@ -446,7 +462,14 @@ Deno.test("submit-checkin end to end", async (t) => {
         ]),
         [[checkinId, "Dubbel of misbruik", true]],
       );
-      assertEquals([afterRevoke.points_before, afterRevoke.points_after, afterRevoke.level_after], [22, 0, 1]);
+      // A quest that still holds over the pending check-in goes back to pending
+      // and loses its granted_at, so it is missing from points_before
+      // (docs/PRE-BETA.md).
+      assert(
+        afterRevoke.points_before >= 22 && afterRevoke.points_before <= 22 + quests,
+        `points_before ${afterRevoke.points_before}`,
+      );
+      assertEquals([afterRevoke.points_after, afterRevoke.level_after], [0, 1]);
 
       // The user sees the outcome and the reason of their own check-in.
       const { data: own } = await authed.from("checkins").select("status, review_reason, revoked_at")
@@ -501,7 +524,8 @@ Deno.test("submit-checkin end to end", async (t) => {
         pending = submitted.body.checkin_id;
       }
       const [points, ledger] = await pointsAndLedger();
-      assertEquals([points, ledger], [granted, granted]);
+      const quests = await questPoints();
+      assertEquals([points, ledger], [granted + quests, granted + quests]);
     });
   } finally {
     const photos = await admin.storage.from("checkin-photos").list(userId);

@@ -107,6 +107,10 @@ Deno-integratietest de app met de database.
 | `approval_shown` | goedkeuringsviering getoond (beslissingen sinds het vorige bezoek) | `approved`, `rejected` (aantallen), `points` (erbij gekregen) |
 | `level_up_shown` | level-up getoond: in de goedkeuringsviering of apart | `level`, `previous` |
 | `badge_shown` | badge getoond: na de onthulling, als gemist moment of bevestigd in de goedkeuringsviering | `badge_key`, `status` pending/granted, `source` reveal/missed/approval |
+| `quest_viewed` | de quests op Vandaag komen in beeld (één keer per bezoek aan het scherm) | `open`, `done` (aantallen dagquests) |
+| `quest_completed` | een voltooide quest getoond: na de onthulling of als gemist moment | `template_key`, `period` day/week, `source` reveal/missed |
+| `chest_opened` | dagkist geopend (de trekking) | `reward_kind` points/freeze/avatar, `amount` (null bij een avatar), `days_ago` (0 = vandaag) |
+| `tip_shown` | eenmalige uitleg op Vandaag getoond | `tip` streak/quests/chest |
 
 Opmerkingen:
 - `discovery` in `reveal_shown` is `true` als de score een ontdekkingsstap heeft (sinds fase 3). In
@@ -127,7 +131,6 @@ fase die de functie bouwt.
 
 | Event | Fase | Props |
 |---|---|---|
-| `quest_viewed`, `quest_completed`, `chest_opened`, `tip_shown` | 6 | zie GAMIFICATION.md |
 | `notification_permission`, `notification_scheduled`, `notification_opened` | 7 | zie GAMIFICATION.md |
 | `heatmap_toggled`, `recap_shown`, `recap_shared`, `bounty` in `map_bin_tap` en `reveal_shown` | 8–9 | zie GAMIFICATION.md |
 
