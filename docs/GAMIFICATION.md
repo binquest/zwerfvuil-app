@@ -1410,3 +1410,22 @@ fase 3, 4 en 5 staan op staging en als EAS Update op `dev`, en zijn op de iPhone
   - Tests: Jest 345 (`today.test.ts`: parsers, dagbolletjes, gevaar vanaf vrijdag, uitleg één
     keer, kist aangekondigd, kansen; `chest.test.ts`: tijdlijnen met Reduce Motion, zeldzaamheid,
     parser, quests na de onthulling en na het bonusantwoord); `test:scripts` 28 (de drie geluiden).
+- Akkoord (20 oktober). Staging (20 oktober): backup `postgres-20261020-113047.dump` (sha256 OK);
+  telling vooraf: laatste migratie 20261019180000, 2 profielen, 66 echte en 145 testpunten, hash
+  `a1af6229…` over (id, punten, testpunten), `last_seen_level` 1 en 2; check-ins 3 echte goedgekeurd,
+  9 test goedgekeurd, 5 test afgewezen; ledger toegekend 9 echte rijen (66) en 18 testrijen (145),
+  10 herroepen; invariant leeg; 3 ontdekkingen, 0 mijlpalen, 3 badges, meldingen 1 goedgekeurd en
+  1 afgewezen, 17 bonusantwoorden, 26 actieve events. De dry-run toonde alleen
+  `20261020120000_today.sql`; de gebruiker paste hem toe (staat in
+  `supabase_migrations.schema_migrations`). Telling erna identiek, behalve de migratieversie,
+  26 → 30 actieve events, 9 → 11 config-sleutels, 11 → 12 actieve badges en de zes nieuwe tabellen;
+  dezelfde hash, invariant leeg. 11 actieve quests (3 makkelijk +5, 3 gemiddeld +10, 2 moeilijk +15,
+  3 weekuitdagingen +40), 7 kistbeloningen met de gewichten van hoofdstuk 3, bevriezer bij mijlpaal
+  50, `max_freezes` 2, `chest_open_days` 7, RLS op de nieuwe tabellen, `quest_templates` niet
+  leesbaar, `open_daily_chest`/`my_game_state`/`game_catalog` alleen voor aangemelde gebruikers.
+  Een proef-refresh van beide profielen in een teruggedraaide transactie: per profiel 4 quests en
+  een kist, een tweede refresh 0, invariant leeg. Nog geen quests op staging: die verschijnen bij
+  het eerste bezoek of de eerste inworp. De functie veranderde niet (geen `deploy`).
+  `check-supabase`, `check-auth` en `check-fake-location` geslaagd. EAS Update op `dev` (runtime 1):
+  update-groep `71589416-60bd-457e-8672-24a5c353a7a1` (commit bd08a6b).
+- Volgende stap: de iPhone-controle; daarna branch pushen en een PR naar `main` openen.
