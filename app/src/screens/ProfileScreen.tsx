@@ -1,6 +1,7 @@
 // The profile (docs/GAMIFICATION.md, chapter 5), in React Native: the avatar
 // in the ring to the next level (tap = the picker), name, level and title;
-// the points (rolling) with what waits for approval; the statistics; the
+// the points (rolling) with what waits for approval; the statistics (the
+// streak itself is on Today); the
 // badges in a grid of 3 (locked = silhouette, tap = how to earn it); the
 // collection and the leaderboard; the history. The gear opens the settings
 // (name, account, app, sign out).
@@ -12,9 +13,7 @@ import type { SFSymbol } from 'sf-symbols-typescript';
 
 import { Avatar, BadgeGrid, BadgeIcon, GameNumber, PendingTag, ProgressRing } from '@/components/game';
 import { badgeCountLabel, badgeStatusLine, type Badge } from '@/game/badges';
-import { streakMultiplierLabel } from '@/game/catalog';
 import { levelLabel, levelProgress, toNextLabel } from '@/game/levels';
-import { useGameCatalog } from '@/game/useGameCatalog';
 import { fetchMyBadges, fetchMyHistory } from '@/lib/api';
 import { genericErrorMessage } from '@/lib/errors';
 import { formatDate, formatDateTime, formatWeeks } from '@/lib/format';
@@ -120,7 +119,6 @@ function HistoryRow({ item }: { item: HistoryItem }) {
 export function ProfileScreen() {
   const { session, profile, refreshProfile } = useAuth();
   const { state, refresh } = useGame();
-  const catalog = useGameCatalog();
   const [history, setHistory] = useState<HistoryItem[] | null>(null);
   const [badges, setBadges] = useState<Badge[] | null>(null);
   const [focusedBadge, setFocusedBadge] = useState<string | null>(null);
@@ -228,15 +226,10 @@ export function ProfileScreen() {
             <View style={{ flexDirection: 'row', gap: spacing.md }}>
               <Stat label="Ontdekt" value={`${state.discovered}/${state.totalBins}`} />
               <Stat label="Inworpen" value={String(stats?.checkins ?? 0)} />
-              <Stat label="Bonusvragen" value={String(stats?.bonusAnswers ?? 0)} />
             </View>
             <View style={{ flexDirection: 'row', gap: spacing.md }}>
-              <Stat
-                label={catalog && state.streak.weeks > 0 ? `Reeks nu · ${streakMultiplierLabel(catalog.config, state.streak.weeks)}` : 'Reeks nu'}
-                value={state.streak.weeks > 0 ? formatWeeks(state.streak.weeks) : '—'}
-              />
+              <Stat label="Bonusvragen" value={String(stats?.bonusAnswers ?? 0)} />
               <Stat label="Langste reeks" value={stats && stats.longestStreak > 0 ? formatWeeks(stats.longestStreak) : '—'} />
-              <View style={{ flex: 1 }} />
             </View>
           </View>
         ) : null}
@@ -257,9 +250,9 @@ export function ProfileScreen() {
         ) : null}
 
         <View style={[card, { paddingVertical: spacing.xs }]}>
-          <LinkRow title="Collectie" symbol="square.grid.2x2.fill" color={colors.tint} onPress={() => router.push('/collection')} />
+          <LinkRow title="Collectie" symbol="square.grid.2x2.fill" color={colors.tint} onPress={() => router.push('/(tabs)/(profile)/collection')} />
           <View style={{ height: 0.5, backgroundColor: colors.separator, marginLeft: 32 }} />
-          <LinkRow title="Ranglijst" symbol="trophy.fill" color={colors.yellow} onPress={() => router.push('/leaderboard')} />
+          <LinkRow title="Ranglijst" symbol="trophy.fill" color={colors.yellow} onPress={() => router.push('/(tabs)/(profile)/leaderboard')} />
         </View>
 
         <View style={{ gap: spacing.sm }}>

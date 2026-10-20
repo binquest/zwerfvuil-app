@@ -27,6 +27,9 @@ const EXPECTED = [
   'milestone_fanfare',
   'approve_chime',
   'levelup_fanfare',
+  'quest_ding',
+  'chest_rattle',
+  'chest_open',
 ].map((name) => `${name}.wav`);
 
 function parse(bytes) {
@@ -126,6 +129,9 @@ test('the lengths fit the role of each sound', () => {
   assert.ok(length('milestone_fanfare') <= 1800);
   assert.ok(length('approve_chime') <= 900);
   assert.ok(length('levelup_fanfare') <= 1900);
+  assert.ok(length('quest_ding') <= 700);
+  assert.ok(length('chest_rattle') <= 1100);
+  assert.ok(length('chest_open') <= 1300);
 });
 
 test('the ticks and multipliers sit on the C major pentatonic scale, each higher than the last', () => {

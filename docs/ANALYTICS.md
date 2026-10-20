@@ -121,6 +121,11 @@ Opmerkingen:
   de eindstand begint, geeft geen `reveal_skipped` (wel `reveal_shown`).
 - Previews in Dev-modus (onthulling, bonusvraag, onboarding) gaan als `is_test` mee. De preview van de
   onboarding bewaart niets en logt dus nooit `avatar_changed` of `onboarding_completed`.
+- `quest_viewed` komt één keer per bezoek aan Vandaag (zodra de quests geladen zijn);
+  `quest_completed` per voltooide quest in de viering na de onthulling (`reveal`, ook wat het
+  bonusantwoord voltooide) of bij de gemiste momenten (`missed`); `chest_opened` alleen bij de echte
+  trekking (niet als een al geopende kist opnieuw getoond wordt); `tip_shown` zodra een uitlegkaart
+  verschijnt (één keer per toestel). Previews in Dev-modus gaan als `is_test` mee.
 - `checkin_submitted` en `checkin_result` komen uit `submitCheckin` (`app/src/lib/api.ts`), waar
   grootte en duur bekend zijn. Lukt het lezen van de foto niet, dan is er geen `checkin_submitted`.
 

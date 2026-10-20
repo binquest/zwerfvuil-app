@@ -26,6 +26,9 @@
 //   milestone_fanfare  a milestone: arpeggio C5 E5 G5, then the full C major chord over C4
 //   approve_chime      approved (and a badge): two bells up a fourth, G5 then C6, with a shimmer
 //   levelup_fanfare    a level-up: a quick pentatonic run C5 to C6, then the C major chord an octave up
+//   quest_ding         a quest done: a bright bell at E6 over a soft G5
+//   chest_rattle       the daily chest shakes in three waves of wooden knocks, each louder
+//   chest_open         the lid pops (a thump and a burst), then sparkle up C6 E6 G6 C7
 //
 // Deterministic: the same script writes the same samples (seeded noise).
 // generate-sfx.test.mjs checks the committed files against it.
@@ -329,6 +332,49 @@ function levelupFanfare() {
   return buf;
 }
 
+function questDing() {
+  const buf = buffer(0.6);
+  // One clear bell at E6, a soft G5 just before it: a small "done".
+  addTone(buf, { freq: note(7), partials: BELL, decay: 0.08, gain: 0.35 });
+  addTone(buf, { at: 0.03, freq: note(16), partials: BELL, decay: 0.16, gain: 0.9 });
+  fadeOut(buf, 0.03);
+  return buf;
+}
+
+// The waves of the chest's shake start here (src/game/chest.ts, CHEST_WAVE_MS).
+const CHEST_WAVE_AT = [0, 0.32, 0.64];
+
+function chestRattle() {
+  const buf = buffer(1.0);
+  const rng = mulberry32(606);
+  // Every wave a few more knocks, louder: filtered noise on a low wooden tone.
+  CHEST_WAVE_AT.forEach((at, wave) => {
+    for (let k = 0; k < 3 + wave; k++) {
+      const t = at + k * 0.055;
+      addNoise(buf, { at: t, length: 0.04, gain: 0.5 + 0.15 * wave, decay: 0.012, rng, lowpass: 0.25 });
+      addTone(buf, { at: t, freq: note(k % 2 === 0 ? -17 : -15), decay: 0.03, gain: 0.35 + 0.1 * wave });
+    }
+  });
+  fadeOut(buf, 0.03);
+  return buf;
+}
+
+function chestOpen() {
+  const buf = buffer(1.2);
+  const rng = mulberry32(707);
+  // The lid pops: a thump and a short burst; then sparkle up the C major arpeggio.
+  addTone(buf, { freq: 80, decay: 0.08, gain: 0.8, drop: 0.5, dropTime: 0.03 });
+  addNoise(buf, { length: 0.08, gain: 0.5, decay: 0.02, rng, lowpass: 0.5 });
+  [12, 16, 19, 24].forEach((semitones, k) => {
+    addTone(buf, { at: 0.08 + k * 0.07, freq: note(semitones), partials: BELL, decay: 0.18, gain: 0.5 + 0.08 * k });
+  });
+  for (const detune of [1.003, 0.997]) {
+    addTone(buf, { at: 0.36, freq: note(31) * detune, decay: 0.2, gain: 0.08, fadeIn: 0.01 });
+  }
+  fadeOut(buf, 0.04);
+  return buf;
+}
+
 function heatLoop() {
   const n = SAMPLE_RATE;
   const rng = mulberry32(2026);
@@ -386,6 +432,9 @@ export function renderAll() {
   sounds.milestone_fanfare = milestoneFanfare();
   sounds.approve_chime = approveChime();
   sounds.levelup_fanfare = levelupFanfare();
+  sounds.quest_ding = questDing();
+  sounds.chest_rattle = chestRattle();
+  sounds.chest_open = chestOpen();
   return sounds;
 }
 

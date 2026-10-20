@@ -326,6 +326,14 @@ echte gebruikersdata vraagt meer.
 - [ ] **De reeks met bevriezers wordt telkens afgeleid** (`private.streak_walk` loopt
   alle weken af, ook per bevriezer bij de controle op het maximum). Bij jaren
   geschiedenis per speler: het gebruik bewaren of de wandeling inkorten.
+- [ ] **Uitlegkaarten en "kist aangekondigd" staan per toestel** (`localStorage`): op een
+  nieuw toestel of na een herinstallatie verschijnen ze opnieuw. Bewaar ze bij het profiel
+  als dat stoort.
+- [ ] **Wat het bonusantwoord voltooide** (een quest, de kist) vraagt de app na het antwoord
+  op met `my_unseen`; is dat na 1 s niet terug als je op "Klaar" tikt, dan verschijnt het pas
+  bij de volgende start als gemist moment.
+- [ ] **De kist is een SF Symbol** (`shippingbox`) met een gouden gloed: een placeholder tot er
+  een tekening en animatie (Lottie of Rive) is.
 - [ ] **`app/native-versions.json` wordt met de hand vastgelegd** (`npm run
   native:record`, in de commit van een nieuwe IPA, na het ophogen van
   `DEV_RUNTIME_VERSION`). De workflow `ios-dev.yml` controleert niet dat de IPA bij

@@ -6,6 +6,7 @@ import { track } from '@/analytics';
 
 import { parseMyAvatars, type AvatarChoice } from '../game/avatars';
 import { parseMyBadges, type Badge } from '../game/badges';
+import { parseChestOpened, type ChestOpened } from '../game/chest';
 import {
   parseCollection,
   parseGameState,
@@ -205,6 +206,15 @@ export async function fetchMyUnseen(): Promise<Unseen> {
   const unseen = parseUnseen(data);
   if (!unseen) throw new Error('my_unseen: unexpected answer');
   return unseen;
+}
+
+/** Opens the daily chest of `day` (YYYY-MM-DD): draws once on the server; again = the same reward. */
+export async function openDailyChest(day: string): Promise<ChestOpened> {
+  const { data, error } = await supabase.rpc('open_daily_chest', { day });
+  if (error) throw error;
+  const opened = parseChestOpened(data);
+  if (!opened) throw new Error('open_daily_chest: unexpected answer');
+  return opened;
 }
 
 /** Marks the moments up to `until` (a server time) as seen. */

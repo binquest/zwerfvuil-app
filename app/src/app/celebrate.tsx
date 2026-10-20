@@ -1,6 +1,7 @@
 // A celebration on its own screen (docs/GAMIFICATION.md, chapter 4 step 11 and
-// chapter 5): a milestone or a badge right after the reveal ("10 vuilbakken
-// ontdekt", confetti, "+50 · wacht op goedkeuring"), the moments missed since
+// chapter 5): a milestone, quests done, the chest ready or a badge right after
+// the reveal ("10 vuilbakken ontdekt", confetti, "+50 · wacht op goedkeuring";
+// a ready chest makes the button open it), the moments missed since
 // the last visit, or the decisions since then (the approval celebration:
 // "Goedgekeurd! +16", the total rolling, a level-up, rejections calmly with
 // their reason). The last two come from the MomentsPresenter. Its sound is a
@@ -8,6 +9,7 @@
 // reveal. With Reduce Motion: no confetti, things fade in. Closing marks the
 // moments or the results seen on the server (not in the Dev mode preview).
 import { router } from 'expo-router';
+import { SymbolView } from 'expo-symbols';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AccessibilityInfo, ScrollView, Text, View } from 'react-native';
 import Animated, { Easing, ReduceMotion, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
@@ -23,7 +25,9 @@ import { celebrationSoundtrack, warmUpSounds } from '@/feedback/sfx/soundtrack';
 import { APPROVAL_COUNT_MS, approvalParts, approvalSummary, buildApprovalTimeline, isLevelUp } from '@/game/approval';
 import type { BadgeNews } from '@/game/badges';
 import { buildCelebrationTimeline, takePendingCelebration, type CelebrationData } from '@/game/celebration';
-import { counterLabel, milestoneTitle, summarizeMoments } from '@/game/discoveries';
+import { counterLabel, milestoneTitle, summarizeMoments, type MissedQuest } from '@/game/discoveries';
+import { questRewardLabel } from '@/game/today';
+import { markChestAnnounced } from '@/game/todayMemory';
 import { markMomentsSeen, markResultsSeen } from '@/lib/api';
 import { useReduceMotion, useScreenReader } from '@/lib/useAccessibility';
 import { useGame } from '@/providers/GameProvider';
@@ -33,18 +37,42 @@ import { numberStyle, playColors, playType, spacing, type } from '@/theme';
 /** At most this many bin numbers in the list of missed discoveries. */
 const MAX_BINS_LISTED = 12;
 
-/** What VoiceOver says: the milestone and its reward, the discoveries and badges, or the decisions. */
+/** What VoiceOver says: the milestone and its reward, the discoveries, quests, chest and badges, or the decisions. */
 function summary(data: CelebrationData): string {
   if (data.kind === 'approval') return approvalSummary(data.results);
-  const { milestone, discoveries, badges } =
-    data.kind === 'reveal' ? { milestone: data.milestone, discoveries: [], badges: data.badges } : summarizeMoments(data.moments);
+  const { milestone, discoveries, badges, quests, chestDay, freezes } =
+    data.kind === 'reveal' ? { ...data, discoveries: [] } : summarizeMoments(data.moments);
   const parts: string[] = [];
   if (milestone) {
     parts.push(`${milestoneTitle(milestone.threshold)}. ${milestone.points} punten${milestone.status === 'pending' ? ', wacht op goedkeuring' : ''}.`);
   }
   if (discoveries.length > 0) parts.push(`${discoveries.length} nieuwe ${discoveries.length === 1 ? 'vuilbak' : 'vuilbakken'} ontdekt.`);
+  for (const quest of quests) parts.push(`Quest voltooid: ${quest.title}, ${questRewardLabel(quest)}${quest.status === 'pending' ? ', wacht op goedkeuring' : ''}.`);
+  if (chestDay) parts.push('Je dagkist staat klaar.');
+  if (freezes > 0) parts.push(freezes === 1 ? 'Een bevriezer erbij.' : `${freezes} bevriezers erbij.`);
   for (const badge of badges) parts.push(`Badge ${badge.name}${badge.status === 'pending' ? ', wacht op goedkeuring' : ''}.`);
   return parts.join(' ');
+}
+
+/** The quests done (after the reveal or while away), with their rewards in PUNTEN blue. */
+function QuestsDone({ quests }: { quests: readonly MissedQuest[] }) {
+  return (
+    <View style={{ alignItems: 'center', gap: spacing.sm, alignSelf: 'stretch' }}>
+      <Text style={[playType.label, { color: playColors.gold }]}>{quests.length === 1 ? 'Quest voltooid' : 'Quests voltooid'}</Text>
+      {quests.map((quest) => (
+        <View
+          key={quest.id}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, alignSelf: 'stretch', backgroundColor: 'rgba(0,0,0,0.25)', borderRadius: 16, borderCurve: 'continuous', padding: spacing.md }}>
+          <SymbolView name={quest.period === 'week' ? 'calendar.badge.checkmark' : 'checkmark.circle.fill'} size={24} tintColor={playColors.chips} />
+          <Text style={[type.body, { color: playColors.text, fontWeight: '600', flex: 1 }]} numberOfLines={2}>
+            {quest.title}
+          </Text>
+          <Text style={{ color: playColors.chips, fontSize: 22, ...numberStyle }}>{questRewardLabel(quest)}</Text>
+        </View>
+      ))}
+      {quests.some((q) => q.status === 'pending') ? <PendingTag style={{ alignSelf: 'center' }} /> : null}
+    </View>
+  );
 }
 
 /** The badges a check-in or the missed moments earned, under the milestone or the discoveries. */
@@ -88,6 +116,9 @@ export default function CelebrateScreen() {
   const milestone = data?.kind === 'reveal' ? data.milestone : (moments?.milestone ?? null);
   const badges = useMemo(() => (data?.kind === 'reveal' ? data.badges : (moments?.badges ?? [])), [data, moments]);
   const discoveries = useMemo(() => moments?.discoveries ?? [], [moments]);
+  const quests = useMemo(() => (data?.kind === 'reveal' ? data.quests : (moments?.quests ?? [])), [data, moments]);
+  const chestDay = data?.kind === 'reveal' ? data.chestDay : (moments?.chestDay ?? null);
+  const freezes = data?.kind === 'reveal' ? data.freezes : (moments?.freezes ?? 0);
 
   // No analytics I/O while celebrating (see src/analytics/queue.ts).
   useEffect(() => holdAnalytics(), []);
@@ -124,13 +155,21 @@ export default function CelebrateScreen() {
         track('discovery_shown', { ordinal: discovery.ordinal, status: discovery.status, source: 'missed' }, { isTest });
       }
       for (const badge of badges) track('badge_shown', { badge_key: badge.key, status: badge.status, source }, { isTest });
+      for (const quest of quests) {
+        track('quest_completed', { template_key: quest.templateKey, period: quest.period, source }, { isTest });
+      }
       if (screenReader) {
         reward.set(1);
         rewardPop.set(1);
         AccessibilityInfo.announceForAccessibilityWithOptions(summary(data), { queue: true });
         return;
       }
-      events = buildCelebrationTimeline({ milestone: !!milestone, discoveries: discoveries.length > 0, reduceMotion });
+      events = buildCelebrationTimeline({
+        milestone: !!milestone,
+        discoveries: discoveries.length > 0,
+        quests: quests.length > 0 || chestDay !== null || freezes > 0,
+        reduceMotion,
+      });
     }
 
     const showReward = () => {
@@ -153,7 +192,7 @@ export default function CelebrateScreen() {
         }
       }
     });
-  }, [data, milestone, discoveries, badges, parts, reduceMotion, screenReader, reward, rewardPop, step]);
+  }, [data, milestone, discoveries, badges, quests, chestDay, freezes, parts, reduceMotion, screenReader, reward, rewardPop, step]);
 
   useEffect(
     () => () => {
@@ -172,9 +211,13 @@ export default function CelebrateScreen() {
     if (!data.preview && data.asOf) {
       (data.kind === 'approval' ? markResultsSeen(data.asOf) : markMomentsSeen(data.asOf)).catch(() => {});
     }
+    // Before the presenter moves on: the chest this leads to is announced (ChestMoment skips it).
+    if (chestDay && !data.preview) markChestAnnounced(chestDay);
     data.onClose?.();
     refresh();
-    router.back();
+    // A chest that became ready: straight to it.
+    if (chestDay && !data.preview) router.replace({ pathname: '/chest', params: { day: chestDay } });
+    else router.back();
   };
 
   if (!data) return <View style={{ flex: 1, backgroundColor: playColors.backdrop }} />;
@@ -185,9 +228,13 @@ export default function CelebrateScreen() {
       ? 'SINDS JE VORIGE BEZOEK'
       : milestone
         ? 'MIJLPAAL'
-        : data.kind === 'reveal'
-          ? 'BADGE'
-          : 'TERWIJL JE WEG WAS';
+        : data.kind === 'missed'
+          ? 'TERWIJL JE WEG WAS'
+          : quests.length > 0
+            ? quests.length === 1 ? 'QUEST' : 'QUESTS'
+            : chestDay
+              ? 'DAGKIST'
+              : 'BADGE';
 
   return (
     <View style={{ flex: 1, experimental_backgroundImage: playColors.background }} accessible={false} onAccessibilityEscape={close}>
@@ -249,6 +296,26 @@ export default function CelebrateScreen() {
             </Animated.View>
           ) : null}
 
+          {quests.length > 0 ? (
+            <Animated.View style={[{ alignSelf: 'stretch' }, rewardStyle]}>
+              <QuestsDone quests={quests} />
+            </Animated.View>
+          ) : null}
+
+          {chestDay ? (
+            <Animated.View style={[{ alignItems: 'center', gap: spacing.sm }, rewardStyle]}>
+              <SymbolView name="shippingbox.fill" size={64} tintColor={playColors.gold} />
+              <Text style={[type.title3, { color: 'white', fontWeight: '800', textAlign: 'center' }]}>Je dagkist staat klaar</Text>
+            </Animated.View>
+          ) : null}
+
+          {freezes > 0 ? (
+            <Animated.View style={[{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }, rewardStyle]}>
+              <SymbolView name="snowflake" size={22} tintColor={playColors.chips} />
+              <Text style={[type.headline, { color: 'white' }]}>{freezes === 1 ? 'Een bevriezer erbij' : `${freezes} bevriezers erbij`}</Text>
+            </Animated.View>
+          ) : null}
+
           {badges.length > 0 ? (
             <Animated.View style={rewardStyle}>
               <EarnedBadges badges={badges} />
@@ -256,7 +323,7 @@ export default function CelebrateScreen() {
           ) : null}
         </ScrollView>
 
-        <ChunkyButton title="Verder" onPress={close} />
+        <ChunkyButton title={chestDay && !data.preview ? 'Open je kist' : 'Verder'} onPress={close} />
       </SafeAreaView>
       <Confetti pieces={pieces} burst={burst} />
       {/* No general toasts during a celebration: they wait until it closes. */}

@@ -34,6 +34,9 @@ export const SFX_SOURCES = {
   milestone_fanfare: require('../../../assets/sfx/milestone_fanfare.wav'),
   approve_chime: require('../../../assets/sfx/approve_chime.wav'),
   levelup_fanfare: require('../../../assets/sfx/levelup_fanfare.wav'),
+  quest_ding: require('../../../assets/sfx/quest_ding.wav'),
+  chest_rattle: require('../../../assets/sfx/chest_rattle.wav'),
+  chest_open: require('../../../assets/sfx/chest_open.wav'),
 } as const;
 
 export type SfxId = keyof typeof SFX_SOURCES;

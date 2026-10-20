@@ -17,6 +17,7 @@ import { BinsProvider } from '@/providers/BinsProvider';
 import { DevModeProvider } from '@/providers/DevModeProvider';
 import { GameProvider } from '@/providers/GameProvider';
 import { LocationProvider } from '@/providers/LocationProvider';
+import { ChestMoment } from '@/providers/ChestMoment';
 import { MissedMoments } from '@/providers/MissedMoments';
 import { MomentsPresenter } from '@/providers/MomentsPresenter';
 import { ToastProvider } from '@/providers/ToastProvider';
@@ -91,6 +92,7 @@ function RootStack() {
             <MomentsPresenter enabled={signedIn && gate === 'app'}>
               {/* Registered before the presenter's first start runs (child effects run first). */}
               {signedIn ? <MissedMoments /> : null}
+              {signedIn ? <ChestMoment /> : null}
               <Stack screenOptions={{ headerShown: false }}>
                 <Stack.Protected guard={!signedIn}>
                   <Stack.Screen name="login" />
@@ -125,6 +127,10 @@ function RootStack() {
                   />
                   <Stack.Screen
                     name="celebrate"
+                    options={{ presentation: 'fullScreenModal', animation: 'fade', gestureEnabled: false }}
+                  />
+                  <Stack.Screen
+                    name="chest"
                     options={{ presentation: 'fullScreenModal', animation: 'fade', gestureEnabled: false }}
                   />
                   <Stack.Screen

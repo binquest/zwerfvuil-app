@@ -9,7 +9,7 @@ const CONFIG_JSON = { checkin_base_chips: 10, streak_multiplier: 1.1, streak_max
 describe('parseCatalog', () => {
   it('reads the numbers of game_catalog()', () => {
     const answer = { config: { ...CONFIG_JSON, later_key: 3 } };
-    expect(parseCatalog(answer)).toEqual({ config: DEFAULT_CONFIG, milestones: [], levels: [], avatars: [] });
+    expect(parseCatalog(answer)).toEqual({ config: DEFAULT_CONFIG, milestones: [], levels: [], avatars: [], quests: [], chestRewards: [] });
   });
 
   it('reads the levels and avatars, sorted', () => {
@@ -43,8 +43,8 @@ describe('parseCatalog', () => {
       milestones: [{ threshold: 20, points: 50 }, { threshold: 10, points: 50 }, { threshold: '30', points: 50 }, null],
     };
     expect(parseCatalog(answer)?.milestones).toEqual([
-      { threshold: 10, points: 50 },
-      { threshold: 20, points: 50 },
+      { threshold: 10, points: 50, freezes: 0 },
+      { threshold: 20, points: 50, freezes: 0 },
     ]);
   });
 

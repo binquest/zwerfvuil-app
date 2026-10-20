@@ -1405,8 +1405,9 @@ as $$
     where m.user_id = p_user and m.status <> 'revoked' and m.reached_at > p_since
     union all
     select 'quest', q.completed_at,
-           jsonb_build_object('id', q.id, 'period', q.period, 'slot', q.slot, 'title', q.title,
-                              'reward', q.reward_points, 'freezes', q.reward_freezes, 'status', q.status),
+           jsonb_build_object('id', q.id, 'period', q.period, 'slot', q.slot, 'template_key', q.template_key,
+                              'title', q.title, 'reward', q.reward_points, 'freezes', q.reward_freezes,
+                              'status', q.status),
            2, array_position(array['easy', 'medium', 'hard', 'weekly'], q.slot)
     from public.user_quests q
     where q.user_id = p_user and q.status <> 'open' and q.completed_at > p_since

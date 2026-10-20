@@ -129,4 +129,7 @@ export const VOLUME = {
   milestone: 0.9,
   approve: 0.8,
   levelUp: 0.9,
+  quest: 0.8,
+  chestRattle: 0.75,
+  chestOpen: 0.9,
 };

@@ -30,16 +30,21 @@ describe('parseCheckinGame', () => {
       discovery: { binId: 58, ordinal: 12, discovered: 12, totalBins: 120, status: 'pending' },
       milestone: { threshold: 10, points: 50, status: 'pending' },
       badges: [{ key: 'first_checkin', name: 'Eerste inworp', description: 'Doe je eerste inworp.', symbol: 'hand.thumbsup.fill', rarity: 'common', status: 'pending' }],
+      quests: [],
+      chest: null,
+      freezes: [],
       asOf: '2026-10-15T18:00:00+00:00',
     });
   });
 
   it('keeps what it can read: no discovery, no milestone', () => {
-    expect(parseCheckinGame({ discovery: null, milestone: null, as_of: 'x' })).toEqual({ discovery: null, milestone: null, badges: [], asOf: 'x' });
+    const none = { quests: [], chest: null, freezes: [] };
+    expect(parseCheckinGame({ discovery: null, milestone: null, as_of: 'x' })).toEqual({ discovery: null, milestone: null, badges: [], ...none, asOf: 'x' });
     expect(parseCheckinGame({ discovery: { bin_id: '58' }, milestone: { threshold: 10, points: 50, status: 'revoked' } })).toEqual({
       discovery: null,
       milestone: null,
       badges: [],
+      ...none,
       asOf: null,
     });
   });
@@ -67,13 +72,14 @@ describe('parseGameState', () => {
     expect(parseGameState(answer)).toEqual({
       points: { granted: 135, pending: 65 },
       level: null,
-      streak: { weeks: 3, thisWeek: true },
+      streak: { weeks: 3, thisWeek: true, freezes: 0, maxFreezes: 2, frozenWeeks: [], weekStart: null, days: [] },
       discovered: 10,
       confirmed: 9,
       totalBins: 120,
       nextMilestone: { threshold: 20, points: 50, previous: 10 },
       stats: null,
       unseenMoments: 2,
+      today: null,
     });
   });
 

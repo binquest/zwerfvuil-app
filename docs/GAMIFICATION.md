@@ -1378,5 +1378,35 @@ fase 3, 4 en 5 staan op staging en als EAS Update op `dev`, en zijn op de iPhone
     (`update quest_templates set active = false`); 10, 11, 12 en 14 kennen de nieuwe events,
     sleutels en de badge. Samen 684. Deno: `game.quests` en `game.chest` in de integratie;
     de puntentotalen tellen de quests mee (hun keuze hangt van gebruiker en dag af).
-- Volgende stap: deel 2, de app (tab Vandaag, kist-scherm, quest-momenten, tab-badge,
-  Dev-previews).
+- Deel 2, app, af en getest (geen native wijziging; nieuwe routes en geluiden):
+  - `src/game/today.ts` (parsers voor quests, kist, reeks v2 en Vandaag; view-models: dagbolletjes,
+    gevaar vanaf vrijdag, statusregel, bevriezers, questrij, weekuitdaging, kistkaart,
+    "3 inworpen wachten · +64 voorlopig", tab-badge, kansen, uitleg met getallen uit de catalogus),
+    `src/game/todayMemory.ts` (uitleg gezien en kist aangekondigd, per toestel), `src/game/chest.ts`
+    (tijdlijnen schudden en openen, zeldzaamheid, parser van `open_daily_chest`, preview);
+    `catalog.ts` met `quests`, `chestRewards`, `maxFreezes`, `chestOpenDays`; `discoveries.ts` met
+    `today`, reeks v2, `game.quests/chest/freezes` en momenten quest/chest/freeze.
+  - Tab Vandaag (`(tabs)/(today)/today.tsx`, met eigen `leaderboard` en `collection`; links met de
+    groep, ook in Profiel) en `TodayScreen`: reekskaart (vlam, weken en mult, `DayDots`,
+    "Deze week telt al" of oranje "Reeks in gevaar · nog 2 dagen", bevriezers), drie quests
+    (`QuestRow`, balk en beloning in PUNTEN-blauw, klokje als ze wachten), dagkist (dicht met balk,
+    gouden rand en een zachte puls als ze klaarstaat, geopend met beloning), oudere kisten die nog
+    klaarstaan, weekuitdaging, wat wacht, Ranglijst en Collectie; `FirstTimeTip` bij reeks, quests
+    en kist (één keer per toestel). Tab-badge = aantal klaarstaande kisten. Profiel toont de reeks
+    niet meer ("Langste reeks" blijft).
+  - Kist-scherm (`chest.tsx`, fullScreenModal): tik → drie golven schudden met tikjes, haptiek en een
+    groeiende gloed terwijl `open_daily_chest` trekt → pop, flits, beloningskaart in de
+    zeldzaamheidskleur, rollend getal, "wacht op goedkeuring"; confetti bij een epische of
+    legendarische vondst; "Kansen" toont de gewichten; Reduce Motion zonder schudden en flits,
+    VoiceOver opent meteen met een samenvatting. Alles wordt bij het openen gemount.
+  - Vieringen: na de onthulling ook quests (ook die het bonusantwoord voltooide, via `my_unseen`
+    na het antwoord), de kist die klaarstaat ("Open je kist" opent ze) en bevriezers, met
+    `quest_ding`; gemiste momenten tonen quests, kist en bevriezers. `ChestMoment` is de bron
+    "kist klaar" van de presenter (een klaarstaande kist die op dit toestel nog niet aangekondigd
+    werd).
+  - Geluiden `quest_ding`, `chest_rattle`, `chest_open` uit `generate-sfx.mjs`.
+  - Dev-modus, "Vandaag bekijken": kist openen met een gekozen beloning, quest voltooid (met kist),
+    uitleg opnieuw tonen; gemiste momenten tonen nu ook een quest.
+  - Tests: Jest 345 (`today.test.ts`: parsers, dagbolletjes, gevaar vanaf vrijdag, uitleg één
+    keer, kist aangekondigd, kansen; `chest.test.ts`: tijdlijnen met Reduce Motion, zeldzaamheid,
+    parser, quests na de onthulling en na het bonusantwoord); `test:scripts` 28 (de drie geluiden).

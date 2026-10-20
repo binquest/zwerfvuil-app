@@ -5,9 +5,9 @@
 // a fixed order, only on a tab screen without an open modal. A moment's screen
 // calls done(key) when it closes (and only then marks it seen on the server).
 //
-// Phase 2: no sources yet. The approval celebration (phase 5), missed moments
-// (phase 3), the notification question (phase 7) and the chest (phase 6) plug
-// in here; the update prompt follows when it moves into the queue.
+// Sources: missed moments and the approval celebration (MissedMoments, phase
+// 3 and 5), a ready chest (ChestMoment, phase 6); the notification question
+// (phase 7) plugs in here, the update prompt when it moves into the queue.
 import { useSegments } from 'expo-router';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AppState } from 'react-native';
