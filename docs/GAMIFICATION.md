@@ -1514,7 +1514,13 @@ fase 3, 4 en 5 staan op staging en als EAS Update op `dev`, en zijn op de iPhone
   `notification_scheduled`, actief): dezelfde hash, invariant leeg. De functie veranderde niet
   (geen `deploy`). `check-supabase`, `check-auth` en `check-fake-location` geslaagd. EAS Update op
   `dev` (runtime 1): update-groep `24967991-20ad-4b91-aa2c-50a7d74b5bf1` (commit 90f2087).
-- Volgende stap: de gebruiker test op de iPhone; daarna push en PR naar `main`. Daarna fase 7b
+- iPhone (20 oktober): alles in orde. Gecontroleerd (na `update:dev`) volgens de stappen van het
+  verslag: de vraag om meldingen bij het openen (één keer) en de toestemming van iOS; Instellingen
+  → Meldingen (schakelaars, uur); in Dev-modus "Meldingen testen" de geplande quest-herinneringen,
+  "Doe alsof deze week nog niets telt" (de reeksmelding van zondag 17:00 verschijnt en verdwijnt na
+  een echte inworp), testmeldingen met de app dicht, open en na een koude start (een tik opent
+  Vandaag of de kist), en de preview van de vraag.
+- Volgende stap: PR naar `main`; de gebruiker merget hem. Daarna fase 7b
   (locatie per sessie) op `gamification/7b-locatie`, vanaf `main`, niet de spelerstest. Voor 7b:
   het nieuwe moment komt in `MOMENT_ORDER` (`src/game/moments.ts`) na `notifications`; wanneer
   onze vraag om meldingen getoond werd, staat per toestel in `localStorage`
