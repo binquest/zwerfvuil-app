@@ -804,9 +804,18 @@ Elke aanpassing staat in het verslag van die fase.
   in de whitelist: het event `location_consent`. `checkin_result` krijgt `checkin_id`. De nieuwe tabellen
   komen in de tabellenlijst van `vm/check-restore.sh`.
 - App:
-  - Uitleg en keuze, één keer via de presenter: ten vroegste bij de opening ná de vraag voor
-    meldingen, en nooit boven de camera of een onthulling. "Ja, doe mee" en "Nee, liever niet" zijn
-    even groot. De uitleg zegt:
+  - De iOS-vraag voor locatie komt niet meer meteen na het aanmelden. Nu vraagt `LocationProvider`
+    het al tijdens de onboarding, en zonder uitleg (`_layout.tsx` zet hem aan zodra er een sessie
+    is). Voortaan:
+    - `LocationProvider` start pas na de onboarding en vraagt niets vanzelf;
+    - staat de toestemming nog open (`undetermined`), dan toont de kaart eerst een eigen uitleg
+      (waarom: controleren dat je bij de vuilbak staat, en je plek op de kaart), en pas na
+      "Ga verder" de vraag van iOS;
+    - wie al geantwoord heeft, merkt niets. Na een weigering blijft het bestaande paneel met
+      "Open Instellingen".
+  - Uitleg en keuze voor het onderzoek, één keer via de presenter, en alleen als iOS de locatie al
+    toestaat: ten vroegste bij de opening ná de vraag voor meldingen, en nooit boven de camera of een
+    onthulling. "Ja, doe mee" en "Nee, liever niet" zijn even groot. De uitleg zegt:
     - wat we bewaren: de exacte locatie bij het openen en zolang de app open is, gekoppeld aan je
       account;
     - waarom: zien waar vuilbakken ontbreken en hoe ver mensen ervoor wandelen;
@@ -830,14 +839,18 @@ Elke aanpassing staat in het verslag van die fase.
   - Jest:
     - recorder: niets zonder toestemming of zonder iOS-toestemming; alleen op de voorgrond; ±25 m;
       plafond van 60 minuten; niets met een testlocatie; intrekken wist de wachtrij;
-    - het keuzescherm verschijnt één keer, en in de juiste volgorde in de presenter.
+    - het keuzescherm verschijnt één keer, en in de juiste volgorde in de presenter;
+    - de iOS-vraag: niet tijdens de onboarding, eerst de eigen uitleg, en niets bij een bestaand
+      antwoord.
 - Docs: `ANALYTICS.md` (locatiepunten, toestemming, nieuwe events), `PRE-BETA.md` ("Exacte locaties
   per sessie" bijwerken), `GAMIFICATION.md`.
 - Klaar als:
   - met toestemming geeft een wandeling van thuis naar een vuilbak, met de app open, in Studio één
     sessie met een startpunt, een spoor en een punt `checkin` dat aan de inworp gekoppeld is;
   - zonder toestemming komt er niets binnen (telling 0);
-  - uitzetten wist de punten op de server.
+  - uitzetten wist de punten op de server;
+  - een nieuw account ziet tijdens de onboarding geen iOS-vraag. Op de kaart komt eerst de uitleg, en
+    dan pas de vraag van iOS.
 
 **Hier stoppen we.** Daarna een test met echte spelers. Vóór die test: de privacypunten uit PRE-BETA
 die over events, spelfeiten en locaties gaan (privacyverklaring, toestemming, DPIA). Tijdens de test
@@ -1002,6 +1015,7 @@ kijken we met losse queries in Studio; de analyseviews en Metabase komen in fase
 - Een spoor alleen op de voorgrond: geen achtergrondlocatie, geen toestemming "Altijd" en geen nieuwe
   IPA.
 - Fase 10 krijgt Metabase op de staging-VM, met zoveel mogelijk data in `analytics`.
+- De iOS-vraag voor locatie gaat mee in 7b: pas na de onboarding, met eerst een eigen uitleg.
 
 **Aannames bij die besluiten (zelf gekozen):**
 - Een aparte opt-in, standaard uit, los van de keuze voor gebruiksanalyse. Zonder toestemming werkt
@@ -1035,8 +1049,9 @@ kijken we met losse queries in Studio; de analyseviews en Metabase komen in fase
   `local_day_start`/`local_week_start`, `dev_mode_allowed_for`, `app_environment`, `streak_weeks`
   (uitgebreid), view `bin_need_answers`, `stagingctl.py migrate/deploy`, `update:dev`.
 - Fase 7b en 10:
-  - app: `src/analytics/location.ts`, `src/providers/LocationProvider.tsx` (de locatiestroom delen),
-    het keuzescherm en Instellingen;
+  - app: `src/analytics/location.ts`, `src/providers/LocationProvider.tsx` (de locatiestroom delen,
+    en de iOS-vraag), `src/app/_layout.tsx` en de kaart (uitleg vóór de iOS-vraag), het keuzescherm
+    en Instellingen;
   - tests: `supabase/tests/database/17_location.test.sql` en `21_analytics.test.sql`;
   - staging: `infra/staging/vm/90-metabase.sh`, `85-backup.sh`, `check-restore.sh` en
     `stagingctl.py` (tunnel);
