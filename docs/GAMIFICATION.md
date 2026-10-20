@@ -1442,3 +1442,32 @@ fase 3, 4 en 5 staan op staging en als EAS Update op `dev`, en zijn op de iPhone
   `notification_opened` (`type`); ook in `events.ts` en `ANALYTICS.md` (de rij uit "Gepland" is
   weg). Tests: 10 kent de nieuwe events (samen 684), de Deno-integratie heeft een voorbeeld per
   event. De functie veranderde niet (geen `deploy`).
+- Deel 2, app (planner, planning, tikken, de vraag om meldingen), af en getest (geen native wijziging:
+  `expo-notifications` 57.0.23 zit in runtime 1; nieuwe route `notifications`):
+  - `src/notifications/planner.ts` (puur): één melding per dag, de belangrijkste (reeks > kist >
+    quest), nooit tussen 21 en 9 u, 30 min speling na het plannen, een week vooruit. Reeks: zondag
+    17:00 als deze week nog niets telt (tekst naar weken en bevriezers, ook "Nog geen inworp deze
+    week" bij 0 weken). Quest: om het eigen uur (9–20, standaard 18) als er vandaag nog quests open
+    staan, algemeen voor de dagen erna. Kist: één keer, op de dag dat ze klaarkwam of de dag erna.
+    Minder na 3 genegeerde: elke geplande melding telt als genegeerd tot de app weer opent (die plant
+    opnieuw), dus vanaf de derde blijft alleen de reeks. Genegeerd = gevuurd zonder tik en zonder
+    opening binnen 2 u (`settle`); een tik of een melding in de open app zet de teller op 0
+    (`answered`). De startwaarden van hoofdstuk 3 staan als constanten in de planner (geen
+    `game_config`: de planning moet offline kloppen).
+  - `src/notifications/scheduler.ts`: na elke verse `my_game_state` (`NotificationCenter`, bij
+    elke opening en na elke inworp; offline blijft de vorige planning) eerst afrekenen, dan de
+    meldingen van de planner annuleren en opnieuw plannen met `DATE`-triggers, en wat iOS nog van
+    ons toont opruimen (`getPresentedNotificationsAsync`). `notification_scheduled` alleen voor een
+    nieuwe (soort en tijdstip). Afmelden annuleert alles. `memory.ts`: instellingen, planning en
+    teller, "gevraagd" en de laatste tik, per toestel.
+  - `NotificationCenter` (in de root-layout): `setNotificationHandler` (banner terwijl de app open
+    is), een tik (ook bij een koude start via `getLastNotificationResponse`, nooit twee keer) opent
+    Vandaag of de kist (als die nog klaarstaat), pas op een tab-scherm zonder modal;
+    `notification_opened`.
+  - `NotificationsMoment`, bron `notifications` van de presenter: na de eerste geslaagde inworp
+    (de teller gaat van 0 naar 1 in deze sessie) of bij een start als er al een inworp is, als iOS
+    nog niets vroeg en dit toestel nog niets vroeg. Eerst onze uitleg (sheet `notifications.tsx`:
+    reeks, quests, kist, "hooguit één per dag, nooit tussen 21:00 en 9:00"), pas bij "Meldingen
+    aanzetten" de vraag van iOS. `notification_permission` voor beide antwoorden.
+  - Tests: Jest 373 (`planner.test.ts`, 28: één per dag, stille uren, prioriteit, uit-schakelaars,
+    minder na 3 genegeerde en terug na een tik, zomertijd, speling, opslag, tik-doel).

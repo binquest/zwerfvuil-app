@@ -20,6 +20,8 @@ import { LocationProvider } from '@/providers/LocationProvider';
 import { ChestMoment } from '@/providers/ChestMoment';
 import { MissedMoments } from '@/providers/MissedMoments';
 import { MomentsPresenter } from '@/providers/MomentsPresenter';
+import { NotificationCenter } from '@/providers/NotificationCenter';
+import { NotificationsMoment } from '@/providers/NotificationsMoment';
 import { ToastProvider } from '@/providers/ToastProvider';
 import { colors } from '@/theme';
 
@@ -92,7 +94,9 @@ function RootStack() {
             <MomentsPresenter enabled={signedIn && gate === 'app'}>
               {/* Registered before the presenter's first start runs (child effects run first). */}
               {signedIn ? <MissedMoments /> : null}
+              {signedIn ? <NotificationsMoment /> : null}
               {signedIn ? <ChestMoment /> : null}
+              {signedIn ? <NotificationCenter ready={gate === 'app'} /> : null}
               <Stack screenOptions={{ headerShown: false }}>
                 <Stack.Protected guard={!signedIn}>
                   <Stack.Screen name="login" />
@@ -144,6 +148,16 @@ function RootStack() {
                       headerShown: true,
                       headerTransparent: true,
                       headerShadowVisible: false,
+                    }}
+                  />
+                  <Stack.Screen
+                    name="notifications"
+                    options={{
+                      presentation: 'formSheet',
+                      sheetAllowedDetents: [0.8, 1],
+                      sheetGrabberVisible: true,
+                      // Transparent: Liquid Glass sheet on iOS 26, like the other sheets.
+                      contentStyle: { backgroundColor: 'transparent' },
                     }}
                   />
                   <Stack.Screen name="onboarding-preview" options={{ presentation: 'fullScreenModal', gestureEnabled: false }} />
