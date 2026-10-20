@@ -95,6 +95,25 @@ voor echte gebruikers. Wordt aangevuld telkens zo'n keuze gemaakt wordt.
 - [ ] **De wachtrij met events staat onversleuteld op de telefoon**
   (`analytics.db`, max. 5.000 events of 30 dagen), ook van een vorige gebruiker
   na afmelden. Wis hem bij het afmelden als accounts gedeeld worden.
+- [ ] **Exacte locaties per sessie (gepland in gamification fase 7b en 10).** Met
+  een aparte opt-in bewaart de app de exacte locatie bij het openen en zolang de
+  app open is, gekoppeld aan inworpen. Metabase toont die punten exact. Dat volstaat
+  voor de spelerstest, waar alleen het eigen team de data leest, maar niet voor
+  echte gebruikers. Vóór echte gebruikers:
+  - een DPIA (effectbeoordeling): mensen volgen op locatie valt daar
+    waarschijnlijk onder;
+  - de privacyverklaring: wat, waarom, hoe lang (90 dagen exact, daarna afgerond)
+    en wie het ziet;
+  - de leeftijdsgrens voor toestemming nakijken (in België 13 jaar);
+  - het privacylabel in de App Store: "Precise Location", voor analyse, gekoppeld
+    aan de gebruiker;
+  - bij de volgende IPA de doeltekst `locationWhenInUsePermission` in `app.json`
+    uitbreiden met het onderzoek. Tegelijk de standaardteksten uitzetten die de
+    plugin van `expo-location` toevoegt maar die de app niet gebruikt ("Altijd" en
+    beweging);
+  - herbekijken of Metabase de exacte punten moet tonen, of dat afgerond (±100 m)
+    volstaat;
+  - controleren dat de opruiming na 90 dagen echt elke dag draait.
 
 ## Infrastructuur en configuratie
 

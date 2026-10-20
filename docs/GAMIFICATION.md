@@ -1,7 +1,8 @@
 # Gamification: van check-in-tool naar game
 
-> **Status:** goedgekeurd op 15 oktober 2026, met aanpassingen (zie "Besluiten" in hoofdstuk 9).
-> Fase 1a t/m 7 bouwen we nu, één fase per sessie, en dan stoppen we. Fase 8–10 bouwen we pas na een
+> **Status:** goedgekeurd op 15 oktober 2026, met aanpassingen (zie "Besluiten" in hoofdstuk 9). Op
+> 20 oktober kwamen fase 7b (locatie per sessie) en Metabase (in fase 10) erbij.
+> Fase 1a t/m 7b bouwen we nu, één fase per sessie, en dan stoppen we. Fase 8–10 bouwen we pas na een
 > test met echte spelers. De stand van zaken staat onderaan, in "Overdracht".
 > Het ontwerp is door twee onafhankelijke reviews gegaan (server en app). Hun bevindingen zijn
 > verwerkt, o.a. de lock-volgorde, de rechten op `private`, toasts boven native modals, exacte
@@ -33,7 +34,7 @@ verifiëren, kort verslag, wachten op akkoord; staging alleen via `infra/staging
 | Tabs Kaart · Profiel · Beheer | Kaart · Vandaag · Profiel · Beheer; Collectie en Ranglijst vanuit Vandaag en Profiel |
 | Ranglijst: naam en punten | + avatar en level (pijltjes t.o.v. vorige week: fase 9) |
 | Dev-modus: onthulling, reeks forceren, testlocatie, reset | + preview van elke nieuwe viering |
-| Geen gebruiksdata | Eventlog met wachtrij in `expo-sqlite`; analyseviews en export in fase 10 |
+| Geen gebruiksdata | Eventlog met wachtrij in `expo-sqlite`; locatie per sessie met toestemming (fase 7b); analyseviews, Metabase en export in fase 10 |
 
 ---
 
@@ -291,6 +292,66 @@ herrekend (zoals nu, staat al in PRE-BETA).
 - Doel: `record_checkin` < 50 ms, gemeten in de integratietest; een Deno-test stuurt een beoordeling
   en een inworp van dezelfde gebruiker tegelijk.
 
+### 2.10 Locatie per sessie (fase 7b)
+
+Doel: zien waar mensen de app openen, hoe ver en hoe lang ze naar een vuilbak wandelen, en of die
+sessie eindigt met een inworp. Dat toont waar vuilbakken ontbreken en wat mensen doet stappen. Alleen
+met een aparte, uitdrukkelijke toestemming; zonder die toestemming verandert er niets.
+
+- **Toestemming.** `private.user_consents`: `user_id` → profiles (on delete cascade), `kind` (nu alleen
+  `location_research`), `version` (van de uitleg), `granted_at`, `withdrawn_at`. Elke keer dat iemand ja
+  zegt, komt er een nieuwe rij bij. Zo kunnen we aantonen wanneer iemand toestemming gaf, en voor welke
+  tekst. RPC's: `set_consent(kind, granted, version)` en `my_consents()`. Intrekken wist meteen alle
+  punten en samenvattingen van die gebruiker.
+- **Punten.** `private.location_points`:
+  - `id` uuid (van de app, voor idempotentie);
+  - `user_id` → profiles (on delete cascade);
+  - `session_id` (dezelfde als in `app_events`);
+  - `kind`: `app_open`, `track`, `checkin_flow_start` of `checkin`;
+  - `geom` geography(Point, 4326), `accuracy_m`, `client_ts`, `server_ts`;
+  - `checkin_id`: alleen bij `checkin`, → checkins (on delete cascade);
+  - `is_test`.
+
+  Indexen op `session_id` en (`user_id`, `client_ts`).
+- **`log_location_points(points jsonb, client jsonb)`**, security definer, naar het model van
+  `log_events`:
+  - zonder open toestemming wordt alles gedropt, ook punten met een `client_ts` van vóór `granted_at`;
+  - max 200 punten per batch;
+  - coördinaten binnen bereik en `accuracy_m` ≤ 50;
+  - `client_ts` max 30 dagen oud en max 1 dag in de toekomst;
+  - 1.000 punten per gebruiker per uur;
+  - `checkin_id` moet een eigen check-in zijn;
+  - `on conflict (id) do nothing`; `is_test` zoals bij events;
+  - antwoord `{accepted, dropped, rate_limited}`.
+- **De eventlog blijft zonder locaties.** De sleutelcontrole van 2.5 blijft gelden: locaties lopen alleen
+  via deze weg. Het inworppad (`submit-checkin`, `record_checkin`) verandert niet. Een inworp is aan de
+  sessie gekoppeld via het punt `checkin` met `checkin_id`; `checkin_result` krijgt daarnaast
+  `checkin_id`.
+- **Niemand leest de tabellen via de API** (ze staan in schema `private`). Admins zien ze in Studio,
+  en vanaf fase 10 via de views in `analytics` en in Metabase.
+- **Bewaartermijn.** Ruwe punten blijven 90 dagen. Daarna maakt `private.apply_location_retention()`
+  per sessie één rij in `private.location_sessions` en wist het de punten. Zo'n rij bevat:
+  - het startpunt, afgerond op ±100 m;
+  - het aantal punten en de gewandelde afstand;
+  - de afstand in rechte lijn tot de vuilbak van de inworp, en de duur tot die inworp;
+  - `checkin_id` en `bin_id`.
+
+  Samenvattingen blijven 13 maanden, zoals events. De opruiming draait dagelijks via pg_cron. Lukt dat
+  niet op staging, dan via een systemd-timer uit `infra/staging/`.
+- **App** (`src/analytics/location.ts`).
+  - Alleen met toestemming, en alleen als iOS de locatie al toestaat ("Bij gebruik"). De app vraagt de
+    iOS-toestemming niet opnieuw voor het onderzoek.
+  - Een punt `app_open` bij elke koude en warme start, via `freshPosition`.
+  - Punten `track` uit de bestaande watch van `LocationProvider`, telkens na ±25 m. Er komt geen tweede
+    GPS-abonnement. Alleen zolang de app op het scherm staat (`AppState` active), en max 60 minuten per
+    sessie.
+  - Een punt `checkin_flow_start` bij "Inworp registreren", en een punt `checkin` met `checkin_id` na een
+    geslaagde inworp (op de locatie van die inworp).
+  - Geen punten met een testlocatie, een gesimuleerde locatie of een nauwkeurigheid boven 50 m.
+  - De punten gaan via een eigen wachtrij in `analytics.db`, met dezelfde regels als events: per
+    gebruiker, in batches, met backoff en een plafond, en de wachtrij gooit nooit. Intrekken wist ook de
+    lokale wachtrij.
+
 ---
 
 ## 3. Puntenekonomie
@@ -541,7 +602,8 @@ Per scherm:
 
 Gemeenschappelijk (kolommen): `user_id`, `session_id`, `client_ts`, `server_ts`, `app_version`,
 `update_id`, `platform`, `is_test`. Nooit locaties in `props`; `bin_id` mag (vuilbakken zijn
-publiek). Komt volledig in `docs/ANALYTICS.md`.
+publiek). Locaties van spelers lopen alleen via `location_points`, met een aparte toestemming (2.10).
+Komt volledig in `docs/ANALYTICS.md`.
 
 | Event | Wanneer | Props |
 |---|---|---|
@@ -552,7 +614,7 @@ publiek). Komt volledig in `docs/ANALYTICS.md`.
 | `map_bin_tap` | tik op een pin | `bin_id`, `discovered` |
 | `checkin_flow_start` | "Inworp registreren" | `bin_id`, `distance_bucket` |
 | `camera_opened` / `photo_taken` | camera / foto | `mode` checkin/report; `retake` |
-| `checkin_submitted` / `checkin_result` | versturen / antwoord | `bin_id`, `upload_kb` / `ok`, `reason`, `duration_ms` |
+| `checkin_submitted` / `checkin_result` | versturen / antwoord | `bin_id`, `upload_kb` / `ok`, `reason`, `duration_ms`, `checkin_id` (fase 7b) |
 | `reveal_shown` / `reveal_skipped` | onthulling / overslaan | `total`, `discovery`, `streak_weeks`, `preview` / `step` |
 | `bonus_question_answered` | antwoord of overslaan | `question_key`, `answered`, `response_ms` (op 100 ms) |
 | `discovery_shown`, `milestone_shown`, `level_up_shown`, `badge_shown` | viering getoond | `ordinal` / `threshold` / `level` / `badge_key`, `status` |
@@ -567,6 +629,7 @@ publiek). Komt volledig in `docs/ANALYTICS.md`.
 | `notification_scheduled` / `notification_opened` | gepland / geopend | `type`, `in_hours` / `type` |
 | `leaderboard_viewed` | ranglijst of periode | `period` |
 | `report_flow_start` / `report_submitted` | melding ontbrekende vuilbak | — / `ok` |
+| `location_consent` | keuze over locatie voor onderzoek (fase 7b) | `status` granted/declined/withdrawn, `from` prompt/settings |
 | Fase 8–9 | `heatmap_toggled` (`on`, `period`, `layer`), `recap_shown` / `recap_shared` (`week`), `bounty` in `map_bin_tap` en `reveal_shown` | |
 
 **Client** (`src/analytics/`): getypte `track(name, props)`; events eerst in een geheugenbuffer, dan in
@@ -582,7 +645,7 @@ in de database.
 
 ## 7. Fases
 
-**Fase 1a t/m 7 bouwen we nu, één fase per sessie, en dan stoppen we.** Fase 8–10 komen pas na een test met
+**Fase 1a t/m 7b bouwen we nu, één fase per sessie, en dan stoppen we.** Fase 8–10 komen pas na een test met
 echte spelers; wat we in die test leren, kan ze nog veranderen.
 
 Tegenover de voorgestelde volgorde: de onthulling gaat eerst over op serverstappen, zonder dat je iets
@@ -590,7 +653,8 @@ ziet veranderen (fase 2), met een meting op je iPhone voor er nieuwe stappen bij
 is gesplitst (identiteit, dan progressie) en de goedkeuringsviering komt al in fase 5 (level-ups
 gebeuren pas bij goedkeuring, en "pending → goedgekeurd" is de ruggengraat van het spel); lokale
 meldingen komen direct na Vandaag; en fase 1 is gesplitst in 1a (ledger) en 1b (config en
-eventlog). Er is geen nieuwe IPA nodig: alles gaat als EAS Update.
+eventlog). Fase 7b (locatie per sessie) kwam er op 20 oktober bij, vóór de spelerstest, zodat die
+test al wandeldata oplevert. Er is geen nieuwe IPA nodig: alles gaat als EAS Update.
 
 **Elke fase:** branch `gamification/<nr>-<naam>` vanaf `main`; nieuwe migraties als nieuwe bestanden;
 pgTAP voor elke nieuwe functie en RLS-regel (altijd ook: testinworpen maken geen spelfeiten en tellen
@@ -734,9 +798,50 @@ Elke aanpassing staat in het verslag van die fase.
 - Klaar als: een testmelding uit Dev-modus komt binnen en opent het juiste scherm; zonder inworp deze
   week staat er een melding klaar voor zondag 17:00 en verdwijnt die na een inworp.
 
+### Fase 7b — Locatie per sessie (`gamification/7b-locatie`, vóór de spelerstest)
+- Server (2.10): `user_consents`, `location_points` en `location_sessions`; `set_consent`,
+  `my_consents`, `log_location_points` en `apply_location_retention`, met de dagelijkse planning. Nieuw
+  in de whitelist: het event `location_consent`. `checkin_result` krijgt `checkin_id`. De nieuwe tabellen
+  komen in de tabellenlijst van `vm/check-restore.sh`.
+- App:
+  - Uitleg en keuze, één keer via de presenter: ten vroegste bij de opening ná de vraag voor
+    meldingen, en nooit boven de camera of een onthulling. "Ja, doe mee" en "Nee, liever niet" zijn
+    even groot. De uitleg zegt:
+    - wat we bewaren: de exacte locatie bij het openen en zolang de app open is, gekoppeld aan je
+      account;
+    - waarom: zien waar vuilbakken ontbreken en hoe ver mensen ervoor wandelen;
+    - hoe lang: 90 dagen exact, daarna afgerond;
+    - wie het ziet: alleen het binquest-team;
+    - dat je het uitzet in Instellingen, en dat dat de punten wist.
+  - Schakelaar "Locatie voor onderzoek" in Instellingen, standaard uit.
+  - De recorder uit 2.10.
+  - Dev-modus toont het aantal punten in de huidige sessie en de laatste nauwkeurigheid.
+  - Geen nieuwe IPA: `expo-location` zit in de build, en we gebruiken alleen de voorgrond.
+- Tests:
+  - pgTAP `17_location`:
+    - zonder toestemming komt er niets binnen, en punten van vóór de toestemming worden gedropt;
+    - intrekken wist punten en samenvattingen;
+    - validatie, groottes, rate limit en idempotentie;
+    - een `checkin_id` van iemand anders wordt geweigerd;
+    - testvlag; geen toegang via de API; cascade bij het wissen van een account;
+    - retentie: de samenvatting klopt (afstand, duur, afronding), en ruwe punten ouder dan 90 dagen
+      zijn weg.
+  - Integratie: punten loggen met een gebruikerstoken, met en zonder toestemming.
+  - Jest:
+    - recorder: niets zonder toestemming of zonder iOS-toestemming; alleen op de voorgrond; ±25 m;
+      plafond van 60 minuten; niets met een testlocatie; intrekken wist de wachtrij;
+    - het keuzescherm verschijnt één keer, en in de juiste volgorde in de presenter.
+- Docs: `ANALYTICS.md` (locatiepunten, toestemming, nieuwe events), `PRE-BETA.md` ("Exacte locaties
+  per sessie" bijwerken), `GAMIFICATION.md`.
+- Klaar als:
+  - met toestemming geeft een wandeling van thuis naar een vuilbak, met de app open, in Studio één
+    sessie met een startpunt, een spoor en een punt `checkin` dat aan de inworp gekoppeld is;
+  - zonder toestemming komt er niets binnen (telling 0);
+  - uitzetten wist de punten op de server.
+
 **Hier stoppen we.** Daarna een test met echte spelers. Vóór die test: de privacypunten uit PRE-BETA
-die over events en spelfeiten gaan (privacyverklaring, toestemming). Tijdens de test kijken we met
-losse queries in Studio; de analyseviews komen in fase 10.
+die over events, spelfeiten en locaties gaan (privacyverklaring, toestemming, DPIA). Tijdens de test
+kijken we met losse queries in Studio; de analyseviews en Metabase komen in fase 10.
 
 ### Fase 8 — Kaart voor de stad: premies en heatmap (na de spelerstest)
 - Server: `bounty_bins`, `ensure_bounties` (lui, met lock: de vuilbakken in de regio met de minste
@@ -752,9 +857,9 @@ losse queries in Studio; de analyseviews komen in fase 10.
   periodekeuze; `Circle`-overlays rond de vuilbakken (de `Heatmap`-component van react-native-maps
   werkt alleen met Google Maps, bevestigd in hun docs), sequentiële kleuren, legende; admin-lagen;
   Dev-previews (ook de heatmap met voorbeelddata).
-- Tests: `17_bounties` (minste data, alleen regio, geen testdata, stabiel per dag, afstand, ×2 alleen
+- Tests: `18_bounties` (minste data, alleen regio, geen testdata, stabiel per dag, afstand, ×2 alleen
   die dag, cooldown/daglimiet/afstand blijven gelden; testvuilbakken bij Null Island vallen buiten de
-  regio), `18_heatmap` (k, klassen, geen testdata, perioden, admin-lagen geweigerd voor gebruikers);
+  regio), `19_heatmap` (k, klassen, geen testdata, perioden, admin-lagen geweigerd voor gebruikers);
   Jest: aftelklok, premiestap, kleurschaal.
 
 ### Fase 9 — Weekoverzicht en ranglijst (na de spelerstest)
@@ -765,19 +870,77 @@ losse queries in Studio; de analyseviews komen in fase 10.
   ranglijst.
 - Docs: ontwerp voor remote push (APNs-key, tabel met device-tokens, melding bij goedkeuring en bij
   ingehaald worden) in PRE-BETA; Duolingo-leagues (vanaf ±100 wekelijkse spelers) in ROADMAP.
-- Tests: pgTAP `19_recap_leaderboard`; Jest: weekoverzicht.
+- Tests: pgTAP `20_recap_leaderboard`; Jest: weekoverzicht.
 
-### Fase 10 — Analyse (na de spelerstest)
-- Server: schema `analytics` (geen API-toegang), `analytics.excluded_users` (staf en testaccounts),
-  views: DAU/WAU/MAU, cohortretentie D1/D7/D30 en per week, check-in-funnel, gebruik per vuilbak
-  (inworpen, unieke gebruikers, uur/weekdag, volheid), tekortzones, effect van features (voltooide
-  quests; melding → inworp binnen 2 u), punten per bron, wachttijd tot goedkeuring;
-  `analytics.apply_event_retention()` (ruwe events > 13 maanden → dagtellingen, dan wissen). Het
-  automatisch plannen ervan (pg_cron of een timer op de VM) gaat naar PRE-BETA.
-- Script: `scripts/analytics-export/export_analytics.py` (venv, `--target staging` via `devenv.py`
-  zoals de andere scripts), elke view naar CSV en Parquet in `data/exports/<datum>/` (gitignored).
-- Tests: `20_analytics` (geen testdata of staf, retentie, rechten); unittest voor het script.
-- Docs: `ANALYTICS.md` volledig, `GAMIFICATION.md` eindversie, `README.md` (export), `PRE-BETA.md`.
+### Fase 10 — Analyse en Metabase (na de spelerstest)
+- Server: schema `analytics` (geen API-toegang) en `analytics.excluded_users` (staf en testaccounts).
+  Zoveel mogelijk data, zodat Metabase alles kan tonen.
+  - Alle views laten testdata en uitgesloten gebruikers weg. Ze tonen geen namen, e-mailadressen of
+    foto's: een speler is een `user_id`.
+  - Gebruik: DAU/WAU/MAU, cohortretentie D1/D7/D30 en per week, sessies (duur, schermen), app-versies
+    en updates.
+  - Inworpen:
+    - de check-in-funnel per sessie, van kaart tot goedkeuring, via `checkin_id`;
+    - gebruik per vuilbak: inworpen, unieke gebruikers, uur en weekdag, volheid;
+    - bonusvragen per vraag en per vuilbak, en de tekortzones;
+    - de wachttijd tot goedkeuring, de afwijsredenen en de wachtrij;
+    - per inworp een rij met de exacte locatie van de speler (`checkins.user_geom`).
+  - Spel:
+    - punten per bron, quests (getoond en voltooid, per sjabloon), en kistbeloningen tegenover de
+      kansen;
+    - reeksen en bevriezers, ontdekkingen, mijlpalen, badges en levels;
+    - meldingen: gepland, geopend, en de open-ratio per soort;
+    - het effect van features: voltooide quests, en een melding gevolgd door een inworp binnen 2 u;
+    - spelfouten (`private.game_errors`).
+  - Locatie (uit fase 7b, alleen van wie toestemming gaf):
+    - `analytics.location_points`: exact, ≤ 90 dagen;
+    - `analytics.walks`, één rij per sessie: het startpunt, de gewandelde afstand langs het spoor, de
+      afstand in rechte lijn tot de vuilbak, de duur tot de inworp, of er een inworp was en of die
+      goedgekeurd werd, en de afstand van het startpunt tot de dichtstbijzijnde vuilbak. Oudere
+      sessies komen uit `location_sessions`;
+    - startpunten zonder inworp, ver van een vuilbak, als extra tekortlaag.
+  - `analytics.apply_event_retention()`: ruwe events ouder dan 13 maanden worden dagtellingen en dan
+    gewist. Dagelijks, via dezelfde planning als in fase 7b.
+- Metabase op de staging-VM (`infra/staging/vm/90-metabase.sh`, config in `infra/staging/files/`):
+  - een Docker-image met een vaste versie (nooit `latest`);
+  - de poort alleen op `127.0.0.1`. `stagingctl.py tunnel` krijgt een forward erbij, naast Studio op
+    58000. Niet via Tailscale;
+  - de app-data van Metabase (vragen, dashboards, accounts) in een eigen database `metabase` in de
+    bestaande Postgres, niet in H2. `85-backup.sh` en `check-restore.sh` nemen die database mee.
+    Dashboards naar git exporteren (serialisatie) is een betaalde functie, dus de backup is de enige
+    kopie;
+  - een database-rol `metabase_reader` met alleen `usage` op `analytics` en `select` op de views, en
+    geen toegang tot `public`, `auth`, `storage` of `private`. De verbinding loopt over het interne
+    Docker-netwerk;
+  - secrets (het wachtwoord van de rol, `MB_ENCRYPTION_SECRET_KEY`, het admin-account) alleen op de
+    VM, via `bq-secret`;
+  - `MB_ANON_TRACKING_ENABLED=false`, en een begrensd geheugen (`JAVA_OPTS=-Xmx1g`). De VM heeft 8 GB,
+    waarvan Supabase er ±1,5 gebruikt;
+  - accounts alleen voor jou en de cofounder;
+  - startdashboards:
+    - Overzicht: actieve spelers, inworpen, retentie;
+    - Inworpen: funnel, wachttijd, afwijzingen;
+    - Vuilbakken: kaart met gebruik, volheid en tekort;
+    - Spel: quests, kist, reeks, badges, meldingen;
+    - Wandelingen: kaart met startpunten en sporen, afstand, duur, en of er een inworp volgde.
+      Metabase tekent punten op een kaart, geen lijnen: een spoor is de reeks punten van één sessie
+      (filter op sessie).
+- Script: `scripts/analytics-export/export_analytics.py` (venv, `--target staging` via `devenv.py`,
+  zoals de andere scripts). Elke view gaat naar CSV en Parquet in `data/exports/<datum>/`
+  (gitignored). De views met exacte locaties alleen met `--with-locations`.
+- Tests:
+  - `21_analytics`: geen testdata of staf; retentie; rechten (`metabase_reader` leest `analytics` en
+    niets anders, ook niet `public.checkins`);
+  - een unittest voor het script;
+  - op staging een check dat Metabase alleen op `127.0.0.1` luistert, en dat de rol
+    `public.checkins` niet kan lezen.
+- Docs: `ANALYTICS.md` volledig (views, Metabase), `STAGING.md` (Metabase: tunnel, accounts, backup,
+  updaten), `GAMIFICATION.md` eindversie, `README.md` (export), `PRE-BETA.md`.
+- Klaar als:
+  - Metabase opent via de tunnel en toont de startdashboards met stagingdata;
+  - een wandeling uit fase 7b staat op de kaart, met afstand en duur;
+  - `metabase_reader` kan `public.checkins` niet lezen;
+  - een restore-test brengt de dashboards terug.
 
 ---
 
@@ -788,7 +951,8 @@ losse queries in Studio; de analyseviews komen in fase 10.
 | **Vals spelen** (meer beloning = meer reden om gps te vervalsen) | Elke beloning hangt aan moderatie (pending tot goedkeuring); cooldown, daglimiet, afstand en nep-locatieregels ongewijzigd; quests, kist en bevriezers alleen via echte, beoordeelde acties; bedragen en loten alleen op de server, één keer getrokken; Beheer toont NIEUW en mijlpaal-afhankelijkheid; herroepen draait alles terug. PRE-BETA: dubbele foto's herkennen (perceptuele hash), App Attest |
 | **Werkdruk moderatie** | ±10 s per beoordeling: 50 spelers (10 actief) ≈ 23 per dag ≈ 4 min; 500 spelers ≈ 40 min per dag. Beheer sneller (vlaggen, redenen met één tik); wachtrijgrootte en wachttijd tot goedkeuring meten (die wachttijd is ook de vertraagde beloning: doel < 24 u). PRE-BETA: steekproeven bij vertrouwde gebruikers, meerdere moderatoren |
 | **Meldingsmoeheid** | Opt-in na de eerste succesvolle inworp, max 1 per dag, stille uren, per soort uit te zetten, minder na 3 genegeerde; open-ratio per soort meten |
-| **Privacy** | Geen locaties in events; ranglijst toont alleen naam, avatar, level; wissen met het account; later heatmap per publieke vuilbak, k ≥ 3, in klassen, en een bewaartermijn van 13 maanden. Vóór de spelerstest: privacyverklaring (events, spelfeiten) en toestemming voor gebruiksanalyse (PRE-BETA) |
+| **Privacy** | Geen locaties in events. Exacte locaties per sessie alleen met een aparte opt-in (fase 7b): alleen op de voorgrond, 90 dagen exact en daarna afgerond, uitzetten wist ze, en alleen het team leest ze (Studio, en Metabase via de tunnel). De ranglijst toont alleen naam, avatar en level; wissen met het account; later een heatmap per publieke vuilbak, k ≥ 3, in klassen; events blijven 13 maanden. Vóór de spelerstest: privacyverklaring (events, spelfeiten, locaties), toestemming voor gebruiksanalyse en een DPIA voor de locaties (PRE-BETA) |
+| **Batterij en vertrouwen** (locatie volgen) | Geen tweede GPS-abonnement (de kaart volgt de locatie al); een punt per ±25 m, alleen op de voorgrond, max 60 min per sessie; nooit op de achtergrond. Nee zeggen is even makkelijk als ja zeggen, en het spel werkt zonder |
 | **Kansspel** | De kist is gratis, verdiend met echte acties, alleen punten/bevriezers/cosmetica, kansen zichtbaar; nooit iets te koop |
 | **Een update die crasht** | Native versies vastgepind en gecontroleerd door `update:dev` (fase 1a); terugrollen = vorige update opnieuw publiceren |
 | **Complexiteit** | Eén evaluatiemodel (twee zekerheden + volledige refresh) met invarianttests; geen aparte testwereld; spelfouten breken nooit een check-in of een beoordeling; `private.game_errors` + `repair_game_state` |
@@ -831,6 +995,24 @@ losse queries in Studio; de analyseviews komen in fase 10.
   hexagon (in de testregio staat er per cel van ±60 m toch maar één vuilbak, en vuilbaklocaties zijn
   publiek).
 
+**Besluiten (20 oktober 2026):**
+- Nieuwe fase 7b vóór de spelerstest. De app bewaart de exacte locatie bij het openen en zolang ze
+  open is, en koppelt die aan inworpen, zodat de test al wandeldata oplevert (2.10).
+- Metabase toont de exacte punten, niet afgerond.
+- Een spoor alleen op de voorgrond: geen achtergrondlocatie, geen toestemming "Altijd" en geen nieuwe
+  IPA.
+- Fase 10 krijgt Metabase op de staging-VM, met zoveel mogelijk data in `analytics`.
+
+**Aannames bij die besluiten (zelf gekozen):**
+- Een aparte opt-in, standaard uit, los van de keuze voor gebruiksanalyse. Zonder toestemming werkt
+  alles zoals nu.
+- Ruwe punten blijven 90 dagen. Daarna blijft per sessie een samenvatting over, met het startpunt
+  afgerond op ±100 m, 13 maanden lang.
+- Een punt per ±25 m, max 60 minuten per sessie, en een nauwkeurigheid van ≤ 50 m.
+- De Metabase-views tonen geen namen, e-mailadressen of foto's (alleen `user_id`).
+- De data van Metabase staat in een eigen database in de bestaande Postgres; de dashboards staan
+  alleen in de backup.
+
 **Open vragen:** geen.
 
 ---
@@ -852,6 +1034,13 @@ losse queries in Studio; de analyseviews komen in fase 10.
   `fireHaptic`, `useSyncState`, `GlassPanel`, `EmptyState`, `MapPin` (varianten), SQL
   `local_day_start`/`local_week_start`, `dev_mode_allowed_for`, `app_environment`, `streak_weeks`
   (uitgebreid), view `bin_need_answers`, `stagingctl.py migrate/deploy`, `update:dev`.
+- Fase 7b en 10:
+  - app: `src/analytics/location.ts`, `src/providers/LocationProvider.tsx` (de locatiestroom delen),
+    het keuzescherm en Instellingen;
+  - tests: `supabase/tests/database/17_location.test.sql` en `21_analytics.test.sql`;
+  - staging: `infra/staging/vm/90-metabase.sh`, `85-backup.sh`, `check-restore.sh` en
+    `stagingctl.py` (tunnel);
+  - export: `scripts/analytics-export/`.
 - Docs: `docs/GAMIFICATION.md` (dit plan), `docs/ANALYTICS.md`, `docs/AVATARS.md`, `docs/PRE-BETA.md`,
   `docs/HANDOFF-APP-STAGING.md`, `docs/STAGING.md`, later `docs/ROADMAP.md` en `README.md`.
 
@@ -862,7 +1051,8 @@ integratietests, en voor UI: export + bundelcontrole); dan staging met backup, m
 checks (`check-supabase`, `check-auth`, `check-fake-location`), een EAS Update, en op de iPhone: de
 Dev-modus-preview van elke nieuwe viering, één echte inworp met het testaccount door de hele keten
 (onthulling → beheer → goedkeuringsviering), Reduce Motion aan, stil-schakelaar, en in fase 1a een
-vergelijking van de punten en in fase 1b van de eventtellingen in Studio.
+vergelijking van de punten en in fase 1b van de eventtellingen in Studio. In fase 7b: een echte
+wandeling met de app open, terug te zien in Studio.
 
 ---
 
