@@ -1471,3 +1471,15 @@ fase 3, 4 en 5 staan op staging en als EAS Update op `dev`, en zijn op de iPhone
     aanzetten" de vraag van iOS. `notification_permission` voor beide antwoorden.
   - Tests: Jest 373 (`planner.test.ts`, 28: één per dag, stille uren, prioriteit, uit-schakelaars,
     minder na 3 genegeerde en terug na een tik, zomertijd, speling, opslag, tik-doel).
+- Deel 3, app (Instellingen, Dev-modus, docs), af en getest:
+  - Instellingen, sectie "Meldingen" (`NotificationSettingsSection`): "Meldingen aanzetten" (vraag
+    van iOS, `from` settings) of "Open iOS-instellingen" als iOS ze weigerde; schakelaars Reeks in
+    gevaar, Quest-herinnering en Kist klaar; "Herinnering om 18:00" (9–20). Elke wijziging plant
+    meteen opnieuw; de toestemming wordt opnieuw gelezen bij terugkeer uit de iOS-instellingen.
+  - Dev-modus, eigen sectie "Meldingen testen" (`NotificationsDevSection`, niet in "Vieringen
+    bekijken": het is geen viering): soort kiezen, "Testmelding over 5 s" (tik = Vandaag, of de kist
+    als er een klaarstaat), wat de planner nu in iOS heeft ("Genegeerd op rij" en de geplande
+    meldingen met tijdstip), "Opnieuw plannen" en "Vraag om meldingen tonen" (onze uitleg als
+    preview: vraagt iOS niets, events als `is_test`).
+  - `PRE-BETA.md`: lokaal (geen push), per toestel, regels als constanten, "genegeerd" als
+    benadering, tijdzone van de iPhone, één vraag per toestel.

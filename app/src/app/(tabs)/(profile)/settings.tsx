@@ -1,6 +1,6 @@
 // Settings (docs/GAMIFICATION.md, chapter 5), a SwiftUI form from the gear on
-// the profile: name and e-mail; test points (Dev mode); version and updates;
-// sign out. Notifications come in phase 7.
+// the profile: name and e-mail; notifications (per kind, the hour of the quest
+// reminder); test points (Dev mode); version and updates; sign out.
 import { Host } from '@expo/ui';
 import { Button, Form, LabeledContent, Section, Text } from '@expo/ui/swift-ui';
 import { monospacedDigit } from '@expo/ui/swift-ui/modifiers';
@@ -14,6 +14,7 @@ import { cleanName, nameError, NAME_MAX, NAME_MIN } from '@/game/onboarding';
 import { setMyName } from '@/lib/api';
 import { identityErrorMessage } from '@/lib/errors';
 import { formatPoints } from '@/lib/format';
+import { NotificationSettingsSection } from '@/notifications/NotificationSettingsSection';
 import { useAuth } from '@/providers/AuthProvider';
 import { useDevMode } from '@/providers/DevModeProvider';
 
@@ -74,6 +75,8 @@ export default function SettingsScreen() {
           </LabeledContent>
           <Button label="Naam wijzigen" onPress={editName} />
         </Section>
+
+        <NotificationSettingsSection />
 
         {dev.available ? (
           <Section title="Dev-modus" footer={<Text>Testpunten tellen niet mee voor je echte punten, je level of de ranglijst.</Text>}>

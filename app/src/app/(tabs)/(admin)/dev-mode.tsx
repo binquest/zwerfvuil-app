@@ -23,6 +23,7 @@ import { resetTips } from '@/game/todayMemory';
 import { useGameCatalog } from '@/game/useGameCatalog';
 import { adminErrorMessage } from '@/lib/errors';
 import { formatPoints, formatWeeks } from '@/lib/format';
+import { NotificationsDevSection } from '@/notifications/NotificationsDevSection';
 import type { BonusQuestion } from '@/lib/points';
 import { setPendingReveal } from '@/lib/reveal';
 import { baseStep, discoveryStep, streakStep, type Score } from '@/lib/score';
@@ -451,6 +452,8 @@ export default function DevModeScreen() {
           <Button label="Quest voltooid tonen" systemImage="checklist" onPress={showQuests} />
           <Button label="Uitleg opnieuw tonen" systemImage="lightbulb" onPress={showTipsAgain} />
         </Section>
+
+        <NotificationsDevSection />
 
         <Section
           title="Onboarding bekijken"

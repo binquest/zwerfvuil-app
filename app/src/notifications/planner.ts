@@ -36,6 +36,14 @@ export const NOTIFICATION_RULES = {
   keepDays: 14,
 } as const;
 
+/** The kinds in the order of their priority, with their names in Settings. */
+export const NOTIFICATION_KINDS: readonly NotificationKind[] = ['streak', 'chest', 'quest'];
+export const NOTIFICATION_KIND_LABEL: Record<NotificationKind, string> = {
+  streak: 'Reeks in gevaar',
+  chest: 'Kist klaar',
+  quest: 'Quest-herinnering',
+};
+
 export interface NotificationSettings {
   streak: boolean;
   quest: boolean;

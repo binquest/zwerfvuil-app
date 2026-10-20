@@ -2,9 +2,10 @@
 // (docs/GAMIFICATION.md, chapter 5 and phase 7), a sheet from the presenter
 // after the first successful check-in. "Meldingen aanzetten" shows the system
 // prompt and plans right away; "Niet nu" (or swiping the sheet away) leaves
-// the switch in Instellingen.
+// the switch in Instellingen. As a preview from Dev mode (`preview=1`) both
+// buttons only close, and the events go as is_test.
 import { SymbolView } from 'expo-symbols';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 
@@ -20,30 +21,31 @@ const ROW_COLORS = { 'flame.fill': playColors.heat, checklist: playColors.chips,
 
 export default function NotificationsPromptScreen() {
   const { state } = useGame();
+  const preview = useLocalSearchParams<{ preview?: string }>().preview === '1';
   const answered = useRef(false);
   const [asking, setAsking] = useState(false);
 
   // Closed in any way: the presenter may show the next moment. Swiped away = not now.
   useEffect(
     () => () => {
-      if (!answered.current) track('notification_permission', { status: 'declined', prompt: 'pre', from: 'moment' });
-      takePromptOnClose()?.();
+      if (!answered.current) track('notification_permission', { status: 'declined', prompt: 'pre', from: 'moment' }, { isTest: preview });
+      if (!preview) takePromptOnClose()?.();
     },
-    [],
+    [preview],
   );
 
   const turnOn = async () => {
     if (asking) return;
     answered.current = true;
     setAsking(true);
-    track('notification_permission', { status: 'accepted', prompt: 'pre', from: 'moment' });
-    if ((await requestNotificationPermission('moment')) === 'granted' && state) await syncNotifications(state);
+    track('notification_permission', { status: 'accepted', prompt: 'pre', from: 'moment' }, { isTest: preview });
+    if (!preview && (await requestNotificationPermission('moment')) === 'granted' && state) await syncNotifications(state);
     router.back();
   };
 
   const notNow = () => {
     answered.current = true;
-    track('notification_permission', { status: 'declined', prompt: 'pre', from: 'moment' });
+    track('notification_permission', { status: 'declined', prompt: 'pre', from: 'moment' }, { isTest: preview });
     router.back();
   };
 

@@ -339,6 +339,26 @@ echte gebruikersdata vraagt meer.
   `DEV_RUNTIME_VERSION`). De workflow `ios-dev.yml` controleert niet dat de IPA bij
   die lijst past. Laat de workflow de lijst zelf controleren (`npm run native:check`)
   voor hij bouwt.
+- [ ] **Meldingen zijn lokaal, geen push.** De app plant ze bij elke opening; wat op de
+  server gebeurt (een goedkeuring, een kist die daardoor klaarstaat) hoor je pas bij de
+  volgende opening. Het ontwerp voor remote push (APNs-key, device-tokens) komt in fase 9.
+- [ ] **Meldingsinstellingen en -planning staan per toestel** (`localStorage`): een tweede
+  toestel of een herinstallatie begint met de standaard (alles aan, 18:00) en vraagt opnieuw
+  om toestemming. Afmelden wist de planning, niet de instellingen. Bewaar ze bij het profiel
+  als spelers meerdere toestellen gebruiken.
+- [ ] **De meldingsregels zijn constanten in de app** (`src/notifications/planner.ts`: één
+  per dag, stil 21–9, reeks zondag 17:00, quest 18:00, minder na 3 genegeerde), niet in
+  `game_config`: de planning moet offline kloppen. Aanpassen = een EAS Update.
+- [ ] **"Genegeerd" is een benadering**: een melding zonder tik telt als genegeerd, tenzij de
+  app binnen 2 u opende. Na 3 blijft alleen de reeksmelding, tot er weer een melding
+  beantwoord wordt; een actieve speler die nooit tikt, krijgt zo geen quest-herinneringen
+  meer. Bekijk na de spelerstest de open-ratio per soort en of de teller ook na een paar
+  dagen gewoon gebruik terug op 0 moet.
+- [ ] **Meldingen rekenen in de tijd van de iPhone**, de reeks en de quests op de server in
+  die van Brussel. Voor een speler in een andere tijdzone kan de reeksmelding op de
+  verkeerde dag vallen.
+- [ ] **De vraag om meldingen komt één keer per toestel**; na "Niet nu" alleen nog via
+  Instellingen. Overweeg een tweede kans na een paar weken als weinig spelers ja zeggen.
 
 ## Licentie (ODbL)
 
