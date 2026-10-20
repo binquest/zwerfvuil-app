@@ -16,6 +16,13 @@ export type BadgeSource = CelebrationSource | 'approval';
 export type OnboardingStep = 'name' | 'avatar';
 /** The one-time explanations on Today. */
 export type TipKind = 'streak' | 'quests' | 'chest';
+/** The kinds of local notification (streak in danger, quest reminder, chest ready). */
+export type NotificationKind = 'streak' | 'quest' | 'chest';
+/**
+ * The answer to a notification question: our own explanation (pre) is
+ * accepted or declined, the system prompt (system) granted or denied.
+ */
+export type PermissionAnswer = 'accepted' | 'declined' | 'granted' | 'denied';
 
 export interface EventProps {
   app_open: { kind: 'cold' | 'warm' };
@@ -48,6 +55,13 @@ export interface EventProps {
   quest_completed: { template_key: string; period: 'day' | 'week'; source: CelebrationSource };
   chest_opened: { reward_kind: string; amount: number | null; days_ago: number };
   tip_shown: { tip: TipKind };
+  notification_permission: {
+    status: PermissionAnswer;
+    prompt: 'pre' | 'system';
+    from: 'moment' | 'settings';
+  };
+  notification_scheduled: { type: NotificationKind; in_hours: number };
+  notification_opened: { type: NotificationKind };
 }
 
 export type EventName = keyof EventProps;
@@ -84,6 +98,9 @@ const NAMES = {
   quest_completed: true,
   chest_opened: true,
   tip_shown: true,
+  notification_permission: true,
+  notification_scheduled: true,
+  notification_opened: true,
 } satisfies Record<EventName, true>;
 
 export const EVENT_NAMES = Object.keys(NAMES) as EventName[];

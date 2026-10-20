@@ -1638,4 +1638,96 @@ fase 3, 4 en 5 staan op staging en als EAS Update op `dev`, en zijn op de iPhone
   onthulling, quests opgelopen), de dagkist (schudden, beloning, "Kansen", tab-badge), goedkeuren en
   afwijzen in Beheer, de previews in Dev-modus (ook met Reduce Motion en zonder geluid), en Ranglijst
   en Collectie vanuit Vandaag en Profiel.
-- Volgende stap: PR naar `main`; de gebruiker merget hem.
+- Gemerged in `main` als PR #8 (20 oktober).
+
+**Fase 7 (meldingen)**, op `gamification/7-meldingen`
+- Deel 1, server (`20261020180000_notifications.sql`), af en lokaal getest: de meldingen zelf zijn
+  lokaal (geen tabel), dus de server leert alleen de events `notification_permission` (`status`,
+  `prompt` pre/system, `from` moment/settings), `notification_scheduled` (`type`, `in_hours`) en
+  `notification_opened` (`type`); ook in `events.ts` en `ANALYTICS.md` (de rij uit "Gepland" is
+  weg). Tests: 10 kent de nieuwe events (samen 684), de Deno-integratie heeft een voorbeeld per
+  event. De functie veranderde niet (geen `deploy`).
+- Deel 2, app (planner, planning, tikken, de vraag om meldingen), af en getest (geen native wijziging:
+  `expo-notifications` 57.0.23 zit in runtime 1; nieuwe route `notifications`):
+  - `src/notifications/planner.ts` (puur): één melding per dag, de belangrijkste (reeks > kist >
+    quest), nooit tussen 21 en 9 u, 30 min speling na het plannen, een week vooruit. Reeks: zondag
+    17:00 als deze week nog niets telt (tekst naar weken en bevriezers, ook "Nog geen inworp deze
+    week" bij 0 weken). Quest: om het eigen uur (9–20, standaard 18) als er vandaag nog quests open
+    staan, algemeen voor de dagen erna. Kist: één keer, op de dag dat ze klaarkwam of de dag erna.
+    Minder na 3 genegeerde: elke geplande melding telt als genegeerd tot de app weer opent (die plant
+    opnieuw), dus vanaf de derde blijft alleen de reeks. Genegeerd = gevuurd zonder tik en zonder
+    opening binnen 2 u (`settle`); een tik of een melding in de open app zet de teller op 0
+    (`answered`). De startwaarden van hoofdstuk 3 staan als constanten in de planner (geen
+    `game_config`: de planning moet offline kloppen).
+  - `src/notifications/scheduler.ts`: na elke verse `my_game_state` (`NotificationCenter`, bij
+    elke opening en na elke inworp; offline blijft de vorige planning) eerst afrekenen, dan de
+    meldingen van de planner annuleren en opnieuw plannen met `DATE`-triggers, en wat iOS nog van
+    ons toont opruimen (`getPresentedNotificationsAsync`). `notification_scheduled` alleen voor een
+    nieuwe (soort en tijdstip). Afmelden annuleert alles. `memory.ts`: instellingen, planning en
+    teller, "gevraagd" en de laatste tik, per toestel.
+  - `NotificationCenter` (in de root-layout): `setNotificationHandler` (banner terwijl de app open
+    is), een tik (ook bij een koude start via `getLastNotificationResponse`, nooit twee keer) opent
+    Vandaag of de kist (als die nog klaarstaat), pas op een tab-scherm zonder modal;
+    `notification_opened`.
+  - `NotificationsMoment`, bron `notifications` van de presenter: na de eerste geslaagde inworp
+    (de teller gaat van 0 naar 1 in deze sessie) of bij een start als er al een inworp is, als iOS
+    nog niets vroeg en dit toestel nog niets vroeg. Eerst onze uitleg (sheet `notifications.tsx`:
+    reeks, quests, kist, "hooguit één per dag, nooit tussen 21:00 en 9:00"), pas bij "Meldingen
+    aanzetten" de vraag van iOS. `notification_permission` voor beide antwoorden.
+  - Tests: Jest 373 (`planner.test.ts`, 28: één per dag, stille uren, prioriteit, uit-schakelaars,
+    minder na 3 genegeerde en terug na een tik, zomertijd, speling, opslag, tik-doel).
+- Deel 3, app (Instellingen, Dev-modus, docs), af en getest:
+  - Instellingen, sectie "Meldingen" (`NotificationSettingsSection`): "Meldingen aanzetten" (vraag
+    van iOS, `from` settings) of "Open iOS-instellingen" als iOS ze weigerde; schakelaars Reeks in
+    gevaar, Quest-herinnering en Kist klaar; "Herinnering om 18:00" (9–20). Elke wijziging plant
+    meteen opnieuw; de toestemming wordt opnieuw gelezen bij terugkeer uit de iOS-instellingen.
+  - Dev-modus, eigen sectie "Meldingen testen" (`NotificationsDevSection`, niet in "Vieringen
+    bekijken": het is geen viering): soort kiezen, "Testmelding over 5 s" (tik = Vandaag, of de kist
+    als er een klaarstaat), wat de planner nu in iOS heeft ("Genegeerd op rij" en de geplande
+    meldingen met tijdstip), "Opnieuw plannen", "Doe alsof deze week nog niets telt" (plant de
+    reeksmelding van zondag 17:00 tot de volgende echte inworp: zo is "verdwijnt na een inworp" ook
+    te zien in een week die al telt) en "Vraag om meldingen tonen" (onze uitleg als preview: vraagt
+    iOS niets, events als `is_test`).
+  - Tests: Jest 374 (de schakelaar "doe alsof": zondagmelding tot de volgende echte inworp).
+  - `PRE-BETA.md`: lokaal (geen push), per toestel, regels als constanten, "genegeerd" als
+    benadering, tijdzone van de iPhone, één vraag per toestel.
+- Kleine keuzes buiten het plan:
+  - de reeksmelding komt ook bij 0 weken ("Nog geen inworp deze week · Eén inworp vandaag en je
+    reeks begint"): het plan zegt alleen "als er deze week nog niets is";
+  - de kistmelding komt één keer (de dag zelf of de dag erna) om het uur van de quest-herinnering;
+    oudere kisten alleen via de tab-badge;
+  - "minder" = alleen nog de reeksmelding; de teller gaat terug naar 0 bij een tik, een melding in
+    de open app of een opening binnen 2 u;
+  - de planning kijkt een week vooruit en telt elke geplande melding als genegeerd tot de volgende
+    opening, dus wie de app niet opent, krijgt er hooguit drie plus de reeks, daarna niets meer;
+  - 30 minuten speling na het plannen; een opening ruimt onze meldingen in het berichtencentrum op;
+  - `notification_permission` heeft ook `from` (moment/settings);
+  - de regels staan als constanten in de app, de instellingen per toestel (zie PRE-BETA);
+  - de testmelding staat in een eigen sectie "Meldingen testen" in Dev-modus.
+- Akkoord (20 oktober). Staging, voorbereid: backup `postgres-20261020-123338.dump` (sha256 OK);
+  telling vooraf: laatste migratie 20261020120000, 2 profielen, 66 echte en 145 testpunten, hash
+  `a1af6229…` over (id, punten, testpunten), beide op `last_seen_level` 2; check-ins 3 echte
+  goedgekeurd, 9 test goedgekeurd, 5 test afgewezen; ledger toegekend 9 echte rijen (66) en 18
+  testrijen (145), 10 herroepen; invariant leeg; 3 ontdekkingen, 3 badges, meldingen 1 goedgekeurd
+  en 1 afgewezen, 17 bonusantwoorden, 30 actieve events (geen `notification_*`), 11
+  config-sleutels, 12 actieve badges, 11 quests, 7 kistbeloningen, 8 open quests, 2 dichte kisten.
+  Beide profielen hebben deze week al een echte inworp. De dry-run toont alleen
+  `20261020180000_notifications.sql`.
+- Staging (20 oktober): `20261020180000_notifications.sql` toegepast (door de gebruiker; staat in
+  `supabase_migrations.schema_migrations`). Telling erna identiek, behalve de migratieversie en
+  30 → 33 actieve events (`notification_opened`, `notification_permission`,
+  `notification_scheduled`, actief): dezelfde hash, invariant leeg. De functie veranderde niet
+  (geen `deploy`). `check-supabase`, `check-auth` en `check-fake-location` geslaagd. EAS Update op
+  `dev` (runtime 1): update-groep `24967991-20ad-4b91-aa2c-50a7d74b5bf1` (commit 90f2087).
+- iPhone (20 oktober): alles in orde. Gecontroleerd (na `update:dev`) volgens de stappen van het
+  verslag: de vraag om meldingen bij het openen (één keer) en de toestemming van iOS; Instellingen
+  → Meldingen (schakelaars, uur); in Dev-modus "Meldingen testen" de geplande quest-herinneringen,
+  "Doe alsof deze week nog niets telt" (de reeksmelding van zondag 17:00 verschijnt en verdwijnt na
+  een echte inworp), testmeldingen met de app dicht, open en na een koude start (een tik opent
+  Vandaag of de kist), en de preview van de vraag.
+- Volgende stap: PR naar `main`; de gebruiker merget hem. Daarna fase 7b
+  (locatie per sessie) op `gamification/7b-locatie`, vanaf `main`, niet de spelerstest. Voor 7b:
+  het nieuwe moment komt in `MOMENT_ORDER` (`src/game/moments.ts`) na `notifications`; wanneer
+  onze vraag om meldingen getoond werd, staat per toestel in `localStorage`
+  (`notifications.asked`, ISO-tijd, via `src/notifications/memory.ts`), zodat 7b pas bij een
+  latere opening kan vragen.

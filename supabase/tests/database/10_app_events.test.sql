@@ -244,10 +244,11 @@ select is(
   array['app_background', 'app_open', 'approval_shown', 'avatar_changed', 'badge_shown',
         'bonus_question_answered', 'camera_opened', 'checkin_flow_start', 'checkin_result', 'checkin_submitted',
         'chest_opened', 'collection_viewed', 'discovery_shown', 'leaderboard_viewed', 'level_up_shown',
-        'map_bin_tap', 'milestone_shown', 'onboarding_completed', 'onboarding_step', 'photo_taken',
+        'map_bin_tap', 'milestone_shown', 'notification_opened', 'notification_permission',
+        'notification_scheduled', 'onboarding_completed', 'onboarding_step', 'photo_taken',
         'quest_completed', 'quest_viewed', 'report_flow_start', 'report_submitted', 'reveal_shown',
         'reveal_skipped', 'screen_view', 'session_end', 'session_start', 'tip_shown'],
-  'the whitelist holds the events of phase 1b, 3, 4, 5 and 6 (docs/ANALYTICS.md)');
+  'the whitelist holds the events of phase 1b, 3, 4, 5, 6 and 7 (docs/ANALYTICS.md)');
 select throws_ok($$ insert into app_events (id, user_id, session_id, name, client_ts)
                     values (gen_random_uuid(), 'a1000000-0000-0000-0000-000000000001', gen_random_uuid(), 'made_up', now()) $$,
   '23503', null, 'every stored event has a whitelisted name (foreign key)');
